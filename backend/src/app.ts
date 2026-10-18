@@ -33,7 +33,26 @@ app.use('/api/v1', guestRouter);
 app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/staff/reports', reportsRouter);
 
-// 404 handler
+// Serve frontend static files if public folder exists (Production / Fly.io)
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const publicDir = process.env.PUBLIC_DIR || path.resolve(__dirname, '../public');
+
+if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+    app.get('*', (req: Request, res: Response, next: NextFunction) => {
+        if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/socket.io')) {
+            return next();
+        }
+        res.sendFile(path.join(publicDir, 'index.html'));
+    });
+}
+
+// 404 handler for API routes
 app.use((req: Request, res: Response) => {
     res.status(404).json({
         error: 'ROUTE_NOT_FOUND',
