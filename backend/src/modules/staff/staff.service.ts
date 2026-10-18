@@ -238,7 +238,11 @@ export class StaffService {
             `, [item.session_id]);
 
             broadcastToStaff(tenantId, 'order.updated', { orderItemId, sessionId: item.session_id });
-            broadcastToSession(item.session_id, 'order.updated', { orderItemId });
+            broadcastToSession(item.session_id, 'order.updated', {
+                orderItemId,
+                type: 'ACCEPTED',
+                message: `Nhà hàng đã tiếp nhận ${acceptQty}x "${item.snapshot_name}"`
+            });
 
             return {
                 orderItemId,
@@ -281,7 +285,11 @@ export class StaffService {
                 `, [sessionId]);
 
                 broadcastToStaff(tenantId, 'order.updated', { sessionId });
-                broadcastToSession(sessionId, 'order.updated', { sessionId });
+                broadcastToSession(sessionId, 'order.updated', {
+                    sessionId,
+                    type: 'ACCEPTED',
+                    message: `Nhà hàng đã tiếp nhận ${pendingParts.rows.length} món đang chờ của bạn`
+                });
             }
 
             return {
@@ -357,7 +365,11 @@ export class StaffService {
             `, [item.session_id]);
 
             broadcastToStaff(tenantId, 'order.updated', { orderItemId, sessionId: item.session_id });
-            broadcastToSession(item.session_id, 'order.updated', { orderItemId });
+            broadcastToSession(item.session_id, 'order.updated', {
+                orderItemId,
+                type: 'SERVED',
+                message: `Món "${item.snapshot_name}" (x${serveQty}) đã được phục vụ đến bàn`
+            });
 
             return {
                 orderItemId,
@@ -400,7 +412,11 @@ export class StaffService {
                 `, [sessionId]);
 
                 broadcastToStaff(tenantId, 'order.updated', { sessionId });
-                broadcastToSession(sessionId, 'order.updated', { sessionId });
+                broadcastToSession(sessionId, 'order.updated', {
+                    sessionId,
+                    type: 'SERVED',
+                    message: `Món ăn của bạn đã được phục vụ lên bàn!`
+                });
             }
 
             return {
@@ -502,7 +518,11 @@ export class StaffService {
             `, [item.session_id]);
 
             broadcastToStaff(tenantId, 'order.updated', { orderItemId, sessionId: item.session_id });
-            broadcastToSession(item.session_id, 'order.updated', { orderItemId });
+            broadcastToSession(item.session_id, 'order.updated', {
+                orderItemId,
+                type: 'CANCELLED',
+                message: `Món "${item.snapshot_name}" (x${cancelQty}) đã bị hủy: ${reason || 'Hết nguyên liệu'}`
+            });
 
             return {
                 orderItemId,

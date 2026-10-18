@@ -15,7 +15,17 @@ import {
 
 export const StaffDashboard: React.FC = () => {
   const { user, currentTenant, logout, hasPermission } = useAuth();
-  const { socket, soundEnabled, toggleSound, playOrderSound, playAlertSound } = useNotification();
+  const {
+    socket,
+    soundEnabled,
+    toggleSound,
+    playOrderSound,
+    playAlertSound,
+    testSound,
+    showToast,
+    isAudioUnlocked,
+    unlockAudio
+  } = useNotification();
 
   const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'reports' | 'menu'>('tables');
   const [tables, setTables] = useState<StaffTable[]>([]);
@@ -44,13 +54,28 @@ export const StaffDashboard: React.FC = () => {
 
     socket.emit('join_staff_room', currentTenant.id);
 
-    const handleOrderCreated = () => {
+    const handleOrderCreated = (payload: any) => {
       playOrderSound();
+      showToast({
+        title: `🔔 Khách gọi món mới (${payload?.tableName || 'Bàn'})`,
+        message: `Lượt gọi #${payload?.orderNumber || 'mới'} gồm ${payload?.itemsCount || 1} món`,
+        type: 'info',
+        duration: 7000
+      });
       fetchDashboard();
     };
 
     const handleServiceRequestCreated = (payload: any) => {
       playAlertSound();
+      const isCheckout = payload?.type === 'CHECKOUT';
+      showToast({
+        title: isCheckout ? `💳 Yêu cầu thanh toán (${payload?.tableName || 'Bàn'})` : `🙋 Khách gọi phục vụ (${payload?.tableName || 'Bàn'})`,
+        message: isCheckout
+          ? 'Khách yêu cầu thanh toán hóa đơn tại bàn'
+          : `Khách cần nhân viên hỗ trợ${payload?.note ? ': ' + payload.note : ''}`,
+        type: 'warning',
+        duration: 8000
+      });
       fetchDashboard();
     };
 
@@ -75,7 +100,7 @@ export const StaffDashboard: React.FC = () => {
       socket.off('table.updated', handleUpdate);
       clearInterval(interval);
     };
-  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, fetchDashboard]);
+  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard]);
 
   // Quick Open Session (F01)
   const handleQuickOpenSession = async (tableId: string) => {
@@ -139,6 +164,18 @@ export const StaffDashboard: React.FC = () => {
             {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
           </button>
 
+          {/* Test Sound Button */}
+          {soundEnabled && (
+            <button
+              onClick={testSound}
+              className="px-2.5 py-1.5 text-[11px] font-bold text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 rounded-xl transition flex items-center gap-1 min-h-[40px]"
+              title="Thử âm lượng chuông thông báo"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Thử chuông</span>
+            </button>
+          )}
+
           <button
             onClick={logout}
             className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 min-h-[44px] min-w-[44px] flex items-center justify-center transition"
@@ -148,6 +185,20 @@ export const StaffDashboard: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* Audio unlock prompt if needed by browser policy */}
+      {!isAudioUnlocked && (
+        <div
+          onClick={unlockAudio}
+          className="bg-orange-500 hover:bg-orange-600 text-slate-950 px-4 py-2 text-xs font-bold flex items-center justify-between cursor-pointer transition shadow-md"
+        >
+          <div className="flex items-center gap-2">
+            <Volume2 className="w-4 h-4 animate-bounce shrink-0" />
+            <span>Chạm vào đây để kích hoạt chuông âm thanh thông báo</span>
+          </div>
+          <span className="bg-slate-950 text-orange-400 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-black shrink-0">Bật</span>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="p-4 flex-1">

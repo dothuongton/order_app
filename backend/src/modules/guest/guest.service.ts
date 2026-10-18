@@ -171,10 +171,11 @@ export class GuestService {
 
             // Lock session row FOR UPDATE
             const sessionRes = await client.query(`
-                SELECT id, status, settlement_version, table_id
-                FROM table_sessions
-                WHERE id = $1 AND tenant_id = $2
-                FOR UPDATE
+                SELECT ts.id, ts.status, ts.settlement_version, ts.table_id, t.table_number
+                FROM table_sessions ts
+                JOIN tables t ON t.id = ts.table_id
+                WHERE ts.id = $1 AND ts.tenant_id = $2
+                FOR UPDATE OF ts
             `, [sessionId, tenantId]);
 
             if (sessionRes.rows.length === 0) {
@@ -309,9 +310,11 @@ export class GuestService {
             );
 
             // Notify staff & guest
+            const tableName = session.table_number ? `Bàn ${session.table_number}` : 'Bàn';
             broadcastToStaff(tenantId, 'order.created', {
                 sessionId,
                 tableId,
+                tableName,
                 orderId: order.id,
                 orderNumber: order.order_number,
                 itemsCount: createdItems.length
@@ -319,7 +322,9 @@ export class GuestService {
 
             broadcastToSession(sessionId, 'order.created', {
                 orderId: order.id,
-                orderNumber: order.order_number
+                orderNumber: order.order_number,
+                itemsCount: createdItems.length,
+                message: `Đã gửi yêu cầu gọi món lượt ${order.order_number} thành công!`
             });
 
             return result;
@@ -534,18 +539,24 @@ export class GuestService {
 
             const created = res.rows[0];
 
+            const tableRes = await client.query(`SELECT table_number FROM tables WHERE id = $1`, [tableId]);
+            const tableName = tableRes.rows[0]?.table_number ? `Bàn ${tableRes.rows[0].table_number}` : 'Bàn';
+
             // Notify staff
             broadcastToStaff(tenantId, 'service_request.created', {
                 requestId: created.id,
                 type: created.type,
                 tableId,
+                tableName,
                 sessionId,
+                note: created.note,
                 createdAt: created.created_at
             });
 
             broadcastToSession(sessionId, 'service_request.created', {
                 requestId: created.id,
-                type: created.type
+                type: created.type,
+                message: created.type === 'CHECKOUT' ? 'Đã gửi yêu cầu thanh toán tới nhân viên' : 'Đã gọi nhân viên hỗ trợ'
             });
 
             return {

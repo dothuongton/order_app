@@ -31,7 +31,7 @@ interface GuestContextType {
 const GuestContext = createContext<GuestContextType | null>(null);
 
 export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { socket, playOrderSound } = useNotification();
+  const { socket, playOrderSound, showToast } = useNotification();
   const [publicQrId, setPublicQrId] = useState<string | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [table, setTable] = useState<any>(null);
@@ -116,18 +116,40 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     socket.emit('join_session_room', session.id);
 
-    const handleSessionClosed = () => {
+    const handleSessionClosed = (payload?: any) => {
       setIsSessionClosed(true);
       localStorage.removeItem('guest_token');
       setCart([]);
+      showToast({
+        title: 'Phiên bàn đã kết thúc',
+        message: payload?.message || 'Hóa đơn đã được thanh toán. Cảm ơn quý khách!',
+        type: 'success',
+        duration: 7000
+      });
     };
 
-    const handleOrderUpdated = () => {
+    const handleOrderUpdated = (payload?: any) => {
       refreshOrdersAndBill();
+      if (payload?.message) {
+        showToast({
+          title: payload.type === 'CANCELLED' ? 'Món ăn bị hủy' : (payload.type === 'SERVED' ? 'Món ăn đã phục vụ' : 'Cập nhật món ăn'),
+          message: payload.message,
+          type: payload.type === 'CANCELLED' ? 'warning' : 'success',
+          duration: 5000
+        });
+      }
     };
 
-    const handleServiceRequestUpdated = () => {
+    const handleServiceRequestUpdated = (payload?: any) => {
       refreshOrdersAndBill();
+      if (payload?.message) {
+        showToast({
+          title: 'Yêu cầu phục vụ',
+          message: payload.message,
+          type: 'info',
+          duration: 4000
+        });
+      }
     };
 
     socket.on('session.closed', handleSessionClosed);
@@ -206,6 +228,13 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
 
       playOrderSound();
+      const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
+      showToast({
+        title: 'Đặt món thành công!',
+        message: `Đã gửi ${itemCount} món đến nhân viên quán.`,
+        type: 'success',
+        duration: 4500
+      });
       clearCart();
       await refreshOrdersAndBill();
       return res;
@@ -219,6 +248,12 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       method: 'POST',
       body: JSON.stringify({ type: 'ASSISTANCE', note })
     });
+    showToast({
+      title: 'Đã gọi nhân viên',
+      message: res?.message || 'Nhân viên phục vụ sẽ đến bàn bạn ngay lập tức.',
+      type: 'info',
+      duration: 4000
+    });
     await refreshOrdersAndBill();
     return res;
   };
@@ -227,6 +262,12 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const res = await request<any>('/guest/service-requests', {
       method: 'POST',
       body: JSON.stringify({ type: 'CHECKOUT', note })
+    });
+    showToast({
+      title: 'Đã gửi yêu cầu thanh toán',
+      message: res?.message || 'Nhân viên sẽ mang hóa đơn đến bàn bạn trong giây lát.',
+      type: 'info',
+      duration: 5000
     });
     await refreshOrdersAndBill();
     return res;
