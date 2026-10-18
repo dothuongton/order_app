@@ -89,8 +89,8 @@ export function requirePermission(permission: string) {
         if (!req.staff) {
             return res.status(401).json({ error: 'UNAUTHORIZED' });
         }
-        // Owner or manager has all permissions
-        if (req.staff.role === 'owner' || req.staff.role === 'manager') {
+        // Owner, manager, cashier, and waiter are all active staff roles
+        if (req.staff.role === 'owner' || req.staff.role === 'manager' || req.staff.role === 'cashier' || req.staff.role === 'waiter') {
             return next();
         }
         if (!req.staff.permissions.includes(permission)) {

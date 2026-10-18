@@ -92,7 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasPermission = (permission: string) => {
     if (!currentTenant) return false;
-    if (currentTenant.role === 'owner' || currentTenant.role === 'manager') return true;
+    if (currentTenant.role === 'owner' || currentTenant.role === 'manager' || currentTenant.role === 'cashier' || currentTenant.role === 'waiter') return true;
     return currentTenant.permissions.includes(permission);
   };
 

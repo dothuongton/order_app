@@ -554,6 +554,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 <h3 className="font-extrabold text-slate-900 text-base">Xác nhận thanh toán thủ công</h3>
               </div>
 
+              {actionError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold">
+                  {actionError}
+                </div>
+              )}
+
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-2">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Bàn:</span>
