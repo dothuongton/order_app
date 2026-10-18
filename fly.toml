@@ -1,12 +1,17 @@
-app = 'order-app'
-primary_region = 'ams'
+# fly.toml app configuration file generated for order-app-c491na on 2026-10-18T15:49:55Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'order-app-c491na'
+primary_region = 'sin'
 
 [build]
   dockerfile = 'Dockerfile'
 
 [env]
-  PORT = '8080'
   NODE_ENV = 'production'
+  PORT = '8080'
 
 [http_service]
   internal_port = 8080
@@ -20,3 +25,4 @@ primary_region = 'ams'
   memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 2048
