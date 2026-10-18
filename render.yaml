@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: order-app
+    runtime: docker
+    plan: free
+    region: singapore
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: order-app-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GUEST_COOKIE_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: AUTO_SEED
+        value: "true"
+
+databases:
+  - name: order-app-db
+    plan: free
+    region: singapore
+    databaseName: qr_order_db
+    user: qr_user

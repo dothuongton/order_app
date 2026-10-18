@@ -5,10 +5,17 @@ echo "🚀 Starting QR Order App v1.2..."
 
 # Run migrations if DATABASE_URL is set
 if [ -n "$DATABASE_URL" ]; then
-  echo "🔄 Running database migrations on $DATABASE_URL..."
+  echo "🔄 Running database migrations on database..."
   node dist/db/migrate.js || {
     echo "⚠️ Database migration warning. Continuing..."
   }
+
+  if [ "$AUTO_SEED" = "true" ]; then
+    echo "🌱 AUTO_SEED is enabled: Seeding demo users, tables and menu..."
+    node dist/db/seed.js || {
+      echo "⚠️ Database seed warning. Continuing..."
+    }
+  fi
 fi
 
 echo "✨ Starting application on port ${PORT:-8080}..."
