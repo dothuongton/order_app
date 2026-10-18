@@ -832,6 +832,17 @@ export class StaffService {
                 WHERE session_id = $1 AND status IN ('PENDING', 'ACCEPTED')
             `, [sessionId]);
 
+            // Cancel any open order item parts if any existed
+            await client.query(`
+                UPDATE order_item_parts
+                SET status = 'CANCELLED', cancel_reason = 'SESSION_CLOSED_WITHOUT_CHARGE', updated_at = NOW()
+                WHERE order_item_id IN (
+                    SELECT oi.id FROM order_items oi
+                    JOIN orders o ON o.id = oi.order_id
+                    WHERE o.session_id = $1
+                ) AND status IN ('PENDING', 'ACCEPTED')
+            `, [sessionId]);
+
             // Revoke guest access
             await client.query(`
                 UPDATE guest_sessions
@@ -847,6 +858,7 @@ export class StaffService {
             `, [session.table_id]);
 
             broadcastToStaff(tenantId, 'table.updated', { tableId: session.table_id });
+            broadcastToStaff(tenantId, 'order.updated', { sessionId });
             broadcastToStaff(tenantId, 'service_request.updated', { sessionId });
             broadcastToSession(sessionId, 'session.closed', {
                 sessionId,

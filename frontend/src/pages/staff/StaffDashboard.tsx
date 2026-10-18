@@ -10,7 +10,7 @@ import { StaffMenuManage } from './StaffMenuManage.js';
 import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
-  CreditCard, Sparkles, RefreshCw, Mic, Ban, X
+  CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -140,7 +140,12 @@ export const StaffDashboard: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ reason: 'WITHOUT_CHARGE' })
       });
-      showToast({ title: 'Đã đóng phiên 0đ thành công', type: 'success', duration: 2500 });
+      showToast({
+        title: 'Đã đóng bàn 0đ thành công',
+        message: 'Bàn đã về trạng thái trống sẵn sàng đón khách',
+        type: 'success',
+        duration: 2500
+      });
       fetchDashboard();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi đóng phiên 0đ', type: 'error' });
@@ -347,86 +352,120 @@ export const StaffDashboard: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               {tables.map((table) => {
                 const isServing = !!table.active_session_id;
+                const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
                 const hasPending = (table.counts?.pending || 0) > 0;
                 const hasCheckout = table.hasCheckout;
+                const isZeroOrder = isServing && totalItems === 0;
 
                 return (
                   <div
                     key={table.table_id}
-                    className={`bg-white rounded-2xl p-3.5 border transition shadow-xs flex flex-col justify-between min-h-[145px] ${
+                    className={`bg-white rounded-2xl p-3 sm:p-3.5 border transition shadow-xs flex flex-col justify-between min-h-[148px] ${
                       hasCheckout
                         ? 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/50 animate-pulse-attention'
+                        : isZeroOrder
+                        ? 'border-rose-200 bg-rose-50/20'
                         : isServing
                         ? 'border-blue-200 hover:border-blue-300'
                         : 'border-slate-200'
                     }`}
                   >
-                    <div>
+                    {/* Header + Info (Clickable to open detail modal) */}
+                    <div
+                      onClick={() => setSelectedTable(table)}
+                      className="cursor-pointer select-none"
+                    >
                       {/* Table Number & Status Pill */}
-                      <div className="flex items-center justify-between">
-                        <span className="font-black text-slate-900 text-lg">Bàn {table.table_number}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          hasCheckout ? 'bg-amber-500 text-white' :
-                          isServing ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-black text-slate-900 text-base sm:text-lg">
+                          Bàn {table.table_number}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${
+                          hasCheckout
+                            ? 'bg-amber-500 text-white animate-pulse'
+                            : isZeroOrder
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : isServing
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         }`}>
-                          {table.displayStatus}
+                          {hasCheckout
+                            ? 'Yêu cầu bill'
+                            : isZeroOrder
+                            ? 'Bàn 0đ'
+                            : isServing
+                            ? 'Phục vụ'
+                            : 'Bàn trống'}
                         </span>
                       </div>
 
                       {/* Counts / Session info */}
-                      {isServing ? (
-                        <div className="mt-2 space-y-1">
-                          <div className="flex items-center gap-1.5 text-xs">
-                            {hasPending ? (
-                              <span className="font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-md text-[11px]">
-                                {table.counts.pending} món chờ
-                              </span>
-                            ) : (
-                              <span className="text-slate-500 text-[11px]">
-                                {table.counts.served + table.counts.accepted} món
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-2 text-xs text-slate-400">
-                          Bàn trống
-                        </div>
-                      )}
+                      <div className="mt-2 text-xs">
+                        {isServing ? (
+                          isZeroOrder ? (
+                            <span className="text-rose-500 font-medium text-[11px] leading-tight block">
+                              Chưa có order (mở nhầm)
+                            </span>
+                          ) : hasPending ? (
+                            <span className="font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-md text-[11px] inline-block">
+                              {table.counts.pending} món chờ nhận
+                            </span>
+                          ) : (
+                            <span className="text-slate-600 font-semibold text-[11px] inline-block">
+                              {totalItems} món đang phục vụ
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-slate-400 text-[11px] inline-block">
+                            Sẵn sàng đón khách
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1.5 pt-3 border-t border-slate-100 mt-2">
-                      <button
-                        onClick={() => setSelectedTable(table)}
-                        className="flex-1 py-1.5 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl transition min-h-[36px]"
-                      >
-                        {isServing ? 'Xem đơn' : 'Chi tiết'}
-                      </button>
-
-                      {isServing && ((table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0) === 0) && (
-                        <button
-                          onClick={() => handleQuickCloseWithoutCharge(table.active_session_id!)}
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition min-h-[36px]"
-                          title="Đóng phiên 0đ (bàn chưa có món)"
-                        >
-                          Đóng 0đ
-                        </button>
-                      )}
-
-                      {!isServing && hasPermission('session.open') && (
+                    {/* Actions: Always exactly 2 buttons (1 primary flex-1 + 1 QR icon) */}
+                    <div className="flex items-center gap-1.5 pt-2.5 border-t border-slate-100 mt-2">
+                      {!isServing ? (
                         <button
                           onClick={() => handleQuickOpenSession(table.table_id)}
-                          className="px-2.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[36px]"
+                          className="flex-1 py-1.5 px-2 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white font-bold text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
                           title="Mở phiên bàn"
                         >
-                          Mở
+                          <Plus className="w-3.5 h-3.5 shrink-0" />
+                          <span>Mở bàn</span>
+                        </button>
+                      ) : isZeroOrder ? (
+                        <button
+                          onClick={() => handleQuickCloseWithoutCharge(table.active_session_id!)}
+                          className="flex-1 py-1.5 px-2 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl border border-rose-300 transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
+                          title="Đóng bàn 0đ ngay lập tức (nhân viên ấn nhầm mở bàn)"
+                        >
+                          <XCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                          <span>Đóng bàn 0đ</span>
+                        </button>
+                      ) : hasCheckout ? (
+                        <button
+                          onClick={() => setSelectedTable(table)}
+                          className="flex-1 py-1.5 px-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap animate-pulse"
+                          title="Khách yêu cầu thanh toán"
+                        >
+                          <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                          <span>Thanh toán</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setSelectedTable(table)}
+                          className="flex-1 py-1.5 px-2 bg-slate-900 hover:bg-black active:bg-slate-800 text-white font-bold text-xs rounded-xl transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
+                          title="Xem chi tiết đơn"
+                        >
+                          <Receipt className="w-3.5 h-3.5 shrink-0" />
+                          <span>Xem đơn ({totalItems})</span>
                         </button>
                       )}
 
                       <button
                         onClick={() => setSelectedQrTableId(table.table_id)}
-                        className="p-1.5 text-slate-500 hover:text-slate-900 rounded-xl hover:bg-slate-100 min-h-[36px] min-w-[36px] flex items-center justify-center border border-slate-200"
+                        className="p-1.5 text-slate-500 hover:text-slate-900 rounded-xl hover:bg-slate-100 min-h-[38px] min-w-[38px] shrink-0 flex items-center justify-center border border-slate-200 transition"
                         title="Xem mã QR"
                       >
                         <QrCode className="w-3.5 h-3.5" />
