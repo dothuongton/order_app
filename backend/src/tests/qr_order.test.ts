@@ -33,8 +33,8 @@ describe('QR Ordering System v1.2 - Acceptance Tests', () => {
         cashierId = usersRes.rows.find(u => u.email === 'thungan@phoco.vn')!.id;
 
         const menuRes = await query(`SELECT id, name, price FROM menu_items WHERE tenant_id = $1`, [tenantId]);
-        comGaItem = menuRes.rows.find(i => i.name.includes('Cơm Gà'));
-        traDaoItem = menuRes.rows.find(i => i.name.includes('Trà Đào'));
+        comGaItem = menuRes.rows.find(i => i.name.includes('Bánh Tráng') || i.name.includes('Cơm Gà')) || menuRes.rows[0];
+        traDaoItem = menuRes.rows.find(i => i.name.includes('Trà Đào')) || menuRes.rows[1];
     });
 
     it('AT01 & AT02: Public table menu can be viewed; joining closed table returns SESSION_NOT_OPEN', async () => {
@@ -117,12 +117,12 @@ describe('QR Ordering System v1.2 - Acceptance Tests', () => {
         await StaffService.cancelOrderItem(tenantId, traDaoOrderItemId, 1, 'Hết nguyên liệu trà đào', waiterId);
 
         // Check bill summary according to Section 8.3:
-        // 2 Cơm gà (65.000 x 2 = 130.000)
-        // 2 Trà đào served (35.000 x 2 = 70.000)
-        // 1 Trà đào cancelled (0)
-        // Total should be exactly 200.000đ!
+        // 2 Food items served
+        // 2 Drink items served
+        // 1 Drink item cancelled (0đ)
+        const expectedTotal = comGaItem.price * 2 + traDaoItem.price * 2;
         const summary = await GuestService.getBillSummary(tenantId, guestJoin.sessionId);
-        expect(summary.servedTotal).toBe(200000);
+        expect(summary.servedTotal).toBe(expectedTotal);
         expect(summary.unresolvedCount).toBe(0);
         expect(summary.canConfirmPayment).toBe(true);
     });
@@ -172,10 +172,10 @@ describe('QR Ordering System v1.2 - Acceptance Tests', () => {
             guestJoin.sessionId,
             summary.settlementVersion,
             cashierId,
-            'Đã nhận tiền mặt 200k'
+            'Đã nhận tiền mặt'
         );
 
-        expect(settlement.totalAmount).toBe(200000);
+        expect(settlement.totalAmount).toBe(comGaItem.price * 2 + traDaoItem.price * 2);
 
         // Guest token should now be revoked (AT18)
         const sessionCheck = await query(`

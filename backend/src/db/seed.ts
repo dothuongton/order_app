@@ -47,7 +47,7 @@ export async function seed(force: boolean = false) {
         const tenantRes = await client.query(`
             INSERT INTO tenants (id, slug, name, currency, timezone)
             VALUES 
-                ('11111111-1111-1111-1111-111111111111', 'pho-co', 'Phở & Cà Phê Phố Cổ', 'VND', 'Asia/Ho_Chi_Minh'),
+                ('11111111-1111-1111-1111-111111111111', 'pho-co', 'Quán Ăn Vặt & Trà Sữa Phố Cổ', 'VND', 'Asia/Ho_Chi_Minh'),
                 ('22222222-2222-2222-2222-222222222222', 'sakura', 'Trà Sữa & Ăn Vặt Sakura', 'VND', 'Asia/Ho_Chi_Minh')
             RETURNING id, slug, name;
         `);
@@ -121,41 +121,47 @@ export async function seed(force: boolean = false) {
                 ('20000000-0000-0000-0000-000000000002', $1, 'A02', 'qr-sakura-a02', 2, 'READY')
         `, [sakuraId]);
 
-        // 5. Menu Categories for Pho Co
+        // 5. Menu Categories for Snack Shop
         const catRes = await client.query(`
             INSERT INTO menu_categories (tenant_id, name, sort_order)
             VALUES
-                ($1, 'Món chính (Phở & Cơm)', 1),
-                ($1, 'Đồ uống & Giải khát', 2),
-                ($1, 'Món ăn kèm', 3)
+                ($1, 'Đồ Ăn Vặt', 1),
+                ($1, 'Đồ Uống & Trà Sữa', 2),
+                ($1, 'Topping Ăn Vặt', 3)
             RETURNING id, name;
         `, [phoCoId]);
 
-        const catMain = catRes.rows[0].id;
+        const catSnacks = catRes.rows[0].id;
         const catDrinks = catRes.rows[1].id;
-        const catSides = catRes.rows[2].id;
+        const catToppings = catRes.rows[2].id;
 
-        // 6. Menu Items
+        // 6. Menu Items (Đồ ăn vặt & Đồ uống)
         const itemsRes = await client.query(`
             INSERT INTO menu_items (tenant_id, category_id, name, description, price, is_available)
             VALUES
-                ($1, $2, 'Cơm Gà Xối Mỡ', 'Cơm vàng hạt dẻo thơm kèm đùi gà xối mỡ da giòn rụm', 65000, true),
-                ($1, $2, 'Phở Bò Tái Nạm', 'Bánh phở tươi, nước dùng hầm xương 12 tiếng, thịt bò tươi ngon', 65000, true),
-                ($1, $2, 'Phở Gà Đồi Lá Chanh', 'Thịt gà ta thả vườn dai ngọt kèm lá chanh tươi thái sợi', 60000, true),
-                ($1, $3, 'Trà Đào Cam Sả', 'Trà thanh nhiệt với đào tươi giòn, hương cam sả thơm mát', 35000, true),
-                ($1, $3, 'Cà Phê Sữa Đá Phố Cổ', 'Cà phê Robusta rang mộc đậm đà pha sữa đặc truyền thống', 28000, true),
-                ($1, $3, 'Nước Suối Tinh Khiết', 'Chai 500ml ướp lạnh sảng khoái', 15000, true),
-                ($1, $4, 'Quẩy Giòn Phở', 'Đĩa 3 chiếc quẩy vàng giòn rụm chấm nước phở', 10000, true),
-                ($1, $4, 'Trứng Chần Lòng Đào', 'Trứng gà ta chần lòng đào béo ngậy', 8000, true)
+                ($1, $2, 'Bánh Tráng Trộn Đặc Biệt', 'Bánh tráng phơi sương, trứng cút, khô bò, xoài non, rau răm, sốt tắc cay ngọt', 25000, true),
+                ($1, $2, 'Bánh Tráng Nướng Đà Lạt', 'Trứng cút, tép khô, hành hoa, xúc xích, phô mai nướng giòn rụm', 25000, true),
+                ($1, $2, 'Khoai Tây Lắc Phô Mai', 'Khoai tây chiên vàng giòn rụm lắc bột phô mai béo ngậy', 30000, true),
+                ($1, $2, 'Nem Chua Rán Hà Nội', 'Đĩa 5 chiếc nem chua lăn bột xù chiên giòn rụm, thơm bùi', 35000, true),
+                ($1, $2, 'Cá Viên Chiên Thập Cẩm', 'Combo cá viên, bò viên, tôm viên, đậu bắp chiên kèm tương đen sốt cay', 35000, true),
+                ($1, $2, 'Gà Xiên Que Sốt Cay', 'Gà xiên que nướng than hoa quết sốt cay ngọt Hàn Quốc', 20000, true),
+                ($1, $2, 'Xoài Lắc Muối Tôm', 'Xoài non giòn rụm lắc muối tôm Tây Ninh chua cay đậm đà', 20000, true),
+                ($1, $2, 'Cơm Cháy Chà Bông Mỡ Hành', 'Cơm cháy đáy nồi giòn tan phủ đẫm chà bông gà cay và sốt mỡ hành', 25000, true),
+                ($1, $3, 'Trà Sữa Trân Châu Đường Đen', 'Trà sữa đậm vị thơm béo kết hợp trân châu đen dai giòn dẻo', 30000, true),
+                ($1, $3, 'Trà Đào Cam Sả', 'Trà thanh nhiệt với đào tươi giòn, hương cam sả thơm mát', 30000, true),
+                ($1, $3, 'Trà Tắc Xí Muội Khổng Lồ', 'Ly 700ml trà lài tươi pha tắc vàng và xí muội mặn ngọt giải nhiệt cực đã', 25000, true),
+                ($1, $3, 'Trà Chanh Giã Tay', 'Trà Ô Long thơm nồng giã tay cùng chanh tươi Quảng Đông mát lạnh', 25000, true),
+                ($1, $3, 'Trà Dâu Tằm Macchiato', 'Trà dâu tằm chua ngọt thanh mát phủ lớp kem cheese béo mịn', 35000, true),
+                ($1, $3, 'Sữa Tươi Trân Châu Đường Đen', 'Sữa tươi tiệt trùng Đà Lạt hòa quyện đường đen organic dẻo quánh', 35000, true),
+                ($1, $3, 'Coca-Cola Ướp Lạnh', 'Lon 330ml ướp lạnh sảng khoái', 15000, true),
+                ($1, $3, 'Nước Suối Tinh Khiết', 'Chai 500ml ướp lạnh sảng khoái', 10000, true),
+                ($1, $4, 'Thêm Trân Châu Đen', 'Phần trân châu đen hoàng kim dẻo dai', 5000, true),
+                ($1, $4, 'Thêm Phô Mai Tươi', 'Viên phô mai tươi béo ngậy tan chảy', 8000, true),
+                ($1, $4, 'Thêm Bánh Flan Trứng', 'Bánh flan caramen trứng gà thơm ngậy', 10000, true)
             RETURNING id, name, price;
-        `, [phoCoId, catMain, catDrinks, catSides]);
+        `, [phoCoId, catSnacks, catDrinks, catToppings]);
 
-        const comGa = itemsRes.rows[0];
-        const phoBo = itemsRes.rows[1];
-        const traDao = itemsRes.rows[3];
-        const nuocSuoi = itemsRes.rows[5];
-
-        console.log(`✅ Seeded ${tablesRes.rows.length} tables and ${itemsRes.rows.length} menu items for ${phoCoId}`);
+        console.log(`✅ Seeded ${tablesRes.rows.length} tables and ${itemsRes.rows.length} snack menu items for ${phoCoId}`);
         console.log(`💡 Demo Credentials:`);
         console.log(`   - Quản lý / Manager: admin@phoco.vn / 123456`);
         console.log(`   - Phục vụ / Waiter: phucvu@phoco.vn / 123456`);

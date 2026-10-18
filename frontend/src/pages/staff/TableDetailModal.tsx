@@ -4,7 +4,7 @@ import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
   X, Check, CheckCheck, Ban, CreditCard, Sparkles, AlertTriangle, AlertCircle,
-  Receipt, Clock, RefreshCw, MessageSquare, XCircle
+  Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed
 } from 'lucide-react';
 
 interface TableDetailModalProps {
@@ -286,26 +286,64 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
                         <div className="space-y-1.5 pl-2 border-l-2 border-slate-200">
                           {round.items.map((item, idx) => (
-                            <div key={idx} className="space-y-0.5">
+                            <div key={idx} className="space-y-1 bg-slate-50/70 p-2 rounded-xl">
                               <div className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-slate-700">{item.quantity}x</span>
-                                  <span className={`truncate max-w-[200px] ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="font-bold text-slate-700 shrink-0">{item.quantity}x</span>
+                                  <span className={`truncate ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900 font-semibold'}`}>
                                     {item.name}
                                   </span>
                                   {item.status === 'CANCELLED' && (
-                                    <span className="text-[10px] text-rose-600 font-semibold">(Đã hủy)</span>
+                                    <span className="text-[10px] text-rose-600 font-bold shrink-0">(Đã hủy)</span>
                                   )}
                                   {item.status === 'PENDING' && (
-                                    <span className="text-[10px] text-amber-600 font-semibold">(Chờ nhận)</span>
+                                    <span className="text-[10px] text-amber-700 bg-amber-100/90 px-1.5 py-0.5 rounded-md font-extrabold shrink-0">Chờ nhận</span>
+                                  )}
+                                  {item.status === 'ACCEPTED' && (
+                                    <span className="text-[10px] text-blue-700 bg-blue-100/90 px-1.5 py-0.5 rounded-md font-extrabold shrink-0">Đã nhận</span>
+                                  )}
+                                  {item.status === 'SERVED' && (
+                                    <span className="text-[10px] text-emerald-700 bg-emerald-100/90 px-1.5 py-0.5 rounded-md font-extrabold shrink-0">Đã phục vụ</span>
                                   )}
                                 </div>
-                                <span className={`font-semibold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                                <span className={`font-bold shrink-0 ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                                   {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
                                 </span>
                               </div>
+
+                              {/* Item actions: quick accept / serve / cancel */}
+                              {(item.status === 'PENDING' || item.status === 'ACCEPTED') && item.itemId && (
+                                <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-200/60">
+                                  {item.status === 'PENDING' && (
+                                    <button
+                                      onClick={() => handleAcceptItem(item.itemId)}
+                                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                      <span>Nhận món</span>
+                                    </button>
+                                  )}
+                                  {item.status === 'ACCEPTED' && (
+                                    <button
+                                      onClick={() => handleServeItem(item.itemId)}
+                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1"
+                                    >
+                                      <UtensilsCrossed className="w-3 h-3" />
+                                      <span>Phục vụ</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity })}
+                                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition flex items-center gap-1"
+                                  >
+                                    <X className="w-3 h-3" />
+                                    <span>Hủy</span>
+                                  </button>
+                                </div>
+                              )}
+
                               {item.note && (
-                                <div className="text-[11px] text-amber-800 font-medium italic pl-4">
+                                <div className="text-[11px] text-amber-800 font-medium italic">
                                   Ghi chú: {item.note}
                                 </div>
                               )}
@@ -318,7 +356,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   {/* Pending subtotal note */}
                   {billSummary.pendingTotal > 0 && (
                     <div className="p-3 bg-amber-50/80 flex items-center justify-between text-xs border-t border-amber-100">
-                      <span className="text-amber-800 font-medium">Chờ tiếp nhận (chưa tính vào tổng):</span>
+                      <span className="text-amber-800 font-medium">Chờ tiếp nhận (chưa tính vào tổng bill):</span>
                       <span className="font-bold text-amber-900">{billSummary.pendingTotal.toLocaleString('vi-VN')}đ</span>
                     </div>
                   )}
@@ -343,7 +381,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                       <div>
                         <strong>Còn {billSummary.unresolvedCount} món chưa phục vụ xong:</strong>
                         <p className="mt-0.5 text-amber-800">
-                          Khách muốn thanh toán ngay? Bấm nút bên dưới để tự động tiếp nhận & phục vụ tất cả món để chốt bill.
+                          Đơn có món đang chờ nhận hoặc chưa phục vụ. Khách muốn chốt bill ngay? Bấm nút bên dưới để tự động hoàn tất tất cả món.
                         </p>
                       </div>
                     </div>
@@ -359,13 +397,29 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
                 {/* Action Buttons: 0đ Session vs Settling Session */}
                 {(() => {
-                  const totalPayable = billSummary ? Math.max(
-                    (billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0),
-                    (billSummary.rounds || []).reduce((acc: number, round: any) => {
-                      return acc + (round.items || []).filter((i: any) => i.status !== 'CANCELLED').reduce((s: number, item: any) => s + (item.subtotal || item.price * item.quantity), 0);
-                    }, 0)
-                  ) : 0;
+                  const hasUnresolved = (billSummary.unresolvedCount || 0) > 0;
+                  const totalPayable = billSummary ? (billSummary.validBillTotal || 0) : 0;
 
+                  // Case 1: Still has pending / unserved items -> CANNOT confirm payment yet!
+                  if (hasUnresolved) {
+                    return (
+                      <div className="space-y-2">
+                        <button
+                          disabled={true}
+                          className="w-full min-h-[52px] bg-slate-100 border border-slate-300 text-slate-400 font-bold rounded-2xl py-3.5 px-4 flex items-center justify-center gap-2 cursor-not-allowed"
+                          title="Chưa thể chốt bill khi còn món đang chờ tiếp nhận hoặc chưa phục vụ"
+                        >
+                          <CreditCard className="w-5 h-5 text-slate-400" />
+                          <span>Còn {billSummary.unresolvedCount} món chưa xong - Chưa thể tính bill</span>
+                        </button>
+                        <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+                          💡 Đơn đang chờ nhận không thể tính bill. Hãy bấm nút <strong>"Tiếp nhận & Phục vụ tất cả"</strong> ở trên hoặc bấm <strong>"Hủy"</strong> từng món nếu khách không dùng.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  // Case 2: 0 unresolved items, but total is 0đ (e.g. empty session or all items cancelled) -> Tắt bàn 0đ
                   if (totalPayable === 0) {
                     return (
                       <button
@@ -379,6 +433,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     );
                   }
 
+                  // Case 3: Ready to pay (all served, total > 0)
                   return hasPermission('session.confirm_payment_close') ? (
                     <button
                       onClick={() => setShowConfirmSettlement(true)}
