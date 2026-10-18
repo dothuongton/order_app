@@ -7,5 +7,8 @@ export const config = {
     databaseUrl: process.env.DATABASE_URL || 'postgres://admin:@localhost:5432/qr_order_db',
     jwtSecret: process.env.JWT_SECRET || 'super-secret-jwt-key-for-qr-order-v12',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
-    guestCookieSecret: process.env.GUEST_COOKIE_SECRET || 'super-secret-guest-cookie-token'
+    guestCookieSecret: process.env.GUEST_COOKIE_SECRET || 'super-secret-guest-cookie-token',
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY || 'BHDbva5vSinmqlN12wXicB1uBcjC3FxY6AwVUHZJZC0MNJ2wAdDUad0Y7-rjDh1vXl9uA-QPs7hQ_Dzbuhw0xL0',
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || 'ZhtpmxIs_pcdYn7b64VeLdtlH67Bq-oPmqKdP124_dI',
+    vapidSubject: process.env.VAPID_SUBJECT || 'mailto:contact@phoco.vn'
 };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { PushProvider } from './context/PushContext.js';
 import { GuestProvider } from './context/GuestContext.js';
 import { NotificationProvider } from './context/NotificationContext.js';
 import { GuestLanding } from './pages/guest/GuestLanding.js';
@@ -48,7 +49,9 @@ export function App() {
     return (
       <NotificationProvider>
         <AuthProvider>
-          <StaffApp />
+          <PushProvider>
+            <StaffApp />
+          </PushProvider>
         </AuthProvider>
       </NotificationProvider>
     );

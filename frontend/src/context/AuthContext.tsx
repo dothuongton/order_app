@@ -82,6 +82,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
+      // Unlink push subscription on server before clearing token
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration('/sw.js').catch(() => null);
+        if (reg) {
+          const sub = await reg.pushManager.getSubscription().catch(() => null);
+          if (sub) {
+            await request('/staff/push/unsubscribe', {
+              method: 'POST',
+              body: JSON.stringify({ endpoint: sub.endpoint })
+            }).catch(() => {});
+            await sub.unsubscribe().catch(() => {});
+          }
+        }
+      }
+    } catch {}
+
+    try {
       await request('/auth/logout', { method: 'POST' });
     } catch {}
     localStorage.removeItem('staff_token');

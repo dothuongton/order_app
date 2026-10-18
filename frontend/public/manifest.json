@@ -1,9 +1,20 @@
 {
-  "name": "QR Order v1.2",
-  "short_name": "QROrder",
-  "start_url": "/",
+  "id": "/staff",
+  "name": "QR Order - Quản Lý & Phục Vụ",
+  "short_name": "QR Phục Vụ",
+  "start_url": "/staff",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
   "theme_color": "#ea580c",
-  "description": "Hệ thống gọi món tại bàn qua QR code v1.2"
+  "description": "Ứng dụng gọi món tại bàn và thông báo Web Push cho nhân viên v1.2",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

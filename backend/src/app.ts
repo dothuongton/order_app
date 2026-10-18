@@ -6,6 +6,7 @@ import { authRouter } from './modules/auth/auth.routes.js';
 import { guestRouter } from './modules/guest/guest.routes.js';
 import { staffRouter } from './modules/staff/staff.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
+import { pushRouter } from './modules/push/push.routes.js';
 
 export const app = express();
 
@@ -32,6 +33,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1', guestRouter);
 app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/staff/reports', reportsRouter);
+app.use('/api/v1/staff/push', pushRouter);
 
 // Serve frontend static files if public folder exists (Production / Fly.io)
 import path from 'path';

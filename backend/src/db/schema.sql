@@ -263,6 +263,21 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 20. Staff Push Subscriptions (Web Push cho nhân viên)
+CREATE TABLE IF NOT EXISTS staff_push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_success_at TIMESTAMPTZ,
+    CONSTRAINT uq_staff_push_endpoint UNIQUE (endpoint)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_tables_tenant ON tables(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_table_sessions_table ON table_sessions(table_id);
@@ -271,3 +286,4 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_item_parts_item ON order_item_parts(order_item_id);
 CREATE INDEX IF NOT EXISTS idx_service_requests_session ON service_requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_guest_sessions_token ON guest_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_staff_push_user ON staff_push_subscriptions(tenant_id, user_id);

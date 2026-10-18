@@ -7,10 +7,13 @@ import { TableDetailModal } from './TableDetailModal.js';
 import { QRModal } from '../../components/QRModal.js';
 import { StaffReports } from './StaffReports.js';
 import { StaffMenuManage } from './StaffMenuManage.js';
+import { usePush } from '../../context/PushContext.js';
+import { PushSettingsModal } from './PushSettingsModal.js';
 import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
-  CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt
+  CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
+  Smartphone, BellRing
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -35,7 +38,9 @@ export const StaffDashboard: React.FC = () => {
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
   const [selectedTable, setSelectedTable] = useState<StaffTable | null>(null);
   const [selectedQrTableId, setSelectedQrTableId] = useState<string | null>(null);
+  const [showPushModal, setShowPushModal] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
+  const { state: pushState, isSubscribed: isPushSubscribed } = usePush();
 
   // Cancellation modal state
   const [cancelModalItem, setCancelModalItem] = useState<{ id: string; name: string; quantity: number; tableNumber?: string } | null>(null);
@@ -294,6 +299,26 @@ export const StaffDashboard: React.FC = () => {
             )}
           </button>
 
+          {/* Web Push Notification Settings Button */}
+          <button
+            onClick={() => setShowPushModal(true)}
+            className={`px-2.5 py-1.5 rounded-xl transition min-h-[40px] flex items-center gap-1.5 border text-xs font-bold ${
+              pushState === 'granted' && isPushSubscribed
+                ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/25'
+                : pushState === 'denied'
+                ? 'text-rose-400 bg-rose-500/15 border-rose-500/30 hover:bg-rose-500/25'
+                : pushState === 'ios_need_install'
+                ? 'text-amber-400 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25 animate-pulse'
+                : 'text-slate-300 bg-slate-800/80 border-slate-700 hover:bg-slate-800'
+            }`}
+            title={`Web Push: ${pushState === 'granted' ? 'Đã bật' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
+          >
+            <BellRing className="w-4 h-4" />
+            <span className="hidden sm:inline">
+              {pushState === 'granted' && isPushSubscribed ? 'Push bật' : 'Web Push'}
+            </span>
+          </button>
+
           {/* Test Sound Button */}
           {soundEnabled && (
             <button
@@ -315,6 +340,20 @@ export const StaffDashboard: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* iOS Safari Home Screen notification prompt */}
+      {pushState === 'ios_need_install' && (
+        <div
+          onClick={() => setShowPushModal(true)}
+          className="bg-amber-500/20 border-b border-amber-500/30 text-amber-200 px-4 py-2 text-xs font-semibold flex items-center justify-between cursor-pointer hover:bg-amber-500/30 transition"
+        >
+          <div className="flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>iPhone: Thêm vào Màn hình chính để nhận chuông khi khóa máy</span>
+          </div>
+          <span className="text-[10px] text-amber-300 font-bold underline shrink-0">Xem cách cài</span>
+        </div>
+      )}
 
       {/* Audio unlock prompt if needed by browser policy */}
       {!isAudioUnlocked && (
@@ -1021,6 +1060,12 @@ export const StaffDashboard: React.FC = () => {
       <QRModal
         tableId={selectedQrTableId}
         onClose={() => setSelectedQrTableId(null)}
+      />
+
+      {/* Web Push Notification Settings Modal */}
+      <PushSettingsModal
+        isOpen={showPushModal}
+        onClose={() => setShowPushModal(false)}
       />
 
       {/* Cancellation Modal for Staff Dashboard */}

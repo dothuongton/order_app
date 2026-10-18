@@ -2,6 +2,7 @@ import { query, withTransaction } from '../../db/pool.js';
 import { generateRandomToken, hashToken } from '../../utils/crypto.js';
 import { checkIdempotency, recordIdempotency } from '../../utils/idempotency.js';
 import { broadcastToStaff, broadcastToSession } from '../../realtime/socket.js';
+import { PushService } from '../push/push.service.js';
 
 export interface CreateOrderItemInput {
     menuItemId: string;
@@ -320,6 +321,19 @@ export class GuestService {
                 itemsCount: createdItems.length
             });
 
+            // Send Web Push notification to staff (for locked screen / background PWA on iOS)
+            PushService.sendToStaff(tenantId, {
+                title: `${tableName}: Đơn món mới`,
+                body: `${createdItems.length} món mới đang chờ xác nhận`,
+                eventId: `order-${order.id}`,
+                type: 'order.created',
+                tableId,
+                tableName,
+                sessionId,
+                url: '/staff',
+                requiredPermission: 'order.manage'
+            }).catch(() => {});
+
             broadcastToSession(sessionId, 'order.created', {
                 orderId: order.id,
                 orderNumber: order.order_number,
@@ -557,6 +571,20 @@ export class GuestService {
                     sessionId
                 });
 
+                // Send Web Push notification to staff
+                PushService.sendToStaff(tenantId, {
+                    title: `${tableName}: ${updated.type === 'CHECKOUT' ? 'Yêu cầu thanh toán' : 'Yêu cầu hỗ trợ'}`,
+                    body: updated.type === 'CHECKOUT'
+                        ? (updated.call_count > 1 ? `Khách gọi thanh toán (Nhắc lần ${updated.call_count})` : 'Khách yêu cầu thanh toán tại bàn')
+                        : (updated.note ? `Hỗ trợ: ${updated.note}` : (updated.call_count > 1 ? `Khách gọi nhân viên (Nhắc lần ${updated.call_count})` : 'Khách yêu cầu nhân viên đến bàn hỗ trợ')),
+                    eventId: `req-${updated.id}-${updated.call_count || 1}`,
+                    type: 'service_request.created',
+                    tableId,
+                    tableName,
+                    sessionId,
+                    url: '/staff'
+                }).catch(() => {});
+
                 return {
                     request: updated,
                     isExisting: true,
@@ -589,6 +617,20 @@ export class GuestService {
                 callCount: 1,
                 createdAt: created.created_at
             });
+
+            // Send Web Push notification to staff
+            PushService.sendToStaff(tenantId, {
+                title: `${tableName}: ${created.type === 'CHECKOUT' ? 'Yêu cầu thanh toán' : 'Yêu cầu hỗ trợ'}`,
+                body: created.type === 'CHECKOUT'
+                    ? 'Khách yêu cầu thanh toán tại bàn'
+                    : (created.note ? `Hỗ trợ: ${created.note}` : 'Khách yêu cầu nhân viên đến bàn hỗ trợ'),
+                eventId: `req-${created.id}-1`,
+                type: 'service_request.created',
+                tableId,
+                tableName,
+                sessionId,
+                url: '/staff'
+            }).catch(() => {});
 
             broadcastToSession(sessionId, 'service_request.created', {
                 requestId: created.id,
