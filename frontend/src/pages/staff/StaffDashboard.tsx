@@ -10,7 +10,7 @@ import { StaffMenuManage } from './StaffMenuManage.js';
 import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
-  CreditCard, Sparkles, RefreshCw, Mic
+  CreditCard, Sparkles, RefreshCw, Mic, Ban, X
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -30,11 +30,18 @@ export const StaffDashboard: React.FC = () => {
   } = useNotification();
 
   const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'reports' | 'menu'>('tables');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'served'>('all');
   const [tables, setTables] = useState<StaffTable[]>([]);
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
   const [selectedTable, setSelectedTable] = useState<StaffTable | null>(null);
   const [selectedQrTableId, setSelectedQrTableId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Cancellation modal state
+  const [cancelModalItem, setCancelModalItem] = useState<{ id: string; name: string; quantity: number; tableNumber?: string } | null>(null);
+  const [cancelQty, setCancelQty] = useState<number>(1);
+  const [cancelReason, setCancelReason] = useState<string>('Hết nguyên liệu');
+  const [markItemOutOfStock, setMarkItemOutOfStock] = useState<boolean>(true);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -171,6 +178,30 @@ export const StaffDashboard: React.FC = () => {
       fetchDashboard();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi phục vụ', type: 'error' });
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancelModalItem) return;
+    try {
+      await request(`/staff/order-items/${cancelModalItem.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({
+          quantity: cancelQty,
+          reason: cancelReason,
+          markItemOutOfStock
+        })
+      });
+      showToast({
+        title: 'Đã hủy món thành công',
+        message: markItemOutOfStock ? 'Đã hủy món và cập nhật HẾT HÀNG trên thực đơn' : 'Đã hủy món thành công',
+        type: 'warning',
+        duration: 3500
+      });
+      setCancelModalItem(null);
+      fetchDashboard();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi hủy món', type: 'error' });
     }
   };
 
@@ -397,39 +428,152 @@ export const StaffDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 2: Direct Orders Feed with Items & Notes */}
-        {activeTab === 'orders' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-extrabold text-slate-900 text-lg">Đơn món trực tiếp</h2>
-                <p className="text-xs text-slate-500">Xem món và xử lý trực tiếp không cần mở popup</p>
-              </div>
-              <button
-                onClick={fetchDashboard}
-                className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-            </div>
+        {/* TAB 2: Direct Orders Feed with Classification Filter */}
+        {activeTab === 'orders' && (() => {
+          const allActiveItems = tables.flatMap(t => (t.active_session_id ? t.activeItems || [] : []));
+          const countPending = allActiveItems.filter(i => i.status === 'PENDING').length;
+          const countAccepted = allActiveItems.filter(i => i.status === 'ACCEPTED').length;
+          const countServed = allActiveItems.filter(i => i.status === 'SERVED').length;
 
-            {tables.filter(t => t.active_session_id && (t.activeItems && t.activeItems.length > 0)).length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-6">
-                <UtensilsCrossed className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                <h3 className="font-bold text-slate-800">Không có món nào đang chờ xử lý</h3>
-                <p className="text-xs text-slate-400 mt-1">Khi khách gọi món, danh sách món và ghi chú sẽ hiển thị ngay tại đây</p>
+          const tablesWithFilteredItems = tables
+            .filter(t => t.active_session_id && t.activeItems && t.activeItems.length > 0)
+            .map(table => {
+              const items = (table.activeItems || []).filter(item => {
+                if (orderStatusFilter === 'pending') return item.status === 'PENDING';
+                if (orderStatusFilter === 'accepted') return item.status === 'ACCEPTED';
+                if (orderStatusFilter === 'served') return item.status === 'SERVED';
+                return true;
+              });
+              return { table, items };
+            })
+            .filter(({ items }) => items.length > 0);
+
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-extrabold text-slate-900 text-lg">Quản lý đơn món</h2>
+                  <p className="text-xs text-slate-500">Phân loại & xử lý món trực tiếp tại các bàn</p>
+                </div>
+                <button
+                  onClick={fetchDashboard}
+                  className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
               </div>
-            ) : (
-              tables
-                .filter(t => t.active_session_id && (t.activeItems && t.activeItems.length > 0))
-                .map((table) => {
-                  const items = table.activeItems || [];
+
+              {/* Classification Segmented Control Bar */}
+              <div className="grid grid-cols-4 p-1 bg-slate-200/80 rounded-2xl gap-1 text-[11px] font-bold">
+                <button
+                  onClick={() => setOrderStatusFilter('all')}
+                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
+                    orderStatusFilter === 'all'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Tất cả</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    orderStatusFilter === 'all' ? 'bg-slate-100 text-slate-700' : 'bg-slate-300 text-slate-600'
+                  }`}>
+                    {allActiveItems.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setOrderStatusFilter('pending')}
+                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
+                    orderStatusFilter === 'pending'
+                      ? 'bg-amber-500 text-white shadow-xs font-black'
+                      : 'text-slate-600 hover:text-amber-700'
+                  }`}
+                >
+                  <span className="truncate">Xác nhận đơn</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    orderStatusFilter === 'pending'
+                      ? 'bg-amber-700 text-white'
+                      : countPending > 0
+                      ? 'bg-amber-200 text-amber-900 animate-pulse font-black'
+                      : 'bg-slate-300 text-slate-600'
+                  }`}>
+                    {countPending}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setOrderStatusFilter('accepted')}
+                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
+                    orderStatusFilter === 'accepted'
+                      ? 'bg-blue-600 text-white shadow-xs font-black'
+                      : 'text-slate-600 hover:text-blue-700'
+                  }`}
+                >
+                  <span className="truncate">Cần phục vụ</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    orderStatusFilter === 'accepted'
+                      ? 'bg-blue-800 text-white'
+                      : countAccepted > 0
+                      ? 'bg-blue-100 text-blue-900 font-black'
+                      : 'bg-slate-300 text-slate-600'
+                  }`}>
+                    {countAccepted}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setOrderStatusFilter('served')}
+                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
+                    orderStatusFilter === 'served'
+                      ? 'bg-emerald-600 text-white shadow-xs font-black'
+                      : 'text-slate-600 hover:text-emerald-700'
+                  }`}
+                >
+                  <span className="truncate">Đã hoàn tất</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    orderStatusFilter === 'served'
+                      ? 'bg-emerald-800 text-white'
+                      : countServed > 0
+                      ? 'bg-emerald-100 text-emerald-900 font-black'
+                      : 'bg-slate-300 text-slate-600'
+                  }`}>
+                    {countServed}
+                  </span>
+                </button>
+              </div>
+
+              {/* Order Cards List or Empty State */}
+              {tablesWithFilteredItems.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-6">
+                  <UtensilsCrossed className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <h3 className="font-bold text-slate-800 text-base">
+                    {orderStatusFilter === 'pending'
+                      ? 'Không có món nào chờ xác nhận'
+                      : orderStatusFilter === 'accepted'
+                      ? 'Không có món nào cần phục vụ'
+                      : orderStatusFilter === 'served'
+                      ? 'Chưa có món nào đã hoàn tất'
+                      : 'Không có món nào đang xử lý'}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {orderStatusFilter === 'pending'
+                      ? 'Tất cả các món khách gọi đều đã được tiếp nhận!'
+                      : orderStatusFilter === 'accepted'
+                      ? 'Bếp đang làm hoặc tất cả món đã được mang ra bàn!'
+                      : orderStatusFilter === 'served'
+                      ? 'Các món ăn sau khi phục vụ ra bàn sẽ hiển thị tại đây.'
+                      : 'Khi khách gọi món, danh sách món và ghi chú sẽ hiển thị ngay tại đây'}
+                  </p>
+                </div>
+              ) : (
+                tablesWithFilteredItems.map(({ table, items }) => {
                   const pendingCount = items.filter(i => i.status === 'PENDING').length;
                   const acceptedCount = items.filter(i => i.status === 'ACCEPTED').length;
+                  const servedCount = items.filter(i => i.status === 'SERVED').length;
 
                   return (
                     <div key={table.table_id} className="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
-                      {/* Table Header & Quick Action Buttons */}
+                      {/* Table Header & Action Buttons */}
                       <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2">
                           <span className="font-black text-slate-900 text-base">Bàn {table.table_number}</span>
@@ -437,9 +581,13 @@ export const StaffDashboard: React.FC = () => {
                             <span className="text-[11px] font-bold bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full animate-pulse">
                               {pendingCount} món chờ nhận
                             </span>
+                          ) : acceptedCount > 0 ? (
+                            <span className="text-[11px] font-bold bg-blue-100 text-blue-900 px-2.5 py-0.5 rounded-full">
+                              {acceptedCount} món cần phục vụ
+                            </span>
                           ) : (
-                            <span className="text-[11px] font-semibold bg-blue-100 text-blue-900 px-2.5 py-0.5 rounded-full">
-                              Đang phục vụ
+                            <span className="text-[11px] font-semibold bg-emerald-100 text-emerald-900 px-2.5 py-0.5 rounded-full">
+                              {servedCount} món đã hoàn tất
                             </span>
                           )}
                         </div>
@@ -450,7 +598,7 @@ export const StaffDashboard: React.FC = () => {
                               onClick={() => handleQuickAcceptAll(table.active_session_id!)}
                               className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
                             >
-                              Nhận tất cả
+                              Nhận tất cả ({pendingCount})
                             </button>
                           )}
                           {acceptedCount > 0 && hasPermission('order.serve') && (
@@ -458,7 +606,7 @@ export const StaffDashboard: React.FC = () => {
                               onClick={() => handleQuickServeAll(table.active_session_id!)}
                               className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
                             >
-                              Phục vụ tất cả
+                              Phục vụ tất cả ({acceptedCount})
                             </button>
                           )}
                           <button
@@ -471,7 +619,7 @@ export const StaffDashboard: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Itemized Dish List Directly On Card */}
+                      {/* Itemized Dish List */}
                       <div className="space-y-2">
                         {items.map((item, idx) => (
                           <div
@@ -497,7 +645,7 @@ export const StaffDashboard: React.FC = () => {
                                     item.status === 'SERVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                                   }`}>
                                     {item.status === 'PENDING' ? 'Chờ nhận' :
-                                     item.status === 'ACCEPTED' ? 'Đã nhận' :
+                                     item.status === 'ACCEPTED' ? 'Cần phục vụ' :
                                      item.status === 'SERVED' ? 'Đã phục vụ' : 'Đã hủy'}
                                   </span>
                                 </div>
@@ -512,11 +660,11 @@ export const StaffDashboard: React.FC = () => {
                               </div>
 
                               {/* Inline Item Actions */}
-                              <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                              <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
                                 {item.status === 'PENDING' && hasPermission('order.manage') && (
                                   <button
                                     onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[36px]"
                                   >
                                     Nhận
                                   </button>
@@ -524,10 +672,36 @@ export const StaffDashboard: React.FC = () => {
                                 {item.status === 'ACCEPTED' && hasPermission('order.serve') && (
                                   <button
                                     onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[36px]"
                                   >
                                     Đã phục vụ
                                   </button>
+                                )}
+                                {(item.status === 'PENDING' || item.status === 'ACCEPTED') && hasPermission('order.cancel') && (
+                                  <button
+                                    onClick={() => {
+                                      setCancelModalItem({
+                                        id: item.orderItemId,
+                                        name: item.name,
+                                        quantity: item.quantity,
+                                        tableNumber: table.table_number
+                                      });
+                                      setCancelQty(item.quantity);
+                                      setCancelReason('Hết nguyên liệu');
+                                      setMarkItemOutOfStock(true);
+                                    }}
+                                    className="px-2 py-1.5 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition min-h-[36px] flex items-center gap-1"
+                                    title="Hủy món vì hết nguyên liệu"
+                                  >
+                                    <Ban className="w-3.5 h-3.5" />
+                                    <span className="text-[11px] font-bold">Hủy món</span>
+                                  </button>
+                                )}
+                                {item.status === 'SERVED' && (
+                                  <span className="text-emerald-700 font-bold text-xs flex items-center gap-1 px-1 py-1">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                    <span>Hoàn tất</span>
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -550,9 +724,10 @@ export const StaffDashboard: React.FC = () => {
                     </div>
                   );
                 })
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          );
+        })()}
 
         {/* TAB 3: Service Requests Feed */}
         {activeTab === 'requests' && (
@@ -721,6 +896,85 @@ export const StaffDashboard: React.FC = () => {
         tableId={selectedQrTableId}
         onClose={() => setSelectedQrTableId(null)}
       />
+
+      {/* Cancellation Modal for Staff Dashboard */}
+      {cancelModalItem && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 animate-scale-in">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">Hủy món: {cancelModalItem.name}</h3>
+                {cancelModalItem.tableNumber && (
+                  <p className="text-xs text-slate-500">Bàn {cancelModalItem.tableNumber}</p>
+                )}
+              </div>
+              <button
+                onClick={() => setCancelModalItem(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Số lượng cần hủy</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min={1}
+                  max={cancelModalItem.quantity}
+                  value={cancelQty}
+                  onChange={(e) => setCancelQty(Math.max(1, Math.min(cancelModalItem.quantity, parseInt(e.target.value) || 1)))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-center text-slate-900 text-base"
+                />
+                <span className="text-xs text-slate-400 font-medium">/ {cancelModalItem.quantity}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Lý do hủy đơn</label>
+              <select
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold bg-white text-slate-800"
+              >
+                <option value="Hết nguyên liệu">Hết nguyên liệu</option>
+                <option value="Hết món">Hết món</option>
+                <option value="Khách đổi ý trước khi làm">Khách đổi ý trước khi làm</option>
+                <option value="Lý do khác">Lý do khác</option>
+              </select>
+            </div>
+
+            <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-700 bg-amber-50/80 p-3 rounded-xl border border-amber-200">
+              <input
+                type="checkbox"
+                checked={markItemOutOfStock}
+                onChange={(e) => setMarkItemOutOfStock(e.target.checked)}
+                className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500 mt-0.5"
+              />
+              <div>
+                <span className="font-bold text-amber-900 block">Đánh dấu hết hàng trên thực đơn</span>
+                <span className="text-[11px] text-amber-700">Khách quét QR sẽ thấy món tạm ngưng và không thể đặt thêm.</span>
+              </div>
+            </label>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setCancelModalItem(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-xs min-h-[44px]"
+              >
+                Đóng
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-md min-h-[44px]"
+              >
+                Xác nhận hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
