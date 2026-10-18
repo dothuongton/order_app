@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Bell, CheckCircle2, AlertTriangle, AlertCircle, X, Volume2 } from 'lucide-react';
+import { Bell, CheckCircle2, AlertTriangle, AlertCircle, X, Volume2, Mic, VolumeX } from 'lucide-react';
+
+export type SoundMode = 'voice' | 'chime' | 'off';
 
 export interface ToastNotification {
   id: string;
@@ -14,11 +16,14 @@ export interface ToastNotification {
 interface NotificationContextType {
   socket: Socket | null;
   soundEnabled: boolean;
+  soundMode: SoundMode;
+  setSoundMode: (mode: SoundMode) => void;
+  cycleSoundMode: () => void;
   isAudioUnlocked: boolean;
   unlockAudio: () => void;
   toggleSound: () => void;
-  playOrderSound: () => void;
-  playAlertSound: () => void;
+  playOrderSound: (tableName?: string) => void;
+  playAlertSound: (tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE') => void;
   playSuccessSound: () => void;
   testSound: () => void;
   toasts: ToastNotification[];
@@ -52,9 +57,20 @@ function getOrCreateAudioContext(): AudioContext | null {
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('sound_enabled') !== 'false';
+  
+  // soundMode: 'voice' (default - nói tiếng Việt + chuông), 'chime' (chỉ chuông), 'off' (tắt)
+  const [soundMode, setSoundModeState] = useState<SoundMode>(() => {
+    const saved = localStorage.getItem('sound_mode') as SoundMode;
+    if (saved === 'voice' || saved === 'chime' || saved === 'off') {
+      return saved;
+    }
+    // Fallback legacy sound_enabled
+    const legacyEnabled = localStorage.getItem('sound_enabled');
+    if (legacyEnabled === 'false') return 'off';
+    return 'voice'; // Default to voice as requested by user
   });
+
+  const soundEnabled = soundMode !== 'off';
   const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const timeoutsRef = useRef<Map<string, any>>(new Map());
@@ -101,26 +117,88 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, [unlockAudio]);
 
-  const toggleSound = () => {
+  // Speech synthesis helper in Vietnamese
+  const speakVietnamese = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel(); // Stop ongoing speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'vi-VN';
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
+      if (viVoice) {
+        utterance.voice = viVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('Speech synthesis unavailable', e);
+    }
+  }, []);
+
+  // Ensure voices are loaded
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+  }, []);
+
+  // Sound Mode Management
+  const setSoundMode = useCallback((mode: SoundMode) => {
     unlockAudio();
-    const next = !soundEnabled;
-    setSoundEnabled(next);
-    localStorage.setItem('sound_enabled', String(next));
-    if (next) {
-      playAlertSound();
+    setSoundModeState(mode);
+    localStorage.setItem('sound_mode', mode);
+    localStorage.setItem('sound_enabled', String(mode !== 'off'));
+
+    if (mode === 'voice') {
+      speakVietnamese('Đã bật thông báo giọng nói tiếng Việt');
       showToast({
-        title: 'Đã bật âm thanh thông báo',
+        title: '🗣️ Chế độ âm thanh: Giọng nói',
+        message: 'Hệ thống sẽ đọc tên bàn khi khách đặt món hoặc gọi phục vụ',
         type: 'info',
-        duration: 2500
+        duration: 3000
+      });
+    } else if (mode === 'chime') {
+      playAlertSoundTone();
+      showToast({
+        title: '🔔 Chế độ âm thanh: Chỉ chuông',
+        message: 'Hệ thống sẽ phát chuông báo mặc định',
+        type: 'info',
+        duration: 3000
       });
     } else {
       showToast({
-        title: 'Đã tắt âm thanh thông báo',
+        title: '🔇 Đã tắt âm thanh thông báo',
         type: 'warning',
         duration: 2500
       });
     }
-  };
+  }, [unlockAudio, speakVietnamese]);
+
+  const cycleSoundMode = useCallback(() => {
+    if (soundMode === 'voice') {
+      setSoundMode('chime');
+    } else if (soundMode === 'chime') {
+      setSoundMode('off');
+    } else {
+      setSoundMode('voice');
+    }
+  }, [soundMode, setSoundMode]);
+
+  const toggleSound = useCallback(() => {
+    if (soundMode === 'off') {
+      setSoundMode('voice');
+    } else {
+      setSoundMode('off');
+    }
+  }, [soundMode, setSoundMode]);
 
   // Toast Management
   const removeToast = useCallback((id: string) => {
@@ -153,7 +231,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       createdAt: Date.now()
     };
 
-    setToasts(prev => [newToast, ...prev].slice(0, 5)); // Keep max 5 visible
+    setToasts(prev => [newToast, ...prev].slice(0, 5));
 
     if (duration > 0) {
       const timer = setTimeout(() => {
@@ -171,7 +249,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     duration: number,
     gainLevel: number
   ) => {
-    // Fundamental oscillator (sine)
     const osc1 = ctx.createOscillator();
     const gain1 = ctx.createGain();
     osc1.type = 'sine';
@@ -186,7 +263,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     osc1.start(startTime);
     osc1.stop(startTime + duration);
 
-    // Subtle overtone (triangle) for realistic chime timbre
     const osc2 = ctx.createOscillator();
     const gain2 = ctx.createGain();
     osc2.type = 'triangle';
@@ -202,53 +278,92 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     osc2.stop(startTime + duration * 0.7);
   };
 
-  // 1. New Order Sound for Staff: Bright, cheerful, loud 2-phrase ascending chime
-  const playOrderSound = useCallback(() => {
-    if (!soundEnabled) return;
+  // Pure chime tone helpers
+  const playOrderSoundTone = () => {
     try {
       const ctx = getOrCreateAudioContext();
       if (!ctx) return;
       if (ctx.state === 'suspended') ctx.resume();
 
       const now = ctx.currentTime;
-      // Phrase 1: C5 -> E5 -> G5
       playHarmonicNote(ctx, 523.25, now, 0.45, 0.55);
       playHarmonicNote(ctx, 659.25, now + 0.15, 0.45, 0.55);
       playHarmonicNote(ctx, 783.99, now + 0.30, 0.65, 0.60);
 
-      // Phrase 2 (Repeat with higher emphasis): C5 -> E5 -> C6 (High Bell)
       playHarmonicNote(ctx, 523.25, now + 0.65, 0.45, 0.55);
       playHarmonicNote(ctx, 659.25, now + 0.80, 0.45, 0.55);
       playHarmonicNote(ctx, 1046.50, now + 0.95, 0.80, 0.65);
-    } catch {
-      // Audio autoplay policy might restrict if not clicked yet
-    }
-  }, [soundEnabled]);
+    } catch {}
+  };
 
-  // 2. Alert Sound for Service Request / Bill Payment: Distinct high-attention Ding-Dong
-  const playAlertSound = useCallback(() => {
-    if (!soundEnabled) return;
+  const playAlertSoundTone = () => {
     try {
       const ctx = getOrCreateAudioContext();
       if (!ctx) return;
       if (ctx.state === 'suspended') ctx.resume();
 
       const now = ctx.currentTime;
-      // Ding-Dong 1
-      playHarmonicNote(ctx, 880.00, now, 0.35, 0.65); // A5
-      playHarmonicNote(ctx, 587.33, now + 0.20, 0.60, 0.60); // D5
+      playHarmonicNote(ctx, 880.00, now, 0.35, 0.65);
+      playHarmonicNote(ctx, 587.33, now + 0.20, 0.60, 0.60);
 
-      // Ding-Dong 2
-      playHarmonicNote(ctx, 880.00, now + 0.60, 0.35, 0.65); // A5
-      playHarmonicNote(ctx, 587.33, now + 0.80, 0.70, 0.60); // D5
-    } catch {
-      // Audio autoplay policy
+      playHarmonicNote(ctx, 880.00, now + 0.60, 0.35, 0.65);
+      playHarmonicNote(ctx, 587.33, now + 0.80, 0.70, 0.60);
+    } catch {}
+  };
+
+  // 1. New Order Notification (Voice or Chime)
+  const playOrderSound = useCallback((tableName?: string) => {
+    if (soundMode === 'off') return;
+
+    if (soundMode === 'voice') {
+      // Short introductory bell chime
+      try {
+        const ctx = getOrCreateAudioContext();
+        if (ctx) {
+          if (ctx.state === 'suspended') ctx.resume();
+          playHarmonicNote(ctx, 659.25, ctx.currentTime, 0.3, 0.5);
+          playHarmonicNote(ctx, 783.99, ctx.currentTime + 0.15, 0.4, 0.5);
+        }
+      } catch {}
+
+      // Speech text in Vietnamese
+      const spokenTable = tableName || 'Bàn';
+      speakVietnamese(`${spokenTable} vừa đặt món`);
+    } else {
+      // Default Chime only
+      playOrderSoundTone();
     }
-  }, [soundEnabled]);
+  }, [soundMode, speakVietnamese]);
 
-  // 3. Success Sound: Quick pleasant confirmation
+  // 2. Service Request Notification (Voice or Chime)
+  const playAlertSound = useCallback((tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE') => {
+    if (soundMode === 'off') return;
+
+    if (soundMode === 'voice') {
+      try {
+        const ctx = getOrCreateAudioContext();
+        if (ctx) {
+          if (ctx.state === 'suspended') ctx.resume();
+          playHarmonicNote(ctx, 880.00, ctx.currentTime, 0.3, 0.55);
+          playHarmonicNote(ctx, 587.33, ctx.currentTime + 0.15, 0.4, 0.55);
+        }
+      } catch {}
+
+      const spokenTable = tableName || 'Bàn';
+      if (requestType === 'CHECKOUT') {
+        speakVietnamese(`${spokenTable} yêu cầu thanh toán`);
+      } else {
+        speakVietnamese(`${spokenTable} yêu cầu hỗ trợ`);
+      }
+    } else {
+      // Default Chime only
+      playAlertSoundTone();
+    }
+  }, [soundMode, speakVietnamese]);
+
+  // 3. Success Sound
   const playSuccessSound = useCallback(() => {
-    if (!soundEnabled) return;
+    if (soundMode === 'off') return;
     try {
       const ctx = getOrCreateAudioContext();
       if (!ctx) return;
@@ -257,28 +372,46 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const now = ctx.currentTime;
       playHarmonicNote(ctx, 587.33, now, 0.3, 0.45);
       playHarmonicNote(ctx, 880.00, now + 0.12, 0.5, 0.5);
-    } catch {
-      // Audio autoplay policy
-    }
-  }, [soundEnabled]);
+    } catch {}
+  }, [soundMode]);
 
   // Test sound function
   const testSound = useCallback(() => {
     unlockAudio();
-    playOrderSound();
-    showToast({
-      title: '🔊 Thử nghiệm âm thanh chuông',
-      message: 'Chuông báo đơn mới đã phát thành công!',
-      type: 'info',
-      duration: 3500
-    });
-  }, [unlockAudio, playOrderSound, showToast]);
+    if (soundMode === 'voice') {
+      playOrderSound('Bàn số 1');
+      showToast({
+        title: '🗣️ Thử giọng nói tiếng Việt',
+        message: 'Đang phát: "Bàn số 1 vừa đặt món"',
+        type: 'info',
+        duration: 3500
+      });
+    } else if (soundMode === 'chime') {
+      playOrderSoundTone();
+      showToast({
+        title: '🔔 Thử chuông báo mặc định',
+        message: 'Chuông báo nhà hàng đã phát thành công',
+        type: 'info',
+        duration: 3500
+      });
+    } else {
+      showToast({
+        title: '🔇 Âm thanh đang tắt',
+        message: 'Hãy bấm nút chuông trên thanh menu để bật',
+        type: 'warning',
+        duration: 3000
+      });
+    }
+  }, [unlockAudio, soundMode, playOrderSound, showToast]);
 
   return (
     <NotificationContext.Provider
       value={{
         socket,
         soundEnabled,
+        soundMode,
+        setSoundMode,
+        cycleSoundMode,
         isAudioUnlocked,
         unlockAudio,
         toggleSound,

@@ -31,7 +31,7 @@ interface GuestContextType {
 const GuestContext = createContext<GuestContextType | null>(null);
 
 export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { socket, playOrderSound, showToast } = useNotification();
+  const { socket, playSuccessSound, showToast } = useNotification();
   const [publicQrId, setPublicQrId] = useState<string | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [table, setTable] = useState<any>(null);
@@ -227,7 +227,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         })
       });
 
-      playOrderSound();
+      playSuccessSound();
       const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
       showToast({
         title: 'Đặt món thành công!',

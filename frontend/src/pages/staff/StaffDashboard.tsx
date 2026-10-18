@@ -10,7 +10,7 @@ import { StaffMenuManage } from './StaffMenuManage.js';
 import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
-  CreditCard, Sparkles, RefreshCw
+  CreditCard, Sparkles, RefreshCw, Mic
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -18,6 +18,8 @@ export const StaffDashboard: React.FC = () => {
   const {
     socket,
     soundEnabled,
+    soundMode,
+    cycleSoundMode,
     toggleSound,
     playOrderSound,
     playAlertSound,
@@ -55,9 +57,10 @@ export const StaffDashboard: React.FC = () => {
     socket.emit('join_staff_room', currentTenant.id);
 
     const handleOrderCreated = (payload: any) => {
-      playOrderSound();
+      const tableName = payload?.tableName || 'Bàn';
+      playOrderSound(tableName);
       showToast({
-        title: `🔔 Khách gọi món mới (${payload?.tableName || 'Bàn'})`,
+        title: `🔔 Khách gọi món mới (${tableName})`,
         message: `Lượt gọi #${payload?.orderNumber || 'mới'} gồm ${payload?.itemsCount || 1} món`,
         type: 'info',
         duration: 7000
@@ -66,10 +69,11 @@ export const StaffDashboard: React.FC = () => {
     };
 
     const handleServiceRequestCreated = (payload: any) => {
-      playAlertSound();
+      const tableName = payload?.tableName || 'Bàn';
       const isCheckout = payload?.type === 'CHECKOUT';
+      playAlertSound(tableName, payload?.type);
       showToast({
-        title: isCheckout ? `💳 Yêu cầu thanh toán (${payload?.tableName || 'Bàn'})` : `🙋 Khách gọi phục vụ (${payload?.tableName || 'Bàn'})`,
+        title: isCheckout ? `💳 Yêu cầu thanh toán (${tableName})` : `🙋 Khách gọi phục vụ (${tableName})`,
         message: isCheckout
           ? 'Khách yêu cầu thanh toán hóa đơn tại bàn'
           : `Khách cần nhân viên hỗ trợ${payload?.note ? ': ' + payload.note : ''}`,
@@ -198,15 +202,36 @@ export const StaffDashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Audio Chime Toggle Button */}
+          {/* Audio Sound Mode Switcher (Voice -> Chime -> Off) */}
           <button
-            onClick={toggleSound}
-            className={`p-2 rounded-xl transition min-h-[44px] min-w-[44px] flex items-center justify-center ${
-              soundEnabled ? 'text-orange-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-800'
+            onClick={cycleSoundMode}
+            className={`px-2.5 py-1.5 rounded-xl transition min-h-[40px] flex items-center gap-1.5 border text-xs font-bold ${
+              soundMode === 'voice'
+                ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/25'
+                : soundMode === 'chime'
+                ? 'text-orange-400 bg-orange-500/15 border-orange-500/30 hover:bg-orange-500/25'
+                : 'text-slate-400 bg-slate-800/80 border-slate-700 hover:bg-slate-800'
             }`}
-            title={soundEnabled ? 'Âm thanh: Đang bật' : 'Âm thanh: Đang tắt'}
+            title={`Chế độ âm thanh: ${soundMode === 'voice' ? 'Giọng nói tiếng Việt' : soundMode === 'chime' ? 'Chỉ chuông báo' : 'Đã tắt âm'}. Nhấn để chuyển đổi.`}
           >
-            {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+            {soundMode === 'voice' && (
+              <>
+                <Mic className="w-4 h-4 text-emerald-400 animate-pulse" />
+                <span className="hidden sm:inline">Giọng nói</span>
+              </>
+            )}
+            {soundMode === 'chime' && (
+              <>
+                <Volume2 className="w-4 h-4 text-orange-400" />
+                <span className="hidden sm:inline">Chỉ chuông</span>
+              </>
+            )}
+            {soundMode === 'off' && (
+              <>
+                <VolumeX className="w-4 h-4 text-slate-500" />
+                <span className="hidden sm:inline">Tắt âm</span>
+              </>
+            )}
           </button>
 
           {/* Test Sound Button */}
@@ -214,10 +239,10 @@ export const StaffDashboard: React.FC = () => {
             <button
               onClick={testSound}
               className="px-2.5 py-1.5 text-[11px] font-bold text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 rounded-xl transition flex items-center gap-1 min-h-[40px]"
-              title="Thử âm lượng chuông thông báo"
+              title="Nghe thử âm báo mẫu"
             >
               <Bell className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Thử chuông</span>
+              <span className="hidden sm:inline">Thử âm</span>
             </button>
           )}
 
