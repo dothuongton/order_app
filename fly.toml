@@ -1,8 +1,4 @@
-# fly.toml app configuration file generated for order-app-c491na on 2026-10-18T15:49:55Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
+# fly.toml app configuration file generated for order-app-c491na
 app = 'order-app-c491na'
 primary_region = 'sin'
 
@@ -25,4 +21,3 @@ primary_region = 'sin'
   memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 2048
