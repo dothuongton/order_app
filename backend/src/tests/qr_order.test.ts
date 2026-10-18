@@ -202,5 +202,18 @@ describe('QR Ordering System v1.2 - Acceptance Tests', () => {
         const billCheck = await query(`SELECT status, total_amount FROM bills WHERE session_id = $1`, [newSession.sessionId]);
         expect(billCheck.rows[0].status).toBe('CANCELLED');
         expect(Number(billCheck.rows[0].total_amount)).toBe(0);
+
+        // Ensure 0đ empty session is NOT counted in confirmed invoices / reports
+        const reportsRes = await query(`
+            SELECT 
+                COUNT(DISTINCT ts.id) as confirmed_sessions_count
+            FROM table_sessions ts
+            JOIN bills b ON b.session_id = ts.id
+            LEFT JOIN manual_settlement_confirmations msc ON msc.session_id = ts.id
+            WHERE ts.tenant_id = $1 
+              AND b.status = 'CONFIRMED'
+              AND COALESCE(msc.amount, b.total_amount, 0) > 0
+        `, [tenantId]);
+        expect(parseInt(reportsRes.rows[0].confirmed_sessions_count, 10)).toBe(1);
     });
 });
