@@ -112,6 +112,51 @@ export const StaffDashboard: React.FC = () => {
     }
   };
 
+  // Quick Order item handlers directly from Orders tab
+  const handleQuickAcceptAll = async (sessionId: string) => {
+    try {
+      await request(`/staff/sessions/${sessionId}/accept-all`, { method: 'POST' });
+      showToast({ title: 'Đã tiếp nhận tất cả món', type: 'success', duration: 3000 });
+      fetchDashboard();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi tiếp nhận món', type: 'error' });
+    }
+  };
+
+  const handleQuickServeAll = async (sessionId: string) => {
+    try {
+      await request(`/staff/sessions/${sessionId}/serve-all`, { method: 'POST' });
+      showToast({ title: 'Đã đánh dấu phục vụ tất cả món', type: 'success', duration: 3000 });
+      fetchDashboard();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi phục vụ', type: 'error' });
+    }
+  };
+
+  const handleQuickAcceptItem = async (orderItemId: string, quantity: number) => {
+    try {
+      await request(`/staff/order-items/${orderItemId}/accept`, {
+        method: 'POST',
+        body: JSON.stringify({ quantity })
+      });
+      fetchDashboard();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi nhận món', type: 'error' });
+    }
+  };
+
+  const handleQuickServeItem = async (orderItemId: string, quantity: number) => {
+    try {
+      await request(`/staff/order-items/${orderItemId}/serve`, {
+        method: 'POST',
+        body: JSON.stringify({ quantity })
+      });
+      fetchDashboard();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi phục vụ', type: 'error' });
+    }
+  };
+
   // Quick Service Request Actions
   const handleAcceptRequest = async (id: string) => {
     try {
@@ -222,7 +267,6 @@ export const StaffDashboard: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               {tables.map((table) => {
                 const isServing = !!table.active_session_id;
-                const isNeedsCleaning = table.readiness === 'NEEDS_CLEANING';
                 const hasPending = (table.counts?.pending || 0) > 0;
                 const hasCheckout = table.hasCheckout;
 
@@ -234,8 +278,6 @@ export const StaffDashboard: React.FC = () => {
                         ? 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/50 animate-pulse-attention'
                         : isServing
                         ? 'border-blue-200 hover:border-blue-300'
-                        : isNeedsCleaning
-                        ? 'border-purple-200 bg-purple-50/30'
                         : 'border-slate-200'
                     }`}
                   >
@@ -245,8 +287,7 @@ export const StaffDashboard: React.FC = () => {
                         <span className="font-black text-slate-900 text-lg">Bàn {table.table_number}</span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                           hasCheckout ? 'bg-amber-500 text-white' :
-                          isServing ? 'bg-blue-100 text-blue-800' :
-                          isNeedsCleaning ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
+                          isServing ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
                         }`}>
                           {table.displayStatus}
                         </span>
@@ -269,7 +310,7 @@ export const StaffDashboard: React.FC = () => {
                         </div>
                       ) : (
                         <div className="mt-2 text-xs text-slate-400">
-                          {isNeedsCleaning ? 'Cần dọn bàn' : 'Bàn trống'}
+                          Bàn trống
                         </div>
                       )}
                     </div>
@@ -283,7 +324,7 @@ export const StaffDashboard: React.FC = () => {
                         {isServing ? 'Xem đơn' : 'Chi tiết'}
                       </button>
 
-                      {!isServing && table.readiness === 'READY' && hasPermission('session.open') && (
+                      {!isServing && hasPermission('session.open') && (
                         <button
                           onClick={() => handleQuickOpenSession(table.table_id)}
                           className="px-2.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[36px]"
@@ -308,53 +349,159 @@ export const StaffDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 2: Orders / Kitchen Feed */}
+        {/* TAB 2: Direct Orders Feed with Items & Notes */}
         {activeTab === 'orders' && (
           <div className="space-y-4">
-            <div>
-              <h2 className="font-extrabold text-slate-900 text-lg">Hàng đợi món gọi</h2>
-              <p className="text-xs text-slate-500">Danh sách các món khách vừa gọi từ mọi bàn</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-extrabold text-slate-900 text-lg">Đơn món trực tiếp</h2>
+                <p className="text-xs text-slate-500">Xem món và xử lý trực tiếp không cần mở popup</p>
+              </div>
+              <button
+                onClick={fetchDashboard}
+                className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
             </div>
 
-            {tables.filter(t => t.active_session_id && (t.counts.pending > 0 || t.counts.accepted > 0)).length === 0 ? (
+            {tables.filter(t => t.active_session_id && (t.activeItems && t.activeItems.length > 0)).length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-6">
                 <UtensilsCrossed className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                <h3 className="font-bold text-slate-800">Không có món nào đang chờ</h3>
-                <p className="text-xs text-slate-400 mt-1">Khi khách gọi món, các món sẽ xuất hiện ngay tại đây</p>
+                <h3 className="font-bold text-slate-800">Không có món nào đang chờ xử lý</h3>
+                <p className="text-xs text-slate-400 mt-1">Khi khách gọi món, danh sách món và ghi chú sẽ hiển thị ngay tại đây</p>
               </div>
             ) : (
               tables
-                .filter(t => t.active_session_id && (t.counts.pending > 0 || t.counts.accepted > 0))
-                .map((table) => (
-                  <div key={table.table_id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="font-black text-slate-900">Bàn {table.table_number}</span>
-                        {table.counts.pending > 0 && (
-                          <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
-                            {table.counts.pending} món chờ tiếp nhận
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => setSelectedTable(table)}
-                        className="text-xs font-bold text-orange-600 hover:text-orange-700"
-                      >
-                        Xử lý chi tiết &rarr;
-                      </button>
-                    </div>
+                .filter(t => t.active_session_id && (t.activeItems && t.activeItems.length > 0))
+                .map((table) => {
+                  const items = table.activeItems || [];
+                  const pendingCount = items.filter(i => i.status === 'PENDING').length;
+                  const acceptedCount = items.filter(i => i.status === 'ACCEPTED').length;
 
-                    <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span>Đang phục vụ ({table.counts.accepted + table.counts.served} món đã duyệt)</span>
-                      <button
-                        onClick={() => setSelectedTable(table)}
-                        className="px-3 py-1.5 bg-orange-50 text-orange-700 font-bold rounded-xl"
-                      >
-                        Mở đơn bàn
-                      </button>
+                  return (
+                    <div key={table.table_id} className="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
+                      {/* Table Header & Quick Action Buttons */}
+                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-slate-900 text-base">Bàn {table.table_number}</span>
+                          {pendingCount > 0 ? (
+                            <span className="text-[11px] font-bold bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full animate-pulse">
+                              {pendingCount} món chờ nhận
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-semibold bg-blue-100 text-blue-900 px-2.5 py-0.5 rounded-full">
+                              Đang phục vụ
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {pendingCount > 0 && hasPermission('order.manage') && (
+                            <button
+                              onClick={() => handleQuickAcceptAll(table.active_session_id!)}
+                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
+                            >
+                              Nhận tất cả
+                            </button>
+                          )}
+                          {acceptedCount > 0 && hasPermission('order.serve') && (
+                            <button
+                              onClick={() => handleQuickServeAll(table.active_session_id!)}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
+                            >
+                              Phục vụ tất cả
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setSelectedTable(table)}
+                            className="p-1.5 text-slate-400 hover:text-slate-800 rounded-xl hover:bg-slate-100"
+                            title="Mở toàn bộ hóa đơn"
+                          >
+                            <CreditCard className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Itemized Dish List Directly On Card */}
+                      <div className="space-y-2">
+                        {items.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className={`p-3 rounded-2xl border transition ${
+                              item.status === 'PENDING'
+                                ? 'bg-amber-50/70 border-amber-200'
+                                : item.status === 'ACCEPTED'
+                                ? 'bg-blue-50/50 border-blue-200'
+                                : item.status === 'SERVED'
+                                ? 'bg-emerald-50/40 border-emerald-200'
+                                : 'bg-slate-50 border-slate-200 opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-black text-slate-900 text-sm">{item.quantity}x</span>
+                                  <span className="font-extrabold text-slate-900 text-sm truncate">{item.name}</span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    item.status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
+                                    item.status === 'ACCEPTED' ? 'bg-blue-100 text-blue-800' :
+                                    item.status === 'SERVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                  }`}>
+                                    {item.status === 'PENDING' ? 'Chờ nhận' :
+                                     item.status === 'ACCEPTED' ? 'Đã nhận' :
+                                     item.status === 'SERVED' ? 'Đã phục vụ' : 'Đã hủy'}
+                                  </span>
+                                </div>
+
+                                {/* Customer Note Display */}
+                                {item.note && (
+                                  <div className="mt-1.5 px-2.5 py-1 bg-amber-100/90 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 flex items-center gap-1.5">
+                                    <span className="text-amber-700">📌 Ghi chú:</span>
+                                    <span>{item.note}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Inline Item Actions */}
+                              <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                                {item.status === 'PENDING' && hasPermission('order.manage') && (
+                                  <button
+                                    onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
+                                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                                  >
+                                    Nhận
+                                  </button>
+                                )}
+                                {item.status === 'ACCEPTED' && hasPermission('order.serve') && (
+                                  <button
+                                    onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                                  >
+                                    Đã phục vụ
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Footer Actions */}
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                        <span className="text-slate-400">
+                          {items.length} món • Lượt gọi #{items[items.length - 1]?.orderNumber || 1}
+                        </span>
+                        <button
+                          onClick={() => setSelectedTable(table)}
+                          className="font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1"
+                        >
+                          <span>Xem hóa đơn & Chốt bill &rarr;</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
             )}
           </div>
         )}

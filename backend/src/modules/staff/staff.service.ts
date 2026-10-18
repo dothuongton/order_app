@@ -44,6 +44,46 @@ export class StaffService {
             ORDER BY sr.created_at ASC
         `, [tenantId]);
 
+        // Fetch active order items with notes for tables currently in OPEN session
+        const activeItemsRes = await query(`
+            SELECT 
+                ts.table_id,
+                o.order_number,
+                oi.id as order_item_id,
+                oi.snapshot_name as name,
+                oi.snapshot_price as price,
+                oi.note,
+                oip.id as part_id,
+                oip.status,
+                oip.quantity,
+                oip.cancel_reason,
+                oi.created_at
+            FROM table_sessions ts
+            JOIN orders o ON o.session_id = ts.id
+            JOIN order_items oi ON oi.order_id = o.id
+            JOIN order_item_parts oip ON oip.order_item_id = oi.id
+            WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
+            ORDER BY o.order_number ASC, oi.created_at ASC
+        `, [tenantId]);
+
+        const itemsByTable = new Map<string, any[]>();
+        activeItemsRes.rows.forEach(r => {
+            if (!itemsByTable.has(r.table_id)) {
+                itemsByTable.set(r.table_id, []);
+            }
+            itemsByTable.get(r.table_id)!.push({
+                orderItemId: r.order_item_id,
+                partId: r.part_id,
+                orderNumber: r.order_number,
+                name: r.name,
+                price: Number(r.price),
+                note: r.note,
+                status: r.status,
+                quantity: r.quantity,
+                cancelReason: r.cancel_reason
+            });
+        });
+
         // Fetch pending/active order counts per table
         const pendingItemsRes = await query(`
             SELECT 
@@ -70,8 +110,9 @@ export class StaffService {
             const counts = countsMap.get(table.table_id) || { pending: 0, accepted: 0, served: 0 };
             const hasCheckout = requestsRes.rows.some(r => r.table_id === table.table_id && r.type === 'CHECKOUT');
             const hasAssistance = requestsRes.rows.some(r => r.table_id === table.table_id && r.type === 'ASSISTANCE');
+            const activeItems = itemsByTable.get(table.table_id) || [];
 
-            // Derive display status according to section 4.3
+            // Display status: removed NEEDS_CLEANING (tables are immediately READY)
             let displayStatus = 'Sẵn sàng';
             if (!table.is_enabled) {
                 displayStatus = 'Ngừng sử dụng';
@@ -79,8 +120,6 @@ export class StaffService {
                 displayStatus = 'Yêu cầu thanh toán';
             } else if (table.active_session_id) {
                 displayStatus = 'Đang phục vụ';
-            } else if (table.readiness === 'NEEDS_CLEANING') {
-                displayStatus = 'Chờ dọn';
             }
 
             return {
@@ -88,7 +127,8 @@ export class StaffService {
                 displayStatus,
                 hasCheckout,
                 hasAssistance,
-                counts
+                counts,
+                activeItems
             };
         });
 
@@ -118,12 +158,9 @@ export class StaffService {
                 throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn đang bị tắt sử dụng' };
             }
 
+            // If table had legacy NEEDS_CLEANING, reset to READY
             if (table.readiness === 'NEEDS_CLEANING') {
-                throw {
-                    status: 400,
-                    code: 'TABLE_NOT_CLEAN',
-                    message: 'Bàn đang chờ dọn dẹp. Vui lòng xác nhận sẵn sàng trước khi mở phiên'
-                };
+                await client.query(`UPDATE tables SET readiness = 'READY' WHERE id = $1`, [tableId]);
             }
 
             // Check if there is already an open session
@@ -709,10 +746,10 @@ export class StaffService {
                 WHERE session_id = $1
             `, [sessionId]);
 
-            // 11. Set table readiness to NEEDS_CLEANING (F11)
+            // 11. Set table readiness to READY
             await client.query(`
                 UPDATE tables
-                SET readiness = 'NEEDS_CLEANING', updated_at = NOW()
+                SET readiness = 'READY', updated_at = NOW()
                 WHERE id = $1
             `, [session.table_id]);
 
@@ -799,10 +836,10 @@ export class StaffService {
                 WHERE session_id = $1
             `, [sessionId]);
 
-            // Set table readiness to NEEDS_CLEANING
+            // Set table readiness to READY
             await client.query(`
                 UPDATE tables
-                SET readiness = 'NEEDS_CLEANING', updated_at = NOW()
+                SET readiness = 'READY', updated_at = NOW()
                 WHERE id = $1
             `, [session.table_id]);
 

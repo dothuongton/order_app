@@ -14,28 +14,32 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
         // 1. Confirmed manual settlement summary
         const confirmedRes = await query(`
             SELECT 
-                COUNT(msc.id) as confirmed_sessions_count,
-                COALESCE(SUM(msc.amount), 0) as total_confirmed_amount
-            FROM manual_settlement_confirmations msc
-            WHERE msc.tenant_id = $1
+                COUNT(DISTINCT ts.id) as confirmed_sessions_count,
+                COALESCE(SUM(COALESCE(msc.amount, b.total_amount, 0)), 0) as total_confirmed_amount
+            FROM table_sessions ts
+            JOIN bills b ON b.session_id = ts.id
+            LEFT JOIN manual_settlement_confirmations msc ON msc.session_id = ts.id
+            WHERE ts.tenant_id = $1 AND (ts.status = 'CLOSED' OR b.status = 'CONFIRMED')
         `, [staff.tenantId]);
 
         const confirmedSessionsCount = parseInt(confirmedRes.rows[0].confirmed_sessions_count, 10);
         const totalConfirmedAmount = Number(confirmedRes.rows[0].total_confirmed_amount);
         const averageOrderValue = confirmedSessionsCount > 0 ? Math.round(totalConfirmedAmount / confirmedSessionsCount) : 0;
 
-        // 2. Count served items on CONFIRMED bills
+        // 2. Count served items across all served parts in this restaurant
         const servedItemsRes = await query(`
             SELECT 
-                bl.item_name,
-                SUM(bl.quantity_served) as total_served,
-                SUM(bl.subtotal) as total_amount
-            FROM bill_lines bl
-            JOIN bills b ON b.id = bl.bill_id
-            WHERE b.tenant_id = $1 AND b.status = 'CONFIRMED'
-            GROUP BY bl.item_name
+                oi.snapshot_name as item_name,
+                SUM(oip.quantity) as total_served,
+                SUM(oip.quantity * oi.snapshot_price) as total_amount
+            FROM order_item_parts oip
+            JOIN order_items oi ON oi.id = oip.order_item_id
+            JOIN orders o ON o.id = oi.order_id
+            JOIN table_sessions ts ON ts.id = o.session_id
+            WHERE ts.tenant_id = $1 AND oip.status = 'SERVED'
+            GROUP BY oi.snapshot_name
             ORDER BY total_served DESC
-            LIMIT 10
+            LIMIT 15
         `, [staff.tenantId]);
 
         // 3. Open sessions currently in progress
@@ -51,16 +55,17 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             SELECT 
                 ts.id as session_id,
                 t.table_number,
-                msc.amount as confirmed_amount,
-                msc.confirmed_at,
-                u.full_name as confirmed_by_name
-            FROM manual_settlement_confirmations msc
-            JOIN table_sessions ts ON ts.id = msc.session_id
+                COALESCE(msc.amount, b.total_amount, 0) as confirmed_amount,
+                COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) as confirmed_at,
+                COALESCE(u.full_name, 'Nhân viên') as confirmed_by_name
+            FROM table_sessions ts
             JOIN tables t ON t.id = ts.table_id
-            JOIN users u ON u.id = msc.confirmed_by
-            WHERE msc.tenant_id = $1
-            ORDER BY msc.confirmed_at DESC
-            LIMIT 20
+            JOIN bills b ON b.session_id = ts.id
+            LEFT JOIN manual_settlement_confirmations msc ON msc.session_id = ts.id
+            LEFT JOIN users u ON u.id = COALESCE(msc.confirmed_by, ts.closed_by)
+            WHERE ts.tenant_id = $1 AND (ts.status = 'CLOSED' OR b.status = 'CONFIRMED')
+            ORDER BY COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) DESC
+            LIMIT 25
         `, [staff.tenantId]);
 
         return res.json({

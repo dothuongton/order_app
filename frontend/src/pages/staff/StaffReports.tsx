@@ -4,15 +4,18 @@ import { BarChart3, TrendingUp, Utensils, CheckCircle, RefreshCw } from 'lucide-
 
 export const StaffReports: React.FC = () => {
   const [data, setData] = useState<any | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchReports = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const res = await request<any>('/staff/reports/summary');
       setData(res);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load reports', err);
+      setError(err.message || 'Lỗi khi tải dữ liệu báo cáo');
     } finally {
       setIsLoading(false);
     }
@@ -20,6 +23,8 @@ export const StaffReports: React.FC = () => {
 
   useEffect(() => {
     fetchReports();
+    const interval = setInterval(fetchReports, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   if (isLoading && !data) {
@@ -42,6 +47,12 @@ export const StaffReports: React.FC = () => {
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
+
+      {error && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-rose-700 text-xs font-semibold">
+          {error}
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-3">

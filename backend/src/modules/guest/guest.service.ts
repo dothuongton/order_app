@@ -434,6 +434,7 @@ export class GuestService {
                 oi.id as item_id,
                 oi.snapshot_name,
                 oi.snapshot_price,
+                oi.note,
                 oip.status,
                 oip.quantity,
                 oip.cancel_reason
@@ -485,6 +486,7 @@ export class GuestService {
                 name: row.snapshot_name,
                 price,
                 quantity: qty,
+                note: row.note,
                 status: row.status,
                 cancelReason: row.cancel_reason,
                 subtotal

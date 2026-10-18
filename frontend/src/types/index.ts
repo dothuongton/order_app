@@ -58,6 +58,7 @@ export interface BillRound {
     name: string;
     price: number;
     quantity: number;
+    note?: string;
     status: string;
     cancelReason?: string;
     subtotal: number;
@@ -88,6 +89,18 @@ export interface ServiceRequest {
   accepted_by_name?: string;
 }
 
+export interface TableActiveItem {
+  orderItemId: string;
+  partId: string;
+  orderNumber: number;
+  name: string;
+  price: number;
+  note?: string;
+  status: string;
+  quantity: number;
+  cancelReason?: string;
+}
+
 export interface StaffTable {
   table_id: string;
   table_number: string;
@@ -107,6 +120,7 @@ export interface StaffTable {
     accepted: number;
     served: number;
   };
+  activeItems?: TableActiveItem[];
 }
 
 export interface CartItem {

@@ -3,7 +3,7 @@ import { StaffTable, BillSummary } from '../../types/index.js';
 import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
-  X, Check, CheckCheck, Ban, CreditCard, Sparkles, AlertTriangle,
+  X, Check, CheckCheck, Ban, CreditCard, Sparkles, AlertTriangle, AlertCircle,
   Receipt, Clock, RefreshCw, MessageSquare
 } from 'lucide-react';
 
@@ -111,6 +111,19 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       onRefresh();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi phục vụ toàn bộ');
+    }
+  };
+
+  const handleAcceptAndServeAll = async () => {
+    if (!table.active_session_id) return;
+    try {
+      await request(`/staff/sessions/${table.active_session_id}/accept-all`, { method: 'POST' });
+      await request(`/staff/sessions/${table.active_session_id}/serve-all`, { method: 'POST' });
+      setActionSuccess('Đã tiếp nhận và phục vụ toàn bộ món!');
+      await loadSessionData();
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || 'Lỗi tiếp nhận và phục vụ');
     }
   };
 
@@ -226,22 +239,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
           </div>
         )}
 
-        {/* Quick Action for Needs Cleaning */}
-        {table.readiness === 'NEEDS_CLEANING' && (
-          <div className="p-4 bg-purple-50 border-b border-purple-100 flex items-center justify-between">
-            <div>
-              <h4 className="font-bold text-sm text-purple-900">Bàn đang chờ dọn</h4>
-              <p className="text-xs text-purple-700">Dọn sạch bàn và xác nhận sẵn sàng đón khách mới</p>
-            </div>
-            <button
-              onClick={handleMarkReady}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-sm min-h-[44px]"
-            >
-              Đã dọn sẵn sàng
-            </button>
-          </div>
-        )}
-
         {/* Tabs */}
         {table.active_session_id && (
           <div className="flex border-b border-slate-200 bg-white">
@@ -309,6 +306,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                 <span className="font-extrabold text-slate-900 text-sm">{item.quantity}x</span>
                                 <span className="font-bold text-slate-800 text-sm truncate">{item.name}</span>
                               </div>
+                              {item.note && (
+                                <div className="mt-1 px-2 py-0.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-1">
+                                  <span className="text-amber-600 font-bold">Ghi chú:</span> {item.note}
+                                </div>
+                              )}
                               <div className="flex items-center gap-2 mt-1">
                                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                                   item.status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
@@ -389,61 +391,76 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
                         <div className="space-y-1.5 pl-2 border-l-2 border-slate-200">
                           {round.items.map((item, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-700">{item.quantity}x</span>
-                                <span className={`truncate max-w-[200px] ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
-                                  {item.name}
+                            <div key={idx} className="space-y-0.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-700">{item.quantity}x</span>
+                                  <span className={`truncate max-w-[200px] ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
+                                    {item.name}
+                                  </span>
+                                  {item.status === 'CANCELLED' && (
+                                    <span className="text-[10px] text-rose-600 font-semibold">(Đã hủy)</span>
+                                  )}
+                                  {item.status === 'PENDING' && (
+                                    <span className="text-[10px] text-amber-600 font-semibold">(Chờ nhận)</span>
+                                  )}
+                                </div>
+                                <span className={`font-semibold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                                  {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
                                 </span>
-                                {item.status === 'CANCELLED' && (
-                                  <span className="text-[10px] text-rose-600 font-semibold">(Đã hủy)</span>
-                                )}
-                                {item.status === 'PENDING' && (
-                                  <span className="text-[10px] text-amber-600 font-semibold">(Chờ nhận)</span>
-                                )}
                               </div>
-                              <span className={`font-semibold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                                {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
-                              </span>
+                              {item.note && (
+                                <div className="text-[11px] text-amber-800 font-medium italic pl-4">
+                                  Ghi chú: {item.note}
+                                </div>
+                              )}
                             </div>
                           ))}
-                        </div>
                       </div>
-                    ))}
-
-                    {/* Pending subtotal note */}
-                    {billSummary.pendingTotal > 0 && (
-                      <div className="p-3 bg-amber-50/80 flex items-center justify-between text-xs border-t border-amber-100">
-                        <span className="text-amber-800 font-medium">Chờ tiếp nhận (chưa tính vào tổng):</span>
-                        <span className="font-bold text-amber-900">{billSummary.pendingTotal.toLocaleString('vi-VN')}đ</span>
-                      </div>
-                    )}
-
-                    {/* Total Row */}
-                    <div className="p-4 bg-slate-50 flex items-center justify-between border-t-2 border-slate-200">
-                      <div>
-                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block">Tổng thanh toán</span>
-                        <span className="text-[11px] text-slate-400">(Các món đã phục vụ/tiếp nhận)</span>
-                      </div>
-                      <span className="text-2xl font-black text-orange-600">
-                        {billSummary.validBillTotal.toLocaleString('vi-VN')}đ
-                      </span>
                     </div>
-                  </div>
+                  ))}
 
-                  {/* Readiness check alert (AT12) */}
-                  {!billSummary.canConfirmPayment && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs text-amber-900">
+                  {/* Pending subtotal note */}
+                  {billSummary.pendingTotal > 0 && (
+                    <div className="p-3 bg-amber-50/80 flex items-center justify-between text-xs border-t border-amber-100">
+                      <span className="text-amber-800 font-medium">Chờ tiếp nhận (chưa tính vào tổng):</span>
+                      <span className="font-bold text-amber-900">{billSummary.pendingTotal.toLocaleString('vi-VN')}đ</span>
+                    </div>
+                  )}
+
+                  {/* Total Row */}
+                  <div className="p-4 bg-slate-50 flex items-center justify-between border-t-2 border-slate-200">
+                    <div>
+                      <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block">Tổng thanh toán</span>
+                      <span className="text-[11px] text-slate-400">(Các món đã phục vụ/tiếp nhận)</span>
+                    </div>
+                    <span className="text-2xl font-black text-orange-600">
+                      {billSummary.validBillTotal.toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick serve & settle option if unresolved items remain */}
+                {billSummary.unresolvedCount > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 space-y-2.5">
+                    <div className="flex items-start gap-2.5 text-xs text-amber-900">
                       <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                       <div>
-                        <strong>Chưa đủ điều kiện thanh toán:</strong>
-                        <p className="mt-0.5">
-                          Còn <strong>{billSummary.unresolvedCount} món</strong> đang chờ tiếp nhận hoặc chưa phục vụ.
-                          Vui lòng chuyển sang tab <strong>Đơn món</strong> để bấm <strong>Đã phục vụ</strong> hoặc <strong>Hủy món</strong> trước khi thanh toán.
+                        <strong>Còn {billSummary.unresolvedCount} món chưa phục vụ xong:</strong>
+                        <p className="mt-0.5 text-amber-800">
+                          Khách muốn thanh toán ngay? Bấm nút bên dưới để tự động tiếp nhận & phục vụ tất cả món để chốt bill.
                         </p>
                       </div>
                     </div>
-                  )}
+                    <button
+                      onClick={handleAcceptAndServeAll}
+                      className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 min-h-[44px]"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>⚡ Tiếp nhận & Phục vụ tất cả để chốt bill ngay</span>
+                    </button>
+                  </div>
+                )}
 
                   {/* Main Action: Confirm Payment and Close Session (F10) */}
                   {hasPermission('session.confirm_payment_close') ? (

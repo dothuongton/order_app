@@ -182,19 +182,9 @@ describe('QR Ordering System v1.2 - Acceptance Tests', () => {
         `, [guestJoin.sessionId]);
         expect(sessionCheck.rows[0].revoked_at).not.toBeNull();
 
-        // Table readiness is now NEEDS_CLEANING (AT21)
+        // Table readiness is now READY (no cleaning required)
         const tableCheck = await query(`SELECT readiness FROM tables WHERE id = $1`, [tableA01Id]);
-        expect(tableCheck.rows[0].readiness).toBe('NEEDS_CLEANING');
-
-        // Cannot reopen while NEEDS_CLEANING
-        await expect(StaffService.openSession(tenantId, tableA01Id, waiterId)).rejects.toMatchObject({
-            code: 'TABLE_NOT_CLEAN'
-        });
-
-        // Mark ready after cleaning (F11)
-        await StaffService.markTableReady(tenantId, tableA01Id);
-        const readyCheck = await query(`SELECT readiness FROM tables WHERE id = $1`, [tableA01Id]);
-        expect(readyCheck.rows[0].readiness).toBe('READY');
+        expect(tableCheck.rows[0].readiness).toBe('READY');
     });
 
     it('AT20: F12 close without charge for 0đ session', async () => {
