@@ -1,0 +1,9 @@
+{
+  "name": "QR Order v1.2",
+  "short_name": "QROrder",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ea580c",
+  "description": "Hệ thống gọi món tại bàn qua QR code v1.2"
+}
