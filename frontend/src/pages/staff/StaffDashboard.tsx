@@ -461,8 +461,8 @@ export const StaffDashboard: React.FC = () => {
             title={`Web Push: ${pushState === 'granted' ? 'Đã bật' : pushState === 'http_insecure' ? 'Cần kết nối HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
           >
             <BellRing className="w-4 h-4" />
-            <span className="hidden sm:inline">
-              {pushState === 'granted' && isPushSubscribed ? 'Push bật' : pushState === 'http_insecure' ? 'Cần HTTPS' : 'Web Push'}
+            <span className="text-[11px] font-bold">
+              {pushState === 'granted' && isPushSubscribed ? 'Đã bật Push' : pushState === 'http_insecure' ? 'Cần HTTPS' : 'Web Push'}
             </span>
           </button>
 
@@ -513,6 +513,22 @@ export const StaffDashboard: React.FC = () => {
             <span>iPhone: Thêm vào Màn hình chính để nhận chuông khi khóa máy</span>
           </div>
           <span className="text-[10px] text-amber-300 font-bold underline shrink-0">Xem cách cài</span>
+        </div>
+      )}
+
+      {/* Push notification prompt if not yet subscribed */}
+      {(!isPushSubscribed && (pushState === 'default' || pushState === 'granted')) && (
+        <div
+          onClick={() => setShowPushModal(true)}
+          className="bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 px-4 py-2.5 text-xs font-black flex items-center justify-between cursor-pointer transition shadow-md"
+        >
+          <div className="flex items-center gap-2">
+            <BellRing className="w-4 h-4 animate-bounce shrink-0 text-slate-950" />
+            <span>Nhấn để Bật Web Push (nhận chuông thông báo khi iPhone tắt/khóa màn hình)</span>
+          </div>
+          <span className="bg-slate-950 text-white text-[10px] px-2.5 py-1 rounded-lg font-black uppercase tracking-wider shrink-0 shadow-xs">
+            Bật ngay
+          </span>
         </div>
       )}
 
