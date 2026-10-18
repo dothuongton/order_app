@@ -186,8 +186,13 @@ CREATE TABLE IF NOT EXISTS service_requests (
     completed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     completed_at TIMESTAMPTZ,
     cancel_reason VARCHAR(255),
+    call_count INT NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS call_count INT NOT NULL DEFAULT 1;
+ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 -- Partial index: Tối đa 1 yêu cầu mở (PENDING hoặc ACCEPTED) cho mỗi loại trong một phiên
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_open_service_request

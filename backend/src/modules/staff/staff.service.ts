@@ -34,14 +34,16 @@ export class StaffService {
                 sr.type,
                 sr.status,
                 sr.note,
+                COALESCE(sr.call_count, 1) as call_count,
                 sr.created_at,
+                COALESCE(sr.updated_at, sr.created_at) as updated_at,
                 t.table_number,
                 u.full_name as accepted_by_name
             FROM service_requests sr
             JOIN tables t ON t.id = sr.table_id
             LEFT JOIN users u ON u.id = sr.accepted_by
             WHERE sr.tenant_id = $1 AND sr.status IN ('PENDING', 'ACCEPTED')
-            ORDER BY sr.created_at ASC
+            ORDER BY COALESCE(sr.updated_at, sr.created_at) DESC
         `, [tenantId]);
 
         // Fetch active order items with notes for tables currently in OPEN session

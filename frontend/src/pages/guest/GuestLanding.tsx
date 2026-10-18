@@ -72,7 +72,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl">
+    <div className="min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
       {/* Top Bar / Restaurant & Table Info */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-xs">
         <div>
@@ -138,7 +138,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
 
       {/* Floating Cart Bar (when items are in cart and session is open) */}
       {cartCount > 0 && session && !isSessionClosed && (
-        <div className="fixed bottom-20 inset-x-0 z-30 px-4 max-w-md mx-auto pointer-events-none">
+        <div className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] inset-x-0 z-30 px-4 max-w-md mx-auto pointer-events-none">
           <button
             onClick={() => setIsCartOpen(true)}
             className="pointer-events-auto w-full min-h-[52px] bg-slate-900 hover:bg-black text-white font-bold rounded-2xl p-3.5 shadow-2xl flex items-center justify-between active:scale-[0.98] transition border border-slate-700"
@@ -160,7 +160,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       )}
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200/80 px-2 py-2 max-w-md mx-auto flex items-center justify-around shadow-lg">
+      <nav className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200/80 px-2 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-w-md mx-auto flex items-center justify-around shadow-lg">
         <button
           onClick={() => setActiveTab('menu')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${

@@ -7,6 +7,7 @@ export const GuestBill: React.FC = () => {
     billSummary,
     table,
     tenant,
+    session,
     activeServiceRequests,
     isSessionClosed,
     requestAssistance,
@@ -20,7 +21,7 @@ export const GuestBill: React.FC = () => {
   const [showAssistanceModal, setShowAssistanceModal] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const isClosed = isSessionClosed || billSummary?.sessionStatus === 'CLOSED';
+  const isClosed = isSessionClosed || !session || session.status === 'CLOSED' || billSummary?.sessionStatus === 'CLOSED';
   const checkoutRequest = !isClosed ? activeServiceRequests.find(r => r.type === 'CHECKOUT') : null;
   const assistanceRequest = !isClosed ? activeServiceRequests.find(r => r.type === 'ASSISTANCE') : null;
 
@@ -79,7 +80,14 @@ export const GuestBill: React.FC = () => {
         <div className="bg-amber-500 text-white rounded-2xl p-4 shadow-md flex items-center gap-3 animate-pulse-attention">
           <CreditCard className="w-6 h-6 flex-shrink-0" />
           <div className="flex-1">
-            <h4 className="font-bold text-sm">Đã gửi yêu cầu thanh toán</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-sm">Đã gửi yêu cầu thanh toán</h4>
+              {checkoutRequest.call_count && checkoutRequest.call_count > 1 && (
+                <span className="text-[10px] bg-amber-700 font-extrabold px-2 py-0.5 rounded-full">
+                  Nhắc lần {checkoutRequest.call_count}
+                </span>
+              )}
+            </div>
             <p className="text-xs opacity-90 mt-0.5">
               Nhân viên sẽ mang hóa đơn tới bàn để kiểm tra và nhận thanh toán ngoài hệ thống.
             </p>
@@ -91,7 +99,14 @@ export const GuestBill: React.FC = () => {
         <div className="bg-blue-600 text-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
           <Bell className="w-6 h-6 flex-shrink-0" />
           <div className="flex-1">
-            <h4 className="font-bold text-sm">Đã gọi nhân viên hỗ trợ</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-sm">Đã gọi nhân viên hỗ trợ</h4>
+              {assistanceRequest.call_count && assistanceRequest.call_count > 1 && (
+                <span className="text-[10px] bg-blue-800 font-extrabold px-2 py-0.5 rounded-full">
+                  Gọi lần {assistanceRequest.call_count}
+                </span>
+              )}
+            </div>
             <p className="text-xs opacity-90 mt-0.5">
               Nhân viên đang tới bàn để hỗ trợ quý khách.
             </p>
@@ -197,11 +212,15 @@ export const GuestBill: React.FC = () => {
 
           <button
             onClick={handleCheckoutClick}
-            disabled={isRequestingCheckout || !!checkoutRequest}
+            disabled={isRequestingCheckout}
             className="min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-md active:scale-95 transition"
           >
             <CreditCard className="w-4 h-4" />
-            <span>{checkoutRequest ? 'Đã yêu cầu' : 'Yêu cầu thanh toán'}</span>
+            <span>
+              {checkoutRequest
+                ? `Nhắc thanh toán ${checkoutRequest.call_count && checkoutRequest.call_count > 1 ? `(x${checkoutRequest.call_count})` : ''}`
+                : 'Yêu cầu thanh toán'}
+            </span>
           </button>
         </div>
       )}

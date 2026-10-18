@@ -85,7 +85,9 @@ export interface ServiceRequest {
   status: 'PENDING' | 'ACCEPTED' | 'COMPLETED' | 'CANCELLED';
   note: string | null;
   table_number: string;
+  call_count?: number;
   created_at: string;
+  updated_at?: string;
   accepted_by_name?: string;
 }
 

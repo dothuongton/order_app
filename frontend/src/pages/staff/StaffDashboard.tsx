@@ -84,12 +84,15 @@ export const StaffDashboard: React.FC = () => {
     const handleServiceRequestCreated = (payload: any) => {
       const tableName = payload?.tableName || 'Bàn';
       const isCheckout = payload?.type === 'CHECKOUT';
+      const count = payload?.callCount;
       playAlertSound(tableName, payload?.type);
       showToast({
-        title: isCheckout ? `💳 Yêu cầu thanh toán (${tableName})` : `🙋 Khách gọi phục vụ (${tableName})`,
+        title: isCheckout
+          ? `💳 Yêu cầu thanh toán (${tableName}) ${count && count > 1 ? `• Nhắc lần ${count}` : ''}`
+          : `🙋 Khách gọi phục vụ (${tableName}) ${count && count > 1 ? `• Gọi lần ${count}` : ''}`,
         message: isCheckout
-          ? 'Khách yêu cầu thanh toán hóa đơn tại bàn'
-          : `Khách cần nhân viên hỗ trợ${payload?.note ? ': ' + payload.note : ''}`,
+          ? (count && count > 1 ? `Khách tại ${tableName} vừa nhắc lại yêu cầu thanh toán (lần ${count})` : 'Khách yêu cầu thanh toán hóa đơn tại bàn')
+          : `Khách cần nhân viên hỗ trợ${payload?.note ? ': ' + payload.note : ''}${count && count > 1 ? ` (Lần ${count})` : ''}`,
         type: 'warning',
         duration: 8000
       });
@@ -236,7 +239,7 @@ export const StaffDashboard: React.FC = () => {
   const checkoutRequestsCount = openRequests.filter(r => r.type === 'CHECKOUT').length;
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col max-w-lg mx-auto shadow-2xl pb-24">
+    <div className="min-h-screen bg-slate-100 flex flex-col max-w-lg mx-auto shadow-2xl pb-[calc(6rem+env(safe-area-inset-bottom))]">
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 py-3 shadow-md flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -472,7 +475,7 @@ export const StaffDashboard: React.FC = () => {
               </div>
 
               {/* Classification Segmented Control Bar */}
-              <div className="grid grid-cols-4 p-1 bg-slate-200/80 rounded-2xl gap-1 text-[11px] font-bold">
+              <div className="grid grid-cols-4 p-1 bg-slate-200/80 rounded-2xl gap-1 text-[10px] sm:text-[11px] font-bold">
                 <button
                   onClick={() => setOrderStatusFilter('all')}
                   className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
@@ -481,8 +484,8 @@ export const StaffDashboard: React.FC = () => {
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <span>Tất cả</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  <span className="truncate">Tất cả</span>
+                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     orderStatusFilter === 'all' ? 'bg-slate-100 text-slate-700' : 'bg-slate-300 text-slate-600'
                   }`}>
                     {allActiveItems.length}
@@ -497,8 +500,8 @@ export const StaffDashboard: React.FC = () => {
                       : 'text-slate-600 hover:text-amber-700'
                   }`}
                 >
-                  <span className="truncate">Xác nhận đơn</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  <span className="truncate">Chờ nhận</span>
+                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     orderStatusFilter === 'pending'
                       ? 'bg-amber-700 text-white'
                       : countPending > 0
@@ -517,8 +520,8 @@ export const StaffDashboard: React.FC = () => {
                       : 'text-slate-600 hover:text-blue-700'
                   }`}
                 >
-                  <span className="truncate">Cần phục vụ</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  <span className="truncate">Phục vụ</span>
+                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     orderStatusFilter === 'accepted'
                       ? 'bg-blue-800 text-white'
                       : countAccepted > 0
@@ -537,8 +540,8 @@ export const StaffDashboard: React.FC = () => {
                       : 'text-slate-600 hover:text-emerald-700'
                   }`}
                 >
-                  <span className="truncate">Đã hoàn tất</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  <span className="truncate">Hoàn tất</span>
+                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     orderStatusFilter === 'served'
                       ? 'bg-emerald-800 text-white'
                       : countServed > 0
@@ -642,47 +645,48 @@ export const StaffDashboard: React.FC = () => {
                                 : 'bg-slate-50 border-slate-200 opacity-60'
                             }`}
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-black text-slate-900 text-sm">{item.quantity}x</span>
-                                  <span className="font-extrabold text-slate-900 text-sm truncate">{item.name}</span>
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                    item.status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
-                                    item.status === 'ACCEPTED' ? 'bg-blue-100 text-blue-800' :
-                                    item.status === 'SERVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                                  }`}>
-                                    {item.status === 'PENDING' ? 'Chờ nhận' :
-                                     item.status === 'ACCEPTED' ? 'Cần phục vụ' :
-                                     item.status === 'SERVED' ? 'Đã phục vụ' : 'Đã hủy'}
-                                  </span>
+                            <div className="space-y-2">
+                              {/* Row 1: Quantity + Dish Name + Status (Full Width, never truncated) */}
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-baseline gap-2 min-w-0 flex-1">
+                                  <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">{item.quantity}x</span>
+                                  <span className="font-extrabold text-slate-900 text-sm sm:text-base break-words line-clamp-2 leading-tight">{item.name}</span>
                                 </div>
-
-                                {/* Customer Note Display */}
-                                {item.note && (
-                                  <div className="mt-1.5 px-2.5 py-1 bg-amber-100/90 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 flex items-center gap-1.5">
-                                    <span className="text-amber-700">📌 Ghi chú:</span>
-                                    <span>{item.note}</span>
-                                  </div>
-                                )}
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                  item.status === 'PENDING' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                                  item.status === 'ACCEPTED' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                                  item.status === 'SERVED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800'
+                                }`}>
+                                  {item.status === 'PENDING' ? 'Chờ nhận' :
+                                   item.status === 'ACCEPTED' ? 'Cần phục vụ' :
+                                   item.status === 'SERVED' ? 'Đã phục vụ' : 'Đã hủy'}
+                                </span>
                               </div>
 
-                              {/* Inline Item Actions */}
-                              <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                              {/* Row 2: Customer Note (if any) */}
+                              {item.note && (
+                                <div className="px-2.5 py-1.5 bg-amber-100/90 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 flex items-start gap-1.5 shadow-2xs">
+                                  <span className="text-amber-700 shrink-0">📌 Ghi chú:</span>
+                                  <span className="break-words font-medium">{item.note}</span>
+                                </div>
+                              )}
+
+                              {/* Row 3: Action Buttons (Spacious on mobile) */}
+                              <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100/80">
                                 {item.status === 'PENDING' && hasPermission('order.manage') && (
                                   <button
                                     onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[36px]"
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs min-h-[40px] flex items-center justify-center gap-1"
                                   >
-                                    Nhận
+                                    <span>Nhận món</span>
                                   </button>
                                 )}
                                 {item.status === 'ACCEPTED' && hasPermission('order.serve') && (
                                   <button
                                     onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[36px]"
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs min-h-[40px] flex items-center justify-center gap-1"
                                   >
-                                    Đã phục vụ
+                                    <span>Đã phục vụ</span>
                                   </button>
                                 )}
                                 {(item.status === 'PENDING' || item.status === 'ACCEPTED') && hasPermission('order.cancel') && (
@@ -698,15 +702,15 @@ export const StaffDashboard: React.FC = () => {
                                       setCancelReason('Hết nguyên liệu');
                                       setMarkItemOutOfStock(true);
                                     }}
-                                    className="px-2 py-1.5 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition min-h-[36px] flex items-center gap-1"
+                                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition min-h-[40px] flex items-center gap-1 text-xs font-bold"
                                     title="Hủy món vì hết nguyên liệu"
                                   >
                                     <Ban className="w-3.5 h-3.5" />
-                                    <span className="text-[11px] font-bold">Hủy món</span>
+                                    <span>Hủy món</span>
                                   </button>
                                 )}
                                 {item.status === 'SERVED' && (
-                                  <span className="text-emerald-700 font-bold text-xs flex items-center gap-1 px-1 py-1">
+                                  <span className="text-emerald-700 font-bold text-xs flex items-center gap-1 py-1">
                                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                                     <span>Hoàn tất</span>
                                   </span>
@@ -737,92 +741,167 @@ export const StaffDashboard: React.FC = () => {
           );
         })()}
 
-        {/* TAB 3: Service Requests Feed */}
-        {activeTab === 'requests' && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="font-extrabold text-slate-900 text-lg">Yêu cầu hỗ trợ & Thanh toán</h2>
-              <p className="text-xs text-slate-500">Khách gọi nhân viên hoặc yêu cầu thanh toán</p>
-            </div>
+        {/* TAB 3: Service Requests Feed - Grouped by Table */}
+        {activeTab === 'requests' && (() => {
+          // Group openRequests by table_id
+          const requestsGroupedByTable = openRequests.reduce((acc, req) => {
+            const tid = req.table_id || 'unknown';
+            if (!acc[tid]) {
+              acc[tid] = {
+                tableNumber: req.table_number,
+                tableId: req.table_id,
+                requests: []
+              };
+            }
+            acc[tid].requests.push(req);
+            return acc;
+          }, {} as Record<string, { tableNumber: string; tableId: string; requests: ServiceRequest[] }>);
 
-            {openRequests.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-6">
-                <Bell className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                <h3 className="font-bold text-slate-800">Không có yêu cầu nào</h3>
-                <p className="text-xs text-slate-400 mt-1">Khi khách bấm gọi hoặc xin thanh toán sẽ hiện tại đây</p>
-              </div>
-            ) : (
-              openRequests.map((req) => (
-                <div
-                  key={req.id}
-                  className={`bg-white rounded-2xl p-4 border shadow-sm space-y-3 ${
-                    req.type === 'CHECKOUT' ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-black text-slate-900 text-base">Bàn {req.table_number}</span>
-                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                          req.type === 'CHECKOUT' ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white'
-                        }`}>
-                          {req.type === 'CHECKOUT' ? 'Yêu cầu thanh toán' : 'Gọi hỗ trợ'}
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-slate-400 block mt-1">
-                        Gửi lúc {new Date(req.created_at).toLocaleTimeString('vi-VN')}
-                      </span>
-                    </div>
+          const tableEntries = Object.values(requestsGroupedByTable);
 
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      req.status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {req.status === 'PENDING' ? 'Chưa nhận' : `Đã nhận (${req.accepted_by_name || 'NV'})`}
-                    </span>
-                  </div>
-
-                  {req.note && (
-                    <p className="text-xs text-slate-600 italic bg-white p-2 rounded-xl border border-slate-100">
-                      Ghi chú: {req.note}
-                    </p>
-                  )}
-
-                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                    {req.status === 'PENDING' && (
-                      <button
-                        onClick={() => handleAcceptRequest(req.id)}
-                        className="flex-1 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl shadow-xs min-h-[44px]"
-                      >
-                        Tiếp nhận
-                      </button>
-                    )}
-
-                    {req.type === 'ASSISTANCE' && (
-                      <button
-                        onClick={() => handleCompleteRequest(req.id)}
-                        className="flex-1 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-xs min-h-[44px]"
-                      >
-                        Đã hỗ trợ xong
-                      </button>
-                    )}
-
-                    {req.type === 'CHECKOUT' && (
-                      <button
-                        onClick={() => {
-                          const table = tables.find(t => t.table_id === req.table_id);
-                          if (table) setSelectedTable(table);
-                        }}
-                        className="flex-1 py-2 bg-orange-600 text-white font-bold text-xs rounded-xl shadow-xs min-h-[44px]"
-                      >
-                        Mở tổng bill bàn để thu tiền
-                      </button>
-                    )}
-                  </div>
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-extrabold text-slate-900 text-lg">Yêu cầu hỗ trợ & Thanh toán</h2>
+                  <p className="text-xs text-slate-500">Phân nhóm và hiển thị số lần theo từng bàn</p>
                 </div>
-              ))
-            )}
-          </div>
-        )}
+                <button
+                  onClick={fetchDashboard}
+                  className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+
+              {tableEntries.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-6">
+                  <Bell className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <h3 className="font-bold text-slate-800">Không có yêu cầu nào</h3>
+                  <p className="text-xs text-slate-400 mt-1">Khi khách bấm gọi hoặc xin thanh toán sẽ hiện tại đây</p>
+                </div>
+              ) : (
+                tableEntries.map((group) => {
+                  const checkoutReq = group.requests.find(r => r.type === 'CHECKOUT');
+                  const assistanceReq = group.requests.find(r => r.type === 'ASSISTANCE');
+                  const tableObj = tables.find(t => t.table_id === group.tableId);
+
+                  return (
+                    <div
+                      key={group.tableId}
+                      className="bg-white rounded-3xl p-4 border border-slate-200 shadow-sm space-y-3.5"
+                    >
+                      {/* Table Card Header */}
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-slate-900 text-lg">Bàn {group.tableNumber}</span>
+                          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                            {group.requests.length} yêu cầu
+                          </span>
+                        </div>
+                        {tableObj && (
+                          <button
+                            onClick={() => setSelectedTable(tableObj)}
+                            className="text-xs font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 min-h-[36px]"
+                          >
+                            <span>Xem bàn &rarr;</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Checkout Request if present */}
+                      {checkoutReq && (
+                        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-amber-900 font-extrabold text-sm">
+                              <CreditCard className="w-4 h-4 text-amber-600 shrink-0" />
+                              <span>Yêu cầu thanh toán</span>
+                              {checkoutReq.call_count && checkoutReq.call_count > 1 ? (
+                                <span className="text-[11px] bg-amber-600 text-white font-black px-2 py-0.5 rounded-full animate-pulse">
+                                  Nhắc {checkoutReq.call_count} lần
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-amber-200/80 text-amber-900 font-bold px-2 py-0.5 rounded-full">
+                                  Lần 1
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {new Date(checkoutReq.updated_at || checkoutReq.created_at).toLocaleTimeString('vi-VN')}
+                            </span>
+                          </div>
+
+                          {checkoutReq.note && (
+                            <p className="text-xs text-amber-800 italic bg-white/80 p-2 rounded-xl border border-amber-200/60">
+                              Ghi chú: {checkoutReq.note}
+                            </p>
+                          )}
+
+                          <button
+                            onClick={() => {
+                              if (tableObj) setSelectedTable(tableObj);
+                            }}
+                            className="w-full py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[44px] flex items-center justify-center gap-1.5"
+                          >
+                            <CreditCard className="w-4 h-4" />
+                            <span>Mở tổng bill bàn {group.tableNumber} để chốt tiền</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Assistance Request if present */}
+                      {assistanceReq && (
+                        <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-blue-900 font-extrabold text-sm">
+                              <Bell className="w-4 h-4 text-blue-600 shrink-0" />
+                              <span>Khách gọi hỗ trợ</span>
+                              {assistanceReq.call_count && assistanceReq.call_count > 1 ? (
+                                <span className="text-[11px] bg-blue-600 text-white font-black px-2 py-0.5 rounded-full animate-pulse">
+                                  Gọi {assistanceReq.call_count} lần
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-blue-200/80 text-blue-900 font-bold px-2 py-0.5 rounded-full">
+                                  Lần 1
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {new Date(assistanceReq.updated_at || assistanceReq.created_at).toLocaleTimeString('vi-VN')}
+                            </span>
+                          </div>
+
+                          {assistanceReq.note && (
+                            <div className="px-2.5 py-1.5 bg-white border border-blue-200 rounded-xl text-xs text-blue-900 font-medium">
+                              📌 "{assistanceReq.note}"
+                            </div>
+                          )}
+
+                          <div className="flex gap-2">
+                            {assistanceReq.status === 'PENDING' && (
+                              <button
+                                onClick={() => handleAcceptRequest(assistanceReq.id)}
+                                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[44px]"
+                              >
+                                Tiếp nhận
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleCompleteRequest(assistanceReq.id)}
+                              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[44px]"
+                            >
+                              Đã hỗ trợ xong
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          );
+        })()}
 
         {/* TAB 4: Reports & Analytics */}
         {activeTab === 'reports' && <StaffReports />}
@@ -832,7 +911,7 @@ export const StaffDashboard: React.FC = () => {
       </main>
 
       {/* Staff Bottom Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-2 py-2 max-w-lg mx-auto flex items-center justify-around shadow-lg">
+      <nav className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-2 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-w-lg mx-auto flex items-center justify-around shadow-lg">
         <button
           onClick={() => setActiveTab('tables')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${

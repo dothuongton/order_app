@@ -59,6 +59,9 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (data.session) {
         setIsSessionClosed(false);
+      } else {
+        setIsSessionClosed(true);
+        setActiveServiceRequests([]);
       }
     } finally {
       setIsLoading(false);
@@ -125,6 +128,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const handleSessionClosed = (payload?: any) => {
       setIsSessionClosed(true);
+      setSession(null);
       setActiveServiceRequests([]);
       localStorage.removeItem('guest_token');
       setCart([]);

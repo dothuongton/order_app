@@ -136,6 +136,7 @@ describe('QR Ordering System v1.2 - Acceptance Tests', () => {
         const req2 = await GuestService.createServiceRequest(tenantId, guestJoin.sessionId, tableA01Id, 'CHECKOUT');
         expect(req2.isExisting).toBe(true);
         expect(req2.request.id).toBe(req1.request.id);
+        expect(req2.callCount).toBe(2);
     });
 
     it('AT12: Confirming payment when items are still pending/unresolved is blocked', async () => {

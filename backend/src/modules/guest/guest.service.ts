@@ -517,26 +517,60 @@ export class GuestService {
         return await withTransaction(async (client) => {
             // Check if there is already an open request of this type
             const existingRes = await client.query(`
-                SELECT id, type, status, created_at
+                SELECT id, type, status, note, COALESCE(call_count, 1) as call_count, created_at
                 FROM service_requests
                 WHERE session_id = $1 AND type = $2 AND status IN ('PENDING', 'ACCEPTED')
             `, [sessionId, type]);
 
             if (existingRes.rows.length > 0) {
-                // Return existing request without duplication (AT10)
+                const existing = existingRes.rows[0];
+                const updatedCount = Number(existing.call_count) + 1;
+
+                const updateRes = await client.query(`
+                    UPDATE service_requests
+                    SET call_count = call_count + 1,
+                        note = COALESCE($1, note),
+                        updated_at = NOW()
+                    WHERE id = $2
+                    RETURNING id, type, status, note, call_count, created_at, updated_at
+                `, [note ? note.trim() : null, existing.id]);
+
+                const updated = updateRes.rows[0];
+
+                const tableRes = await client.query(`SELECT table_number FROM tables WHERE id = $1`, [tableId]);
+                const tableName = tableRes.rows[0]?.table_number ? `Bàn ${tableRes.rows[0].table_number}` : 'Bàn';
+
+                // Broadcast to staff (sound & toast alert)
+                broadcastToStaff(tenantId, 'service_request.created', {
+                    requestId: updated.id,
+                    type: updated.type,
+                    tableId,
+                    tableName,
+                    sessionId,
+                    note: updated.note,
+                    callCount: updated.call_count,
+                    createdAt: updated.updated_at || updated.created_at
+                });
+
+                broadcastToStaff(tenantId, 'service_request.updated', {
+                    requestId: updated.id,
+                    sessionId
+                });
+
                 return {
-                    request: existingRes.rows[0],
+                    request: updated,
                     isExisting: true,
+                    callCount: updated.call_count,
                     message: type === 'CHECKOUT' 
-                        ? 'Yêu cầu thanh toán của bạn đang được nhân viên xử lý' 
-                        : 'Yêu cầu hỗ trợ của bạn đang được nhân viên tiếp nhận'
+                        ? `Đã gửi lại yêu cầu thanh toán (Nhắc lần ${updated.call_count})` 
+                        : `Đã gửi lại gọi nhân viên (Nhắc lần ${updated.call_count})`
                 };
             }
 
             const res = await client.query(`
                 INSERT INTO service_requests (tenant_id, session_id, table_id, type, note)
                 VALUES ($1, $2, $3, $4, $5)
-                RETURNING id, type, status, note, created_at
+                RETURNING id, type, status, note, call_count, created_at, updated_at
             `, [tenantId, sessionId, tableId, type, note || null]);
 
             const created = res.rows[0];
@@ -552,6 +586,7 @@ export class GuestService {
                 tableName,
                 sessionId,
                 note: created.note,
+                callCount: 1,
                 createdAt: created.created_at
             });
 
@@ -564,6 +599,7 @@ export class GuestService {
             return {
                 request: created,
                 isExisting: false,
+                callCount: 1,
                 message: type === 'CHECKOUT'
                     ? 'Đã gửi yêu cầu thanh toán, nhân viên sẽ tới bàn ngay'
                     : 'Đã gọi nhân viên hỗ trợ, vui lòng đợi trong giây lát'
@@ -574,10 +610,10 @@ export class GuestService {
     // 7. Get open service requests for session
     static async getSessionServiceRequests(sessionId: string) {
         const res = await query(`
-            SELECT id, type, status, note, created_at
+            SELECT id, type, status, note, COALESCE(call_count, 1) as call_count, created_at, updated_at
             FROM service_requests
             WHERE session_id = $1 AND status IN ('PENDING', 'ACCEPTED')
-            ORDER BY created_at DESC
+            ORDER BY COALESCE(updated_at, created_at) DESC
         `, [sessionId]);
 
         return res.rows;
