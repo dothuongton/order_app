@@ -3,13 +3,14 @@ import { Server as HTTPServer } from 'http';
 
 let io: SocketIOServer | null = null;
 
-export function initSocketIO(httpServer: HTTPServer, allowedOrigins: string[]): SocketIOServer {
+export function initSocketIO(httpServer: HTTPServer, allowedOrigins?: string[]): SocketIOServer {
     io = new SocketIOServer(httpServer, {
         cors: {
-            origin: allowedOrigins,
+            origin: true,
             credentials: true,
             methods: ['GET', 'POST']
         },
+        transports: ['websocket', 'polling'],
         pingTimeout: 20000,
         pingInterval: 25000
     });

@@ -61,7 +61,13 @@ export const StaffDashboard: React.FC = () => {
   useEffect(() => {
     if (!socket || !currentTenant?.id) return;
 
-    socket.emit('join_staff_room', currentTenant.id);
+    const joinRoom = () => {
+      socket.emit('join_staff_room', currentTenant.id);
+    };
+
+    joinRoom();
+    socket.on('connect', joinRoom);
+    socket.on('reconnect', joinRoom);
 
     const handleOrderCreated = (payload: any) => {
       const tableName = payload?.tableName || 'Bàn';
@@ -100,10 +106,12 @@ export const StaffDashboard: React.FC = () => {
     socket.on('service_request.updated', handleUpdate);
     socket.on('table.updated', handleUpdate);
 
-    // Polling sync fallback every 15s (section 12.1)
-    const interval = setInterval(fetchDashboard, 15000);
+    // Fast polling backup (3s) to guarantee zero delay between guest and staff
+    const interval = setInterval(fetchDashboard, 3000);
 
     return () => {
+      socket.off('connect', joinRoom);
+      socket.off('reconnect', joinRoom);
       socket.off('order.created', handleOrderCreated);
       socket.off('order.updated', handleUpdate);
       socket.off('service_request.created', handleServiceRequestCreated);

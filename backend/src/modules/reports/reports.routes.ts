@@ -20,7 +20,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             JOIN bills b ON b.session_id = ts.id
             LEFT JOIN manual_settlement_confirmations msc ON msc.session_id = ts.id
             WHERE ts.tenant_id = $1 
-              AND b.status = 'CONFIRMED'
+              AND (b.status = 'CONFIRMED' OR msc.id IS NOT NULL OR ts.close_reason = 'CONFIRMED_SETTLED')
               AND COALESCE(msc.amount, b.total_amount, 0) > 0
         `, [staff.tenantId]);
 
@@ -68,7 +68,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             LEFT JOIN manual_settlement_confirmations msc ON msc.session_id = ts.id
             LEFT JOIN users u ON u.id = COALESCE(msc.confirmed_by, ts.closed_by)
             WHERE ts.tenant_id = $1 
-              AND b.status = 'CONFIRMED'
+              AND (b.status = 'CONFIRMED' OR msc.id IS NOT NULL OR ts.close_reason = 'CONFIRMED_SETTLED')
               AND COALESCE(msc.amount, b.total_amount, 0) > 0
             ORDER BY COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) DESC
             LIMIT 50

@@ -755,6 +755,7 @@ export class StaffService {
 
             // Broadcast events
             broadcastToStaff(tenantId, 'table.updated', { tableId: session.table_id });
+            broadcastToStaff(tenantId, 'service_request.updated', { sessionId });
             broadcastToSession(sessionId, 'session.closed', {
                 sessionId,
                 message: 'Phiên bàn đã kết thúc. Cảm ơn quý khách!'
@@ -844,6 +845,7 @@ export class StaffService {
             `, [session.table_id]);
 
             broadcastToStaff(tenantId, 'table.updated', { tableId: session.table_id });
+            broadcastToStaff(tenantId, 'service_request.updated', { sessionId });
             broadcastToSession(sessionId, 'session.closed', {
                 sessionId,
                 message: 'Phiên bàn đã được kết thúc'

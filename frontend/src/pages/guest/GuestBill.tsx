@@ -8,6 +8,7 @@ export const GuestBill: React.FC = () => {
     table,
     tenant,
     activeServiceRequests,
+    isSessionClosed,
     requestAssistance,
     requestCheckout,
     refreshOrdersAndBill
@@ -19,8 +20,9 @@ export const GuestBill: React.FC = () => {
   const [showAssistanceModal, setShowAssistanceModal] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const checkoutRequest = activeServiceRequests.find(r => r.type === 'CHECKOUT');
-  const assistanceRequest = activeServiceRequests.find(r => r.type === 'ASSISTANCE');
+  const isClosed = isSessionClosed || billSummary?.sessionStatus === 'CLOSED';
+  const checkoutRequest = !isClosed ? activeServiceRequests.find(r => r.type === 'CHECKOUT') : null;
+  const assistanceRequest = !isClosed ? activeServiceRequests.find(r => r.type === 'ASSISTANCE') : null;
 
   const handleCheckoutClick = async () => {
     setIsRequestingCheckout(true);
@@ -58,15 +60,22 @@ export const GuestBill: React.FC = () => {
         </div>
         <div className="text-right">
           <span className="text-xs text-slate-400 block">{tenant?.name}</span>
-          <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            Đang phục vụ
-          </span>
+          {isClosed ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+              Đã kết thúc
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              Đang phục vụ
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Active Service Notification Banners */}
-      {checkoutRequest && (
+      {/* Active Service Notification Banners - only when session is active */}
+      {!isClosed && checkoutRequest && (
         <div className="bg-amber-500 text-white rounded-2xl p-4 shadow-md flex items-center gap-3 animate-pulse-attention">
           <CreditCard className="w-6 h-6 flex-shrink-0" />
           <div className="flex-1">
@@ -78,7 +87,7 @@ export const GuestBill: React.FC = () => {
         </div>
       )}
 
-      {assistanceRequest && (
+      {!isClosed && assistanceRequest && (
         <div className="bg-blue-600 text-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
           <Bell className="w-6 h-6 flex-shrink-0" />
           <div className="flex-1">
@@ -90,7 +99,7 @@ export const GuestBill: React.FC = () => {
         </div>
       )}
 
-      {actionMessage && (
+      {!isClosed && actionMessage && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 text-xs font-medium flex items-center gap-2">
           <CheckCircle className="w-4 h-4 flex-shrink-0 text-emerald-600" />
           <span>{actionMessage}</span>
@@ -165,25 +174,37 @@ export const GuestBill: React.FC = () => {
         </span>
       </div>
 
-      {/* Action Buttons (Section 9: Gọi nhân viên & Yêu cầu thanh toán) */}
-      <div className="grid grid-cols-2 gap-3 pt-2">
-        <button
-          onClick={() => setShowAssistanceModal(true)}
-          className="min-h-[48px] bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-sm active:scale-95 transition"
-        >
-          <Bell className="w-4 h-4 text-slate-500" />
-          <span>Gọi nhân viên</span>
-        </button>
+      {/* Action Buttons or Completed State */}
+      {isClosed ? (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-1.5 shadow-xs">
+          <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 mx-auto">
+            <CheckCircle className="w-5 h-5" />
+          </div>
+          <h4 className="font-bold text-sm text-emerald-900">Phiên bàn đã thanh toán hoàn tất</h4>
+          <p className="text-xs text-emerald-700">
+            Cảm ơn quý khách đã dùng bữa tại {tenant?.name || 'nhà hàng'}! Chúc quý khách một ngày tốt lành.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          <button
+            onClick={() => setShowAssistanceModal(true)}
+            className="min-h-[48px] bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-sm active:scale-95 transition"
+          >
+            <Bell className="w-4 h-4 text-slate-500" />
+            <span>Gọi nhân viên</span>
+          </button>
 
-        <button
-          onClick={handleCheckoutClick}
-          disabled={isRequestingCheckout || !!checkoutRequest}
-          className="min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-md active:scale-95 transition"
-        >
-          <CreditCard className="w-4 h-4" />
-          <span>{checkoutRequest ? 'Đã yêu cầu' : 'Yêu cầu thanh toán'}</span>
-        </button>
-      </div>
+          <button
+            onClick={handleCheckoutClick}
+            disabled={isRequestingCheckout || !!checkoutRequest}
+            className="min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-md active:scale-95 transition"
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>{checkoutRequest ? 'Đã yêu cầu' : 'Yêu cầu thanh toán'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Assistance Modal */}
       {showAssistanceModal && (

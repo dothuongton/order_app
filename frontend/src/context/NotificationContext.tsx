@@ -77,9 +77,27 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Socket connection
   useEffect(() => {
-    const socketBase = (import.meta as any).env?.VITE_SOCKET_URL || (import.meta as any).env?.VITE_API_URL || undefined;
+    let socketBase = (import.meta as any).env?.VITE_SOCKET_URL;
+    if (!socketBase) {
+      const apiUrl = (import.meta as any).env?.VITE_API_URL;
+      if (apiUrl && typeof apiUrl === 'string' && apiUrl.startsWith('http')) {
+        try {
+          socketBase = new URL(apiUrl).origin;
+        } catch {
+          socketBase = undefined;
+        }
+      } else {
+        socketBase = undefined;
+      }
+    }
+
     const newSocket = io(socketBase, {
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 4000,
+      timeout: 10000,
       autoConnect: true
     });
     setSocket(newSocket);

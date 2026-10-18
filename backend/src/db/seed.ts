@@ -2,10 +2,22 @@ import bcrypt from 'bcryptjs';
 import { pool, withTransaction } from './pool.js';
 import { fileURLToPath } from 'url';
 
-export async function seed() {
-    console.log('🌱 Seeding database...');
+export async function seed(force: boolean = false) {
+    console.log('🌱 Checking database seed status...');
 
     await withTransaction(async (client) => {
+        // In production/runtime, avoid wiping live operational data on server restart
+        const isTest = process.env.NODE_ENV === 'test';
+        if (!isTest && !force && process.env.FORCE_SEED !== 'true') {
+            const tenantCheck = await client.query(`SELECT COUNT(*) FROM tenants`);
+            const userCheck = await client.query(`SELECT COUNT(*) FROM users`);
+            if (parseInt(tenantCheck.rows[0].count, 10) > 0 && parseInt(userCheck.rows[0].count, 10) > 0) {
+                console.log('✅ Database already initialized with tenants & users. Preserving operational data.');
+                return;
+            }
+        }
+
+        console.log('🌱 Seeding fresh demo data...');
         // Clear old data in reverse dependency order
         await client.query(`
             TRUNCATE TABLE 

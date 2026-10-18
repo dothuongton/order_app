@@ -104,6 +104,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (err: any) {
       if (err.code === 'SESSION_CLOSED' || err.code === 'ACCESS_REVOKED') {
         setIsSessionClosed(true);
+        setActiveServiceRequests([]);
         localStorage.removeItem('guest_token');
         setCart([]);
       }
@@ -114,10 +115,17 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!socket || !session?.id) return;
 
-    socket.emit('join_session_room', session.id);
+    const joinRoom = () => {
+      socket.emit('join_session_room', session.id);
+    };
+
+    joinRoom();
+    socket.on('connect', joinRoom);
+    socket.on('reconnect', joinRoom);
 
     const handleSessionClosed = (payload?: any) => {
       setIsSessionClosed(true);
+      setActiveServiceRequests([]);
       localStorage.removeItem('guest_token');
       setCart([]);
       showToast({
@@ -158,14 +166,16 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     socket.on('service_request.created', handleServiceRequestUpdated);
     socket.on('service_request.updated', handleServiceRequestUpdated);
 
-    // Polling backup every 8s as recommended in spec section 12.1
+    // Fast polling backup (3s) to ensure real-time responsiveness even if websocket reconnects
     const interval = setInterval(() => {
       if (!isSessionClosed) {
         refreshOrdersAndBill();
       }
-    }, 8000);
+    }, 3000);
 
     return () => {
+      socket.off('connect', joinRoom);
+      socket.off('reconnect', joinRoom);
       socket.off('session.closed', handleSessionClosed);
       socket.off('order.created', handleOrderUpdated);
       socket.off('order.updated', handleOrderUpdated);

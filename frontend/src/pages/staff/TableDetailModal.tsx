@@ -152,10 +152,19 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     setIsSettling(true);
     setActionError(null);
     try {
+      if (billSummary.unresolvedCount > 0) {
+        // Automatically accept and serve any remaining items before settlement
+        await request(`/staff/sessions/${table.active_session_id}/accept-all`, { method: 'POST' }).catch(() => {});
+        await request(`/staff/sessions/${table.active_session_id}/serve-all`, { method: 'POST' }).catch(() => {});
+      }
+
+      // Re-fetch latest summary to get updated settlementVersion if items were served
+      const latestSummary = await request<any>(`/staff/sessions/${table.active_session_id}/bill-summary`).catch(() => billSummary);
+
       await request(`/staff/sessions/${table.active_session_id}/confirm-payment-and-close`, {
         method: 'POST',
         body: JSON.stringify({
-          settlementVersion: billSummary.settlementVersion,
+          settlementVersion: latestSummary?.settlementVersion || billSummary.settlementVersion,
           note: settlementNote.trim() || undefined,
           requestId: `pay-${Date.now()}`
         })
@@ -347,24 +356,35 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 )}
 
                 {/* Action Buttons: 0đ Session vs Settling Session */}
-                {billSummary.validBillTotal === 0 ? (
-                  <button
-                    onClick={handleCloseWithoutCharge}
-                    disabled={isSettling}
-                    className="w-full min-h-[48px] bg-slate-900 hover:bg-black active:bg-slate-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
-                  >
-                    <Check className="w-5 h-5 text-emerald-400" />
-                    <span>{isSettling ? 'Đang đóng phiên...' : 'Đóng phiên bàn (0đ)'}</span>
-                  </button>
-                ) : (
-                  hasPermission('session.confirm_payment_close') ? (
+                {(() => {
+                  const totalPayable = billSummary ? Math.max(
+                    (billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0),
+                    (billSummary.rounds || []).reduce((acc: number, round: any) => {
+                      return acc + (round.items || []).filter((i: any) => i.status !== 'CANCELLED').reduce((s: number, item: any) => s + (item.subtotal || item.price * item.quantity), 0);
+                    }, 0)
+                  ) : 0;
+
+                  if (totalPayable === 0) {
+                    return (
+                      <button
+                        onClick={handleCloseWithoutCharge}
+                        disabled={isSettling}
+                        className="w-full min-h-[48px] bg-slate-900 hover:bg-black active:bg-slate-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
+                      >
+                        <Check className="w-5 h-5 text-emerald-400" />
+                        <span>{isSettling ? 'Đang đóng phiên...' : 'Đóng phiên bàn (0đ)'}</span>
+                      </button>
+                    );
+                  }
+
+                  return hasPermission('session.confirm_payment_close') ? (
                     <button
                       onClick={() => setShowConfirmSettlement(true)}
-                      disabled={!billSummary.canConfirmPayment || isSettling}
+                      disabled={isSettling}
                       className="w-full min-h-[52px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-40 text-white font-black rounded-2xl py-3.5 px-4 shadow-lg flex items-center justify-center gap-2 transition"
                     >
                       <CreditCard className="w-5 h-5" />
-                      <span>Xác nhận đã thanh toán {billSummary.validBillTotal.toLocaleString('vi-VN')}đ & Kết thúc phiên</span>
+                      <span>Xác nhận đã thanh toán {totalPayable.toLocaleString('vi-VN')}đ & Kết thúc phiên</span>
                     </button>
                   ) : (
                     <div className="p-3.5 bg-slate-100 border border-slate-200 rounded-2xl text-xs text-slate-600 space-y-1">
@@ -373,8 +393,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                         Tài khoản phục vụ không có quyền chốt bill. Hãy đăng nhập tài khoản <strong>Quản lý</strong> (<code>admin@phoco.vn</code>) hoặc <strong>Thu ngân</strong> (<code>thungan@phoco.vn</code>) để xác nhận thanh toán.
                       </p>
                     </div>
-                  )
-                )}
+                  );
+                })()}
               </div>
             )}
             </>
@@ -470,7 +490,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 <div className="flex justify-between">
                   <span className="text-slate-500">Số tiền xác nhận đã thu:</span>
                   <span className="font-extrabold text-sm text-orange-600">
-                    {billSummary.validBillTotal.toLocaleString('vi-VN')}đ
+                    {Math.max(
+                      (billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0),
+                      (billSummary.rounds || []).reduce((acc: number, round: any) => {
+                        return acc + (round.items || []).filter((i: any) => i.status !== 'CANCELLED').reduce((s: number, item: any) => s + (item.subtotal || item.price * item.quantity), 0);
+                      }, 0)
+                    ).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
               </div>
