@@ -369,21 +369,62 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
               {/* TAB 2: Bill Summary & Settlement */}
               {activeTab === 'bill' && billSummary && (
                 <div className="space-y-4">
-                  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-3">
-                    <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
-                      <span>Tổng tiền các món hợp lệ</span>
-                      <span className="text-sm font-bold text-slate-900">{billSummary.validBillTotal.toLocaleString('vi-VN')}đ</span>
+                  {/* Itemized Bill Breakdown */}
+                  <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs divide-y divide-slate-100 overflow-hidden">
+                    <div className="p-3.5 bg-slate-50 flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                        Chi tiết các món trong hóa đơn
+                      </span>
+                      <span className="text-xs font-semibold text-slate-400">
+                        {billSummary.rounds?.length || 0} lần gọi
+                      </span>
                     </div>
 
+                    {billSummary.rounds?.map((round) => (
+                      <div key={round.orderNumber} className="p-3.5 space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+                          <span>Lần gọi {round.orderNumber}</span>
+                          <span className="text-slate-900">{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
+                        </div>
+
+                        <div className="space-y-1.5 pl-2 border-l-2 border-slate-200">
+                          {round.items.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-700">{item.quantity}x</span>
+                                <span className={`truncate max-w-[200px] ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
+                                  {item.name}
+                                </span>
+                                {item.status === 'CANCELLED' && (
+                                  <span className="text-[10px] text-rose-600 font-semibold">(Đã hủy)</span>
+                                )}
+                                {item.status === 'PENDING' && (
+                                  <span className="text-[10px] text-amber-600 font-semibold">(Chờ nhận)</span>
+                                )}
+                              </div>
+                              <span className={`font-semibold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                                {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Pending subtotal note */}
                     {billSummary.pendingTotal > 0 && (
-                      <div className="flex items-center justify-between text-xs text-amber-700 font-semibold bg-amber-50 p-2 rounded-xl border border-amber-100">
-                        <span>Chờ tiếp nhận (chưa tính):</span>
-                        <span>{billSummary.pendingTotal.toLocaleString('vi-VN')}đ</span>
+                      <div className="p-3 bg-amber-50/80 flex items-center justify-between text-xs border-t border-amber-100">
+                        <span className="text-amber-800 font-medium">Chờ tiếp nhận (chưa tính vào tổng):</span>
+                        <span className="font-bold text-amber-900">{billSummary.pendingTotal.toLocaleString('vi-VN')}đ</span>
                       </div>
                     )}
 
-                    <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
-                      <span className="font-bold text-slate-900">Tổng thanh toán:</span>
+                    {/* Total Row */}
+                    <div className="p-4 bg-slate-50 flex items-center justify-between border-t-2 border-slate-200">
+                      <div>
+                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block">Tổng thanh toán</span>
+                        <span className="text-[11px] text-slate-400">(Các món đã phục vụ/tiếp nhận)</span>
+                      </div>
                       <span className="text-2xl font-black text-orange-600">
                         {billSummary.validBillTotal.toLocaleString('vi-VN')}đ
                       </span>
@@ -398,14 +439,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                         <strong>Chưa đủ điều kiện thanh toán:</strong>
                         <p className="mt-0.5">
                           Còn <strong>{billSummary.unresolvedCount} món</strong> đang chờ tiếp nhận hoặc chưa phục vụ.
-                          Theo quy tắc v1.2, mọi món phải được chuyển sang <strong>Đã phục vụ</strong> hoặc <strong>Đã hủy</strong> trước khi xác nhận tiền.
+                          Vui lòng chuyển sang tab <strong>Đơn món</strong> để bấm <strong>Đã phục vụ</strong> hoặc <strong>Hủy món</strong> trước khi thanh toán.
                         </p>
                       </div>
                     </div>
                   )}
 
                   {/* Main Action: Confirm Payment and Close Session (F10) */}
-                  {hasPermission('session.confirm_payment_close') && (
+                  {hasPermission('session.confirm_payment_close') ? (
                     <button
                       onClick={() => setShowConfirmSettlement(true)}
                       disabled={!billSummary.canConfirmPayment}
@@ -414,6 +455,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                       <CreditCard className="w-5 h-5" />
                       <span>Xác nhận đã thanh toán {billSummary.validBillTotal.toLocaleString('vi-VN')}đ & Kết thúc phiên</span>
                     </button>
+                  ) : (
+                    <div className="p-3.5 bg-slate-100 border border-slate-200 rounded-2xl text-xs text-slate-600 space-y-1">
+                      <span className="font-bold text-slate-800 block">🔒 Giới hạn phân quyền</span>
+                      <p>
+                        Tài khoản phục vụ không có quyền chốt bill. Hãy đăng nhập tài khoản <strong>Quản lý</strong> (<code>admin@phoco.vn</code>) hoặc <strong>Thu ngân</strong> (<code>thungan@phoco.vn</code>) để xác nhận thanh toán.
+                      </p>
+                    </div>
                   )}
 
                   {/* Close without charge (F12) */}

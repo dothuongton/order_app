@@ -75,6 +75,8 @@ export async function seed() {
                 ]),
                 ($1, $3, 'waiter', ARRAY[
                     'session.open',
+                    'session.confirm_payment_close',
+                    'session.close_without_charge',
                     'order.manage',
                     'order.serve',
                     'order.cancel',
