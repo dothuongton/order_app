@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useGuest } from '../../context/GuestContext.js';
 import { MenuItem } from '../../types/index.js';
 import { Plus, Minus, X, AlertCircle } from 'lucide-react';
@@ -10,9 +10,17 @@ export const GuestMenu: React.FC = () => {
   const [quantity, setQuantity] = useState<number>(1);
   const [note, setNote] = useState<string>('');
 
-  const filteredItems = selectedCategory === 'all'
-    ? menuItems
-    : menuItems.filter(item => item.category_id === selectedCategory);
+  // Available items always appear first; out-of-stock items (Hết món) are pushed to the bottom
+  const filteredItems = useMemo(() => {
+    const raw = selectedCategory === 'all'
+      ? menuItems
+      : menuItems.filter(item => item.category_id === selectedCategory);
+
+    return [...raw].sort((a, b) => {
+      if (a.is_available === b.is_available) return 0;
+      return a.is_available ? -1 : 1;
+    });
+  }, [selectedCategory, menuItems]);
 
   const handleOpenCustomize = (item: MenuItem) => {
     if (!item.is_available || !session || isSessionClosed) return;

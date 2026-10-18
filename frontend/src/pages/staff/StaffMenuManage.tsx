@@ -44,7 +44,12 @@ export const StaffMenuManage: React.FC = () => {
     }
   };
 
-  const filtered = items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = items
+    .filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      if (a.is_available === b.is_available) return a.name.localeCompare(b.name);
+      return a.is_available ? -1 : 1;
+    });
 
   return (
     <div className="space-y-4">

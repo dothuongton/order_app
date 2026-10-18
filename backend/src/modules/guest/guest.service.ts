@@ -67,7 +67,7 @@ export class GuestService {
                 mi.is_available
             FROM menu_items mi
             WHERE mi.tenant_id = $1
-            ORDER BY mi.name ASC
+            ORDER BY mi.is_available DESC, mi.name ASC
         `, [table.tenant_id]);
 
         return {
