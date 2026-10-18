@@ -272,7 +272,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                       <div className="py-8 px-4 text-center text-slate-400 space-y-1">
                         <p className="text-sm font-bold text-slate-700">Chưa có order nào trong phiên này</p>
                         <p className="text-xs text-slate-500">
-                          Nếu nhân viên ấn nhầm mở bàn, bạn có thể đóng lại ngay bên dưới mà không tính tiền.
+                          Nếu nhân viên ấn nhầm mở bàn, bạn có thể tắt bàn ngay bên dưới mà không tính tiền.
                         </p>
                       </div>
                     )}
@@ -374,7 +374,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                         className="w-full min-h-[48px] bg-rose-600 hover:bg-rose-700 active:bg-rose-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
                       >
                         <XCircle className="w-5 h-5" />
-                        <span>{isSettling ? 'Đang đóng bàn...' : 'Đóng bàn (0đ) - Hủy mở bàn nhầm'}</span>
+                        <span>{isSettling ? 'Đang tắt bàn...' : 'Tắt bàn (0đ)'}</span>
                       </button>
                     );
                   }

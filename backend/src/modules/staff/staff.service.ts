@@ -22,7 +22,7 @@ export class StaffService {
             LEFT JOIN table_sessions ts ON ts.table_id = t.id AND ts.status = 'OPEN'
             LEFT JOIN users u ON u.id = ts.opened_by
             WHERE t.tenant_id = $1
-            ORDER BY t.table_number ASC
+            ORDER BY LENGTH(t.table_number) ASC, t.table_number ASC
         `, [tenantId]);
 
         // Fetch open service requests
