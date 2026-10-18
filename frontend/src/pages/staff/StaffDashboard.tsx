@@ -116,6 +116,19 @@ export const StaffDashboard: React.FC = () => {
     }
   };
 
+  const handleQuickCloseWithoutCharge = async (sessionId: string) => {
+    try {
+      await request(`/staff/sessions/${sessionId}/close-without-charge`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'WITHOUT_CHARGE' })
+      });
+      showToast({ title: 'Đã đóng phiên 0đ thành công', type: 'success', duration: 2500 });
+      fetchDashboard();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi đóng phiên 0đ', type: 'error' });
+    }
+  };
+
   // Quick Order item handlers directly from Orders tab
   const handleQuickAcceptAll = async (sessionId: string) => {
     try {
@@ -348,6 +361,16 @@ export const StaffDashboard: React.FC = () => {
                       >
                         {isServing ? 'Xem đơn' : 'Chi tiết'}
                       </button>
+
+                      {isServing && ((table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0) === 0) && (
+                        <button
+                          onClick={() => handleQuickCloseWithoutCharge(table.active_session_id!)}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition min-h-[36px]"
+                          title="Đóng phiên 0đ (bàn chưa có món)"
+                        >
+                          Đóng 0đ
+                        </button>
+                      )}
 
                       {!isServing && hasPermission('session.open') && (
                         <button

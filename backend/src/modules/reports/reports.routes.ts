@@ -57,7 +57,9 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
                 t.table_number,
                 COALESCE(msc.amount, b.total_amount, 0) as confirmed_amount,
                 COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) as confirmed_at,
-                COALESCE(u.full_name, 'Nhân viên') as confirmed_by_name
+                COALESCE(u.full_name, 'Nhân viên') as confirmed_by_name,
+                msc.note as settlement_note,
+                ts.opened_at
             FROM table_sessions ts
             JOIN tables t ON t.id = ts.table_id
             JOIN bills b ON b.session_id = ts.id
@@ -65,7 +67,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             LEFT JOIN users u ON u.id = COALESCE(msc.confirmed_by, ts.closed_by)
             WHERE ts.tenant_id = $1 AND (ts.status = 'CLOSED' OR b.status = 'CONFIRMED')
             ORDER BY COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) DESC
-            LIMIT 25
+            LIMIT 50
         `, [staff.tenantId]);
 
         return res.json({

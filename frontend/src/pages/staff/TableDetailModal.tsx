@@ -15,7 +15,6 @@ interface TableDetailModalProps {
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
   const { hasPermission } = useAuth();
-  const [activeTab, setActiveTab] = useState<'orders' | 'bill' | 'requests'>('orders');
   const [orders, setOrders] = useState<any[]>([]);
   const [billSummary, setBillSummary] = useState<BillSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -173,7 +172,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   // Close session without charge (F12)
   const handleCloseWithoutCharge = async () => {
     if (!table.active_session_id) return;
-    if (!confirm('Xác nhận kết thúc phiên 0đ này (bàn mở nhầm hoặc tất cả món đã hủy)?')) return;
+    setIsSettling(true);
+    setActionError(null);
     try {
       await request(`/staff/sessions/${table.active_session_id}/close-without-charge`, {
         method: 'POST',
@@ -183,6 +183,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       onClose();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi kết thúc phiên');
+      setIsSettling(false);
     }
   };
 
@@ -239,137 +240,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
           </div>
         )}
 
-        {/* Tabs */}
-        {table.active_session_id && (
-          <div className="flex border-b border-slate-200 bg-white">
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`flex-1 py-3 text-xs font-bold border-b-2 transition ${
-                activeTab === 'orders' ? 'border-orange-600 text-orange-600' : 'border-transparent text-slate-500'
-              }`}
-            >
-              Đơn món ({table.counts.pending + table.counts.accepted + table.counts.served})
-            </button>
-            <button
-              onClick={() => setActiveTab('bill')}
-              className={`flex-1 py-3 text-xs font-bold border-b-2 transition ${
-                activeTab === 'bill' ? 'border-orange-600 text-orange-600' : 'border-transparent text-slate-500'
-              }`}
-            >
-              Tổng bill & Thanh toán
-            </button>
-          </div>
-        )}
+
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {table.active_session_id ? (
             <>
-              {/* TAB 1: Orders Management */}
-              {activeTab === 'orders' && (
-                <div className="space-y-4">
-                  {/* Batch actions */}
-                  <div className="flex gap-2">
-                    {table.counts.pending > 0 && hasPermission('order.manage') && (
-                      <button
-                        onClick={handleAcceptAll}
-                        className="flex-1 py-2 px-3 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs rounded-xl border border-blue-200 min-h-[44px] flex items-center justify-center gap-1.5"
-                      >
-                        <Check className="w-4 h-4" />
-                        <span>Tiếp nhận tất cả ({table.counts.pending})</span>
-                      </button>
-                    )}
-                    {table.counts.accepted > 0 && hasPermission('order.serve') && (
-                      <button
-                        onClick={handleServeAll}
-                        className="flex-1 py-2 px-3 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold text-xs rounded-xl border border-emerald-200 min-h-[44px] flex items-center justify-center gap-1.5"
-                      >
-                        <CheckCheck className="w-4 h-4" />
-                        <span>Phục vụ tất cả ({table.counts.accepted})</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Bill Summary rounds breakdown */}
-                  {billSummary?.rounds?.map((round) => (
-                    <div key={round.orderNumber} className="bg-slate-50 rounded-2xl border border-slate-200/80 p-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs font-bold text-slate-600 pb-1 border-b border-slate-200">
-                        <span>Lần gọi {round.orderNumber}</span>
-                        <span>{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {round.items.map((item, idx) => (
-                          <div key={idx} className="bg-white rounded-xl p-3 border border-slate-200/70 shadow-xs flex items-center justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-extrabold text-slate-900 text-sm">{item.quantity}x</span>
-                                <span className="font-bold text-slate-800 text-sm truncate">{item.name}</span>
-                              </div>
-                              {item.note && (
-                                <div className="mt-1 px-2 py-0.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-1">
-                                  <span className="text-amber-600 font-bold">Ghi chú:</span> {item.note}
-                                </div>
-                              )}
-                              <div className="flex items-center gap-2 mt-1">
-                                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                                  item.status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
-                                  item.status === 'ACCEPTED' ? 'bg-blue-100 text-blue-800' :
-                                  item.status === 'SERVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                                }`}>
-                                  {item.status === 'PENDING' ? 'Chờ nhận' :
-                                   item.status === 'ACCEPTED' ? 'Đã nhận' :
-                                   item.status === 'SERVED' ? 'Đã phục vụ' : `Hủy: ${item.cancelReason || 'Hết món'}`}
-                                </span>
-                                <span className="text-xs text-slate-400">
-                                  {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Item Actions */}
-                            <div className="flex items-center gap-1.5">
-                              {item.status === 'PENDING' && hasPermission('order.manage') && (
-                                <button
-                                  onClick={() => handleAcceptItem(item.itemId, item.quantity)}
-                                  className="px-3 py-1.5 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-700 min-h-[44px]"
-                                >
-                                  Nhận
-                                </button>
-                              )}
-
-                              {item.status === 'ACCEPTED' && hasPermission('order.serve') && (
-                                <button
-                                  onClick={() => handleServeItem(item.itemId, item.quantity)}
-                                  className="px-3 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-xl hover:bg-emerald-700 min-h-[44px]"
-                                >
-                                  Đã phục vụ
-                                </button>
-                              )}
-
-                              {(item.status === 'PENDING' || item.status === 'ACCEPTED') && hasPermission('order.cancel') && (
-                                <button
-                                  onClick={() => {
-                                    setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity });
-                                    setCancelQty(item.quantity);
-                                  }}
-                                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl min-h-[44px] min-w-[44px] flex items-center justify-center"
-                                  title="Hủy món do hết nguyên liệu"
-                                >
-                                  <Ban className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* TAB 2: Bill Summary & Settlement */}
-              {activeTab === 'bill' && billSummary && (
+              {billSummary && (
                 <div className="space-y-4">
                   {/* Itemized Bill Breakdown */}
                   <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs divide-y divide-slate-100 overflow-hidden">
@@ -381,6 +258,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                         {billSummary.rounds?.length || 0} lần gọi
                       </span>
                     </div>
+
+                    {(!billSummary.rounds || billSummary.rounds.length === 0) && (
+                      <div className="py-8 px-4 text-center text-slate-400">
+                        <p className="text-sm font-bold text-slate-600">Chưa có món nào trong phiên này</p>
+                        <p className="text-xs text-slate-400 mt-1">Bàn mở nhưng chưa phát sinh lượt gọi món</p>
+                      </div>
+                    )}
 
                     {billSummary.rounds?.map((round) => (
                       <div key={round.orderNumber} className="p-3.5 space-y-2">
@@ -462,11 +346,21 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   </div>
                 )}
 
-                  {/* Main Action: Confirm Payment and Close Session (F10) */}
-                  {hasPermission('session.confirm_payment_close') ? (
+                {/* Action Buttons: 0đ Session vs Settling Session */}
+                {billSummary.validBillTotal === 0 ? (
+                  <button
+                    onClick={handleCloseWithoutCharge}
+                    disabled={isSettling}
+                    className="w-full min-h-[48px] bg-slate-900 hover:bg-black active:bg-slate-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
+                  >
+                    <Check className="w-5 h-5 text-emerald-400" />
+                    <span>{isSettling ? 'Đang đóng phiên...' : 'Đóng phiên bàn (0đ)'}</span>
+                  </button>
+                ) : (
+                  hasPermission('session.confirm_payment_close') ? (
                     <button
                       onClick={() => setShowConfirmSettlement(true)}
-                      disabled={!billSummary.canConfirmPayment}
+                      disabled={!billSummary.canConfirmPayment || isSettling}
                       className="w-full min-h-[52px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-40 text-white font-black rounded-2xl py-3.5 px-4 shadow-lg flex items-center justify-center gap-2 transition"
                     >
                       <CreditCard className="w-5 h-5" />
@@ -479,19 +373,10 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                         Tài khoản phục vụ không có quyền chốt bill. Hãy đăng nhập tài khoản <strong>Quản lý</strong> (<code>admin@phoco.vn</code>) hoặc <strong>Thu ngân</strong> (<code>thungan@phoco.vn</code>) để xác nhận thanh toán.
                       </p>
                     </div>
-                  )}
-
-                  {/* Close without charge (F12) */}
-                  {billSummary.validBillTotal === 0 && hasPermission('session.close_without_charge') && (
-                    <button
-                      onClick={handleCloseWithoutCharge}
-                      className="w-full min-h-[44px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl py-2.5 px-4 text-xs flex items-center justify-center transition"
-                    >
-                      Kết thúc phiên không tính tiền (0đ)
-                    </button>
-                  )}
-                </div>
-              )}
+                  )
+                )}
+              </div>
+            )}
             </>
           ) : (
             <div className="text-center py-12 text-slate-400">

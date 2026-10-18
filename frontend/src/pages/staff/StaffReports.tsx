@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { request } from '../../api/client.js';
-import { BarChart3, TrendingUp, Utensils, CheckCircle, RefreshCw } from 'lucide-react';
+import { BarChart3, TrendingUp, Utensils, CheckCircle, RefreshCw, Receipt, ChevronRight } from 'lucide-react';
+import { ReceiptDetailModal } from './ReceiptDetailModal.js';
 
 export const StaffReports: React.FC = () => {
   const [data, setData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedSessionForReceipt, setSelectedSessionForReceipt] = useState<any | null>(null);
 
   const fetchReports = async () => {
     setIsLoading(true);
@@ -116,23 +118,42 @@ export const StaffReports: React.FC = () => {
 
       {/* Recent Settled Sessions */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
-        <div className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-emerald-600" />
-          <h4 className="font-bold text-sm text-slate-900">Phiên đã thanh toán gần đây</h4>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600" />
+            <h4 className="font-bold text-sm text-slate-900">Phiên đã thanh toán gần đây</h4>
+          </div>
+          <span className="text-[11px] text-slate-400 font-medium">Bấm vào để xem hóa đơn</span>
         </div>
 
         <div className="divide-y divide-slate-100">
           {(data?.recentSettledSessions || []).map((s: any, idx: number) => (
-            <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
-              <div>
-                <span className="font-bold text-slate-900">Bàn {s.table_number}</span>
-                <span className="text-slate-400 block text-[11px]">
-                  Xác nhận bởi {s.confirmed_by_name} • {new Date(s.confirmed_at).toLocaleTimeString('vi-VN')}
-                </span>
+            <div
+              key={idx}
+              onClick={() => setSelectedSessionForReceipt(s)}
+              className="py-3 px-3 -mx-2 rounded-xl hover:bg-orange-50/60 active:bg-orange-100/60 cursor-pointer flex items-center justify-between text-xs transition border border-transparent hover:border-orange-200 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-black group-hover:bg-orange-500 group-hover:text-white transition">
+                  <Receipt className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-900 text-sm">Bàn {s.table_number}</span>
+                    <span className="text-[10px] text-slate-400">#{s.session_id.slice(0, 6)}</span>
+                  </div>
+                  <span className="text-slate-400 block text-[11px]">
+                    {s.confirmed_by_name} • {new Date(s.confirmed_at).toLocaleTimeString('vi-VN')} ({new Date(s.confirmed_at).toLocaleDateString('vi-VN')})
+                  </span>
+                </div>
               </div>
-              <span className="font-extrabold text-sm text-emerald-700">
-                {Number(s.confirmed_amount).toLocaleString('vi-VN')}đ
-              </span>
+
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-sm text-emerald-700 group-hover:text-orange-600 transition">
+                  {Number(s.confirmed_amount).toLocaleString('vi-VN')}đ
+                </span>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-orange-500 transition" />
+              </div>
             </div>
           ))}
 
@@ -141,6 +162,14 @@ export const StaffReports: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Receipt Detail Modal */}
+      {selectedSessionForReceipt && (
+        <ReceiptDetailModal
+          session={selectedSessionForReceipt}
+          onClose={() => setSelectedSessionForReceipt(null)}
+        />
+      )}
     </div>
   );
 };
