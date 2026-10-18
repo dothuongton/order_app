@@ -10,7 +10,8 @@ export class ApiError extends Error {
 }
 
 export async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = endpoint.startsWith('http') ? endpoint : `/api/v1${endpoint}`;
+  const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+  const url = endpoint.startsWith('http') ? endpoint : `${apiBase}/api/v1${endpoint}`;
 
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {

@@ -18,7 +18,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   });
 
   useEffect(() => {
-    const newSocket = io({
+    const socketBase = (import.meta as any).env?.VITE_SOCKET_URL || (import.meta as any).env?.VITE_API_URL || undefined;
+    const newSocket = io(socketBase, {
       transports: ['websocket', 'polling'],
       autoConnect: true
     });
