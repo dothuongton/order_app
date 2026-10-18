@@ -143,8 +143,8 @@ export class PushService {
             const pushData = JSON.stringify({
                 title: payload.title,
                 body: payload.body,
-                icon: '/vite.svg',
-                badge: '/vite.svg',
+                icon: '/icon.svg',
+                badge: '/icon.svg',
                 tag: payload.eventId || `push-${Date.now()}`,
                 data: {
                     eventId: payload.eventId,
@@ -238,8 +238,8 @@ export class PushService {
         const pushData = JSON.stringify({
             title: '🔔 Thử nghiệm thông báo Web Push',
             body: 'Thiết bị của bạn đã được kết nối và sẵn sàng nhận thông báo đơn & hỗ trợ khi khóa màn hình!',
-            icon: '/vite.svg',
-            badge: '/vite.svg',
+            icon: '/icon.svg',
+            badge: '/icon.svg',
             tag: `test-${Date.now()}`,
             data: {
                 eventId: `test-${Date.now()}`,

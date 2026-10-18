@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext.js';
 
 export type PushPermissionState = 
   | 'unsupported'             // Browser doesn't support Push API / ServiceWorker
+  | 'http_insecure'           // Non-localhost HTTP, iOS/browser requires HTTPS for Push
   | 'ios_need_install'        // iOS Safari tab, requires Add to Home Screen first
   | 'default'                 // Permission not yet requested
   | 'granted'                 // Permission granted and subscribed
@@ -43,6 +44,17 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Check device and permission status
   const checkStatus = useCallback(async () => {
     if (typeof window === 'undefined') return;
+
+    // 0. Check secure context (HTTPS or localhost)
+    const isInsecureHttp = window.location.protocol === 'http:' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1';
+
+    if (isInsecureHttp) {
+      setState('http_insecure');
+      setIsSubscribed(false);
+      return;
+    }
 
     // 1. Check basic Web Push / ServiceWorker support
     const hasSW = 'serviceWorker' in navigator;
@@ -116,6 +128,11 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setErrorMessage(null);
 
     try {
+      if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        setState('http_insecure');
+        throw new Error('Apple và iOS yêu cầu kết nối bảo mật HTTPS (hoặc qua domain có SSL) để cho phép nhận thông báo khi khóa màn hình');
+      }
+
       // Re-verify iOS standalone check
       const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);

@@ -99,6 +99,11 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   <span className="text-xs font-black text-emerald-800">Đã bật thông báo đẩy</span>
                 </>
+              ) : state === 'http_insecure' ? (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                  <span className="text-xs font-black text-rose-800">Cần kết nối qua HTTPS</span>
+                </>
               ) : state === 'ios_need_install' ? (
                 <>
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
@@ -133,7 +138,27 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
         </div>
 
         {/* Content by State */}
-        {state === 'ios_need_install' ? (
+        {state === 'http_insecure' ? (
+          /* Case 0: Insecure HTTP on mobile */
+          <div className="space-y-3 bg-rose-50 border border-rose-200 p-4 rounded-2xl text-xs text-rose-900">
+            <div className="flex items-center gap-2 font-bold text-rose-950">
+              <ShieldAlert className="w-4 h-4 text-rose-600" />
+              <span>Yêu cầu HTTPS để nhận chuông khi khóa iPhone</span>
+            </div>
+            <p className="text-[11px] text-rose-800 leading-relaxed">
+              Apple yêu cầu Web App phải chạy qua giao thức <strong>HTTPS (SSL)</strong> để kích hoạt tính năng nhận thông báo khi khóa máy hoặc chuyển ứng dụng nền.
+            </p>
+            <div className="bg-white/80 p-2.5 rounded-xl border border-rose-200/80 space-y-1">
+              <p className="font-bold text-slate-800 text-[11px]">💡 Cách tạo link HTTPS trên máy tính để thử iPhone:</p>
+              <p className="text-[11px] text-orange-600 font-mono bg-slate-100 p-1.5 rounded-lg select-all">
+                npm run tunnel
+              </p>
+              <p className="text-[10px] text-slate-500">
+                Chạy lệnh trên ở terminal để nhận đường link HTTPS (Cloudflare Tunnel) miễn phí, sau đó mở trên iPhone và thêm vào Màn hình chính.
+              </p>
+            </div>
+          </div>
+        ) : state === 'ios_need_install' ? (
           /* Case 1: iOS Safari browser tab - requires Add to Home Screen */
           <div className="space-y-3 bg-amber-50/70 border border-amber-200 p-4 rounded-2xl text-xs text-amber-900">
             <div className="flex items-center gap-2 font-bold text-amber-950">

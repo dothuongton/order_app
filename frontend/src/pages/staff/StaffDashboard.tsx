@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useNotification } from '../../context/NotificationContext.js';
 import { request } from '../../api/client.js';
@@ -13,7 +13,7 @@ import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
-  Smartphone, BellRing, Search
+  Smartphone, BellRing, Search, ShieldAlert
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -50,18 +50,121 @@ export const StaffDashboard: React.FC = () => {
   const [cancelReason, setCancelReason] = useState<string>('Hết nguyên liệu');
   const [markItemOutOfStock, setMarkItemOutOfStock] = useState<boolean>(true);
 
+  // Tracking refs to detect missed orders/requests while phone was asleep or locked
+  const knownPendingPartIdsRef = useRef<Set<string>>(new Set());
+  const knownRequestCountsRef = useRef<Map<string, number>>(new Map());
+  const isInitialLoadRef = useRef<boolean>(true);
+
   const fetchDashboard = useCallback(async () => {
     try {
       const data = await request<{ tables: StaffTable[]; openRequests: ServiceRequest[] }>('/staff/dashboard/snapshot');
-      setTables(data.tables || []);
-      setOpenRequests(data.openRequests || []);
+      const newTables = data.tables || [];
+      const newRequests = data.openRequests || [];
+
+      // If returning from background/screen-lock or on polling, detect new items
+      if (!isInitialLoadRef.current) {
+        // 1. Check for newly arrived pending items
+        const currentPendingIds = new Set<string>();
+        const newlyArrivedPendingTables = new Set<string>();
+
+        newTables.forEach(t => {
+          t.activeItems?.forEach(item => {
+            if (item.status === 'PENDING') {
+              currentPendingIds.add(item.partId);
+              if (!knownPendingPartIdsRef.current.has(item.partId)) {
+                newlyArrivedPendingTables.add(`Bàn ${t.table_number}`);
+              }
+            }
+          });
+        });
+
+        // 2. Check for newly arrived or repeated service requests
+        const newlyArrivedRequests: { table: string; type: 'CHECKOUT' | 'ASSISTANCE'; count: number }[] = [];
+        newRequests.forEach(req => {
+          const prevCount = knownRequestCountsRef.current.get(req.id);
+          const currCount = req.call_count || 1;
+          if (prevCount === undefined || currCount > prevCount) {
+            newlyArrivedRequests.push({
+              table: `Bàn ${req.table_number}`,
+              type: req.type as any,
+              count: currCount
+            });
+          }
+        });
+
+        // Trigger voice / chime alerts if new items arrived while phone was locked
+        if (newlyArrivedPendingTables.size > 0) {
+          const tablesStr = Array.from(newlyArrivedPendingTables).join(', ');
+          playOrderSound(tablesStr);
+          showToast({
+            title: `🔔 Đơn món mới (${tablesStr})`,
+            message: 'Khách vừa đặt món trong lúc bạn khóa máy hoặc chuyển ứng dụng',
+            type: 'info',
+            duration: 7000
+          });
+        }
+
+        if (newlyArrivedRequests.length > 0) {
+          const latestReq = newlyArrivedRequests[0];
+          playAlertSound(latestReq.table, latestReq.type);
+          showToast({
+            title: latestReq.type === 'CHECKOUT'
+              ? `💳 Yêu cầu thanh toán (${latestReq.table})`
+              : `🙋 Khách gọi phục vụ (${latestReq.table})`,
+            message: latestReq.count > 1 ? `Nhắc lần ${latestReq.count}` : 'Khách đang cần nhân viên hỗ trợ',
+            type: 'warning',
+            duration: 8000
+          });
+        }
+
+        // Update tracking state
+        knownPendingPartIdsRef.current = currentPendingIds;
+        const newMap = new Map<string, number>();
+        newRequests.forEach(req => newMap.set(req.id, req.call_count || 1));
+        knownRequestCountsRef.current = newMap;
+      } else {
+        // Initial snapshot seeding
+        const initPendingIds = new Set<string>();
+        newTables.forEach(t => {
+          t.activeItems?.forEach(item => {
+            if (item.status === 'PENDING') {
+              initPendingIds.add(item.partId);
+            }
+          });
+        });
+        knownPendingPartIdsRef.current = initPendingIds;
+        const initMap = new Map<string, number>();
+        newRequests.forEach(req => initMap.set(req.id, req.call_count || 1));
+        knownRequestCountsRef.current = initMap;
+        isInitialLoadRef.current = false;
+      }
+
+      setTables(newTables);
+      setOpenRequests(newRequests);
     } catch (err) {
       console.error('Failed to fetch dashboard', err);
     }
-  }, []);
+  }, [playOrderSound, playAlertSound, showToast]);
 
   useEffect(() => {
     fetchDashboard();
+  }, [fetchDashboard]);
+
+  // Screen unlock / visibility wakeup: immediate fetch & audio sync
+  useEffect(() => {
+    const handleWakeup = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchDashboard();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleWakeup);
+    window.addEventListener('focus', handleWakeup);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleWakeup);
+      window.removeEventListener('focus', handleWakeup);
+    };
   }, [fetchDashboard]);
 
   // Connect to staff socket room
@@ -73,8 +176,14 @@ export const StaffDashboard: React.FC = () => {
     };
 
     joinRoom();
-    socket.on('connect', joinRoom);
-    socket.on('reconnect', joinRoom);
+    socket.on('connect', () => {
+      joinRoom();
+      fetchDashboard();
+    });
+    socket.on('reconnect', () => {
+      joinRoom();
+      fetchDashboard();
+    });
 
     const handleOrderCreated = (payload: any) => {
       const tableName = payload?.tableName || 'Bàn';
@@ -341,17 +450,19 @@ export const StaffDashboard: React.FC = () => {
             className={`px-2.5 py-1.5 rounded-xl transition min-h-[40px] flex items-center gap-1.5 border text-xs font-bold ${
               pushState === 'granted' && isPushSubscribed
                 ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/25'
+                : pushState === 'http_insecure'
+                ? 'text-rose-400 bg-rose-500/15 border-rose-500/30 hover:bg-rose-500/25'
                 : pushState === 'denied'
                 ? 'text-rose-400 bg-rose-500/15 border-rose-500/30 hover:bg-rose-500/25'
                 : pushState === 'ios_need_install'
                 ? 'text-amber-400 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25 animate-pulse'
                 : 'text-slate-300 bg-slate-800/80 border-slate-700 hover:bg-slate-800'
             }`}
-            title={`Web Push: ${pushState === 'granted' ? 'Đã bật' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
+            title={`Web Push: ${pushState === 'granted' ? 'Đã bật' : pushState === 'http_insecure' ? 'Cần kết nối HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
           >
             <BellRing className="w-4 h-4" />
             <span className="hidden sm:inline">
-              {pushState === 'granted' && isPushSubscribed ? 'Push bật' : 'Web Push'}
+              {pushState === 'granted' && isPushSubscribed ? 'Push bật' : pushState === 'http_insecure' ? 'Cần HTTPS' : 'Web Push'}
             </span>
           </button>
 
@@ -376,6 +487,20 @@ export const StaffDashboard: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* Insecure HTTP warning banner */}
+      {pushState === 'http_insecure' && (
+        <div
+          onClick={() => setShowPushModal(true)}
+          className="bg-rose-500/20 border-b border-rose-500/30 text-rose-200 px-4 py-2 text-xs font-semibold flex items-center justify-between cursor-pointer hover:bg-rose-500/30 transition"
+        >
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>iPhone yêu cầu HTTPS để nhận chuông thông báo khi khóa máy</span>
+          </div>
+          <span className="text-[10px] text-rose-300 font-bold underline shrink-0">Xem cách mở</span>
+        </div>
+      )}
 
       {/* iOS Safari Home Screen notification prompt */}
       {pushState === 'ios_need_install' && (

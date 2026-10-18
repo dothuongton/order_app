@@ -75,6 +75,21 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const timeoutsRef = useRef<Map<string, any>>(new Map());
 
+  // HTML5 Audio fallbacks for mobile / iOS
+  const orderAudioRef = useRef<HTMLAudioElement | null>(null);
+  const alertAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        orderAudioRef.current = new Audio('/bell-order.wav');
+        alertAudioRef.current = new Audio('/bell-alert.wav');
+        orderAudioRef.current.preload = 'auto';
+        alertAudioRef.current.preload = 'auto';
+      } catch {}
+    }
+  }, []);
+
   // Socket connection
   useEffect(() => {
     let socketBase = (import.meta as any).env?.VITE_SOCKET_URL;
@@ -107,39 +122,97 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, []);
 
-  // Unlock audio context on user gesture (click or touch)
+  // Unlock audio context on user gesture (click or touch) with iOS silent buffer trick
   const unlockAudio = useCallback(() => {
     const ctx = getOrCreateAudioContext();
     if (ctx) {
-      if (ctx.state === 'suspended') {
+      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
         ctx.resume().then(() => setIsAudioUnlocked(true)).catch(() => {});
       } else if (ctx.state === 'running') {
         setIsAudioUnlocked(true);
       }
+
+      // iOS Safari hardware unlock: play 1-sample silent buffer to activate audio hardware
+      try {
+        const buffer = ctx.createBuffer(1, 1, 22050);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start(0);
+      } catch {}
+    }
+
+    // Prime HTML5 Audio elements
+    try {
+      if (orderAudioRef.current) orderAudioRef.current.load();
+      if (alertAudioRef.current) alertAudioRef.current.load();
+    } catch {}
+
+    // Unstick SpeechSynthesis on iOS WebKit
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+        window.speechSynthesis.cancel();
+      } catch {}
     }
   }, []);
 
+  // Global user gesture listeners: touch, click, pointerdown immediately unlock audio
   useEffect(() => {
     const handleUserGesture = () => {
       unlockAudio();
     };
 
-    window.addEventListener('click', handleUserGesture, { once: false, passive: true });
-    window.addEventListener('touchstart', handleUserGesture, { once: false, passive: true });
-    window.addEventListener('keydown', handleUserGesture, { once: false, passive: true });
+    const events = ['click', 'touchstart', 'touchend', 'pointerdown'];
+    events.forEach(ev => window.addEventListener(ev, handleUserGesture, { passive: true }));
 
     return () => {
-      window.removeEventListener('click', handleUserGesture);
-      window.removeEventListener('touchstart', handleUserGesture);
-      window.removeEventListener('keydown', handleUserGesture);
+      events.forEach(ev => window.removeEventListener(ev, handleUserGesture));
     };
   }, [unlockAudio]);
 
-  // Speech synthesis helper in Vietnamese
+  // Handle screen wake up (visibilitychange & focus) to auto-resume audio and unfreeze iOS speech
+  useEffect(() => {
+    const handleWakeup = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        const ctx = getOrCreateAudioContext();
+        if (ctx && (ctx.state === 'suspended' || (ctx as any).state === 'interrupted')) {
+          ctx.resume().catch(() => {});
+        }
+
+        // Always unpause and clear stuck speech synthesis on iOS
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          try {
+            if (window.speechSynthesis.paused) {
+              window.speechSynthesis.resume();
+            }
+            window.speechSynthesis.cancel();
+          } catch {}
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleWakeup);
+    window.addEventListener('focus', handleWakeup);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleWakeup);
+      window.removeEventListener('focus', handleWakeup);
+    };
+  }, []);
+
+  // Speech synthesis helper in Vietnamese with WebKit anti-freeze & GC protection
   const speakVietnamese = useCallback((text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     try {
-      window.speechSynthesis.cancel(); // Stop ongoing speech
+      // iOS WebKit unfreeze
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      window.speechSynthesis.cancel(); // Clear pending queue
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'vi-VN';
       utterance.rate = 1.05;
@@ -151,6 +224,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (viVoice) {
         utterance.voice = viVoice;
       }
+
+      // Store in window to avoid WebKit garbage-collecting the utterance before finish
+      (window as any).__qr_active_utterance = utterance;
+
+      utterance.onend = () => {
+        (window as any).__qr_active_utterance = null;
+      };
+      utterance.onerror = () => {
+        (window as any).__qr_active_utterance = null;
+      };
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
@@ -296,12 +379,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     osc2.stop(startTime + duration * 0.7);
   };
 
-  // Pure chime tone helpers
+  // Pure chime tone helpers (Dual HTML5 Audio + WebAudio harmonic notes)
   const playOrderSoundTone = () => {
+    // 1. Play pre-loaded HTML5 Audio element (works even when WebAudio suspended)
+    if (orderAudioRef.current) {
+      try {
+        orderAudioRef.current.currentTime = 0;
+        const p = orderAudioRef.current.play();
+        if (p) p.catch(() => {});
+      } catch {}
+    }
+
+    // 2. Play WebAudio harmonic synthesizer
     try {
       const ctx = getOrCreateAudioContext();
       if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
+        ctx.resume().catch(() => {});
+      }
 
       const now = ctx.currentTime;
       playHarmonicNote(ctx, 523.25, now, 0.45, 0.55);
@@ -315,10 +410,22 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const playAlertSoundTone = () => {
+    // 1. Play pre-loaded HTML5 Audio element
+    if (alertAudioRef.current) {
+      try {
+        alertAudioRef.current.currentTime = 0;
+        const p = alertAudioRef.current.play();
+        if (p) p.catch(() => {});
+      } catch {}
+    }
+
+    // 2. Play WebAudio harmonic synthesizer
     try {
       const ctx = getOrCreateAudioContext();
       if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
+        ctx.resume().catch(() => {});
+      }
 
       const now = ctx.currentTime;
       playHarmonicNote(ctx, 880.00, now, 0.35, 0.65);
@@ -334,15 +441,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (soundMode === 'off') return;
 
     if (soundMode === 'voice') {
-      // Short introductory bell chime
-      try {
-        const ctx = getOrCreateAudioContext();
-        if (ctx) {
-          if (ctx.state === 'suspended') ctx.resume();
-          playHarmonicNote(ctx, 659.25, ctx.currentTime, 0.3, 0.5);
-          playHarmonicNote(ctx, 783.99, ctx.currentTime + 0.15, 0.4, 0.5);
-        }
-      } catch {}
+      // Introductory bell chime
+      playOrderSoundTone();
 
       // Speech text in Vietnamese
       const spokenTable = tableName || 'Bàn';
@@ -358,14 +458,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (soundMode === 'off') return;
 
     if (soundMode === 'voice') {
-      try {
-        const ctx = getOrCreateAudioContext();
-        if (ctx) {
-          if (ctx.state === 'suspended') ctx.resume();
-          playHarmonicNote(ctx, 880.00, ctx.currentTime, 0.3, 0.55);
-          playHarmonicNote(ctx, 587.33, ctx.currentTime + 0.15, 0.4, 0.55);
-        }
-      } catch {}
+      // Introductory alert chime
+      playAlertSoundTone();
 
       const spokenTable = tableName || 'Bàn';
       if (requestType === 'CHECKOUT') {
