@@ -265,7 +265,11 @@ staffRouter.get('/tables/:id/qr-code', async (req: Request, res: Response) => {
         }
 
         const table = tableRes.rows[0];
-        const qr = await StaffService.generateTableQR(table.public_qr_id, config.frontendUrl);
+        const protocol = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+        const host = req.get('host');
+        const defaultOrigin = `${protocol}://${host}`;
+        const baseUrl = process.env.FRONTEND_URL || (config.frontendUrl.includes('localhost') && host ? defaultOrigin : config.frontendUrl);
+        const qr = await StaffService.generateTableQR(table.public_qr_id, baseUrl);
 
         return res.json({
             tableNumber: table.table_number,
