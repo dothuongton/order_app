@@ -42,16 +42,48 @@ export const GuestMenu: React.FC = () => {
     <div className="pb-28">
       {theme.showBanner !== false && banners.length > 0 && (
         <section aria-label="Thông tin và ưu đãi của quán" className="px-4 pt-4 space-y-3">
-          {banners.map(banner => (
-            <article key={banner.id} className="rounded-2xl overflow-hidden bg-white border border-slate-200">
-              {banner.image_url && <img src={banner.image_url} alt={banner.title} className="w-full h-36 object-cover" />}
-              <div className="p-3">
-                <h2 className="font-bold text-sm">{banner.title}</h2>
-                {banner.description && <p className="mt-1 text-xs text-slate-600">{banner.description}</p>}
-                {banner.cta_link && /^(https:\/\/|\/(?!\/))/.test(banner.cta_link) && <a href={banner.cta_link} className="text-sm text-orange-600 underline">Xem chi tiết</a>}
-              </div>
-            </article>
-          ))}
+          {banners.map((banner, idx) => {
+            const img = banner.image_url || banner.imageUrl;
+            const cta = banner.cta_link || banner.ctaLink;
+            const hasCta = cta && /^(https?:\/\/|\/(?!\/))/.test(cta);
+
+            return (
+              <article
+                key={banner.id || idx}
+                className="relative rounded-2xl overflow-hidden aspect-[16/9] w-full bg-slate-900 border border-slate-200/50 shadow-sm"
+              >
+                {img ? (
+                  <img
+                    src={img}
+                    alt={banner.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-orange-600 via-amber-600 to-orange-700" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 flex flex-col justify-end">
+                  <h2 className="font-extrabold text-white text-base leading-snug drop-shadow-sm">{banner.title}</h2>
+                  {banner.description && (
+                    <p className="mt-1 text-xs text-slate-200 line-clamp-2 drop-shadow-sm">{banner.description}</p>
+                  )}
+                  {hasCta && (
+                    <div className="mt-2.5">
+                      <a
+                        href={cta}
+                        target={cta.startsWith('http') ? '_blank' : undefined}
+                        rel={cta.startsWith('http') ? 'noopener noreferrer' : undefined}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-sm transition active:scale-95"
+                      >
+                        <span>Xem chi tiết</span>
+                        <span aria-hidden="true">&rarr;</span>
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </section>
       )}
       {theme.showPromotions !== false && promotions.length > 0 && (

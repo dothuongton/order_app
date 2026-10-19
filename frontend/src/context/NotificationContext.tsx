@@ -217,11 +217,17 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       utterance.onend = () => {
         (window as any).__qr_active_utterance = null;
       };
-      utterance.onerror = () => {
+      utterance.onerror = (err) => {
+        console.warn('Speech error:', err);
         (window as any).__qr_active_utterance = null;
       };
 
-      window.speechSynthesis.speak(utterance);
+      // 60ms delay allows cancel() to settle cleanly across WebKit/Blink
+      setTimeout(() => {
+        try {
+          window.speechSynthesis.speak(utterance);
+        } catch {}
+      }, 60);
     } catch (e) {
       console.warn('Speech synthesis unavailable', e);
     }
@@ -434,26 +440,19 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (soundMode === 'off') return;
 
     if (soundMode === 'voice') {
-      // Introductory bell chime
-      playOrderSoundTone();
-
-      // Speech text in Vietnamese
       const spokenTable = tableName || 'Bàn';
       speakVietnamese(`${spokenTable} vừa đặt món`);
     } else {
       // Default Chime only
       playOrderSoundTone();
     }
-  }, [soundMode, speakVietnamese]);
+  }, [soundMode, speakVietnamese, playOrderSoundTone]);
 
   // 2. Service Request Notification (Voice or Chime)
   const playAlertSound = useCallback((tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE') => {
     if (soundMode === 'off') return;
 
     if (soundMode === 'voice') {
-      // Introductory alert chime
-      playAlertSoundTone();
-
       const spokenTable = tableName || 'Bàn';
       if (requestType === 'CHECKOUT') {
         speakVietnamese(`${spokenTable} yêu cầu thanh toán`);
@@ -464,7 +463,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Default Chime only
       playAlertSoundTone();
     }
-  }, [soundMode, speakVietnamese]);
+  }, [soundMode, speakVietnamese, playAlertSoundTone]);
 
   // 3. Success Sound
   const playSuccessSound = useCallback(() => {
@@ -478,16 +477,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       playHarmonicNote(ctx, 587.33, now, 0.3, 0.45);
       playHarmonicNote(ctx, 880.00, now + 0.12, 0.5, 0.5);
     } catch {}
-  }, [soundMode]);
+  }, [soundMode, playHarmonicNote]);
 
   // Test sound function
   const testSound = useCallback(() => {
     unlockAudio();
     if (soundMode === 'voice') {
-      playOrderSound('Bàn số 1');
+      speakVietnamese('Bàn số 1 vừa đặt món mới');
       showToast({
         title: '🗣️ Thử giọng nói tiếng Việt',
-        message: 'Đang phát: "Bàn số 1 vừa đặt món"',
+        message: 'Đang phát âm: "Bàn số 1 vừa đặt món mới"',
         type: 'info',
         duration: 3500
       });
@@ -507,7 +506,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         duration: 3000
       });
     }
-  }, [unlockAudio, soundMode, playOrderSound, showToast]);
+  }, [unlockAudio, soundMode, speakVietnamese, playOrderSoundTone, showToast]);
 
   return (
     <NotificationContext.Provider
