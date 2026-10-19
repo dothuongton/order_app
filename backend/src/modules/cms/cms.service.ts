@@ -1,5 +1,9 @@
 import { query, withTransaction } from '../../db/pool.js';
 
+import { z } from 'zod';
+import { validate } from '../../utils/validation.js';
+import { safeUrl, themeSchema, bannerSchema, promotionSchema } from '../../utils/cms-validation.js';
+
 export interface UpdateProfileInput {
     name?: string;
     description?: string;
@@ -83,6 +87,8 @@ export class CmsService {
      * Update Shop Profile
      */
     static async updateProfile(tenantId: string, input: UpdateProfileInput, userId: string) {
+        validate(safeUrl.nullish(), input.logoUrl);
+        validate(safeUrl.nullish(), input.coverUrl);
         return await withTransaction(async (client) => {
             const currentRes = await client.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
             if (currentRes.rows.length === 0) {
@@ -152,6 +158,10 @@ export class CmsService {
      * Save Shop CMS Draft
      */
     static async saveDraft(tenantId: string, input: SaveDraftInput, userId: string) {
+        validate(themeSchema, input.themeConfig);
+        validate(z.object({ bannerIds: z.array(z.string().uuid()).max(100).optional(), featuredItemIds: z.array(z.string().uuid()).max(100).optional() }).strict(), input.contentConfig || {});
+        const template = await query('SELECT id FROM cms_templates WHERE id = $1 AND is_active = true', [input.templateId]);
+        if (!template.rows.length) throw new Error('Mẫu giao diện không khả dụng');
         const themeConfigJson = JSON.stringify(input.themeConfig || {});
         const contentConfigJson = JSON.stringify(input.contentConfig || {});
 
@@ -183,8 +193,9 @@ export class CmsService {
             const draft = draftRes.rows[0];
 
             // Get tenant current published version
-            const tenantRes = await client.query('SELECT active_published_version FROM tenants WHERE id = $1', [tenantId]);
-            const nextVersion = (tenantRes.rows[0]?.active_published_version || 0) + 1;
+            await client.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+            const latest = await client.query('SELECT COALESCE(MAX(version), 0) as version FROM cms_published_versions WHERE tenant_id = $1', [tenantId]);
+            const nextVersion = Number(latest.rows[0].version) + 1;
 
             // Insert into cms_published_versions
             await client.query(`
@@ -232,7 +243,7 @@ export class CmsService {
             ORDER BY pv.version DESC
             LIMIT 20
         `, [tenantId]);
-        return res.rows;
+        return res.rows.map(row => ({ id: row.id, version: row.version, templateId: row.template_id, themeConfig: row.theme_config, changelog: row.changelog, publishedAt: row.published_at, publishedByName: row.published_by_name }));
     }
 
     /**
@@ -240,6 +251,7 @@ export class CmsService {
      */
     static async rollbackVersion(tenantId: string, versionNumber: number, userId: string) {
         return await withTransaction(async (client) => {
+            await client.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
             const verRes = await client.query(`
                 SELECT * FROM cms_published_versions
                 WHERE tenant_id = $1 AND version = $2
@@ -294,10 +306,11 @@ export class CmsService {
             WHERE tenant_id = $1
             ORDER BY sort_order ASC, created_at DESC
         `, [tenantId]);
-        return res.rows;
+        return res.rows.map(row => ({ id: row.id, title: row.title, description: row.description, imageUrl: row.image_url, ctaLink: row.cta_link, sortOrder: row.sort_order, isActive: row.is_active, startTime: row.start_time, endTime: row.end_time }));
     }
 
     static async createBanner(tenantId: string, input: BannerInput) {
+        input = validate(bannerSchema, input);
         const res = await query(`
             INSERT INTO banners (tenant_id, title, description, image_url, cta_link, sort_order, is_active, start_time, end_time)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -317,6 +330,7 @@ export class CmsService {
     }
 
     static async updateBanner(tenantId: string, bannerId: string, input: Partial<BannerInput>) {
+        input = validate(bannerSchema.partial(), input);
         const currentRes = await query('SELECT * FROM banners WHERE id = $1 AND tenant_id = $2', [bannerId, tenantId]);
         if (currentRes.rows.length === 0) {
             throw new Error('Không tìm thấy banner');
@@ -360,10 +374,12 @@ export class CmsService {
             WHERE tenant_id = $1
             ORDER BY priority DESC, created_at DESC
         `, [tenantId]);
-        return res.rows;
+        return res.rows.map(row => ({ id: row.id, code: row.code, title: row.title, description: row.description, discountType: row.discount_type, discountValue: Number(row.discount_value), minOrderAmount: Number(row.min_order_amount), maxDiscountAmount: row.max_discount_amount == null ? undefined : Number(row.max_discount_amount), maxRedemptions: row.max_redemptions, currentRedemptions: row.current_redemptions, priority: row.priority, isActive: row.is_active, startTime: row.start_time, endTime: row.end_time }));
     }
 
     static async createPromotion(tenantId: string, input: PromotionInput) {
+        input = validate(promotionSchema, input);
+        if (input.startTime && input.endTime && new Date(input.endTime) <= new Date(input.startTime)) throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
         if (input.discountType === 'PERCENT' && (input.discountValue <= 0 || input.discountValue > 100)) {
             throw new Error('Giá trị giảm phần trăm (%) phải từ 1 đến 100');
         }
@@ -399,6 +415,7 @@ export class CmsService {
     }
 
     static async updatePromotion(tenantId: string, promoId: string, input: Partial<PromotionInput>) {
+        input = validate(promotionSchema.partial(), input);
         const curRes = await query('SELECT * FROM promotions WHERE id = $1 AND tenant_id = $2', [promoId, tenantId]);
         if (curRes.rows.length === 0) {
             throw new Error('Không tìm thấy chương trình khuyến mãi');
@@ -410,6 +427,7 @@ export class CmsService {
         const description = input.description !== undefined ? input.description : cur.description;
         const discountType = input.discountType ?? cur.discount_type;
         const discountValue = input.discountValue !== undefined ? input.discountValue : parseInt(cur.discount_value, 10);
+        if (discountType === 'PERCENT' && discountValue > 100) throw new Error('Giảm phần trăm không vượt quá 100');
         const minOrderAmount = input.minOrderAmount !== undefined ? input.minOrderAmount : parseInt(cur.min_order_amount, 10);
         const maxDiscountAmount = input.maxDiscountAmount !== undefined ? input.maxDiscountAmount : cur.max_discount_amount;
         const maxRedemptions = input.maxRedemptions !== undefined ? input.maxRedemptions : cur.max_redemptions;

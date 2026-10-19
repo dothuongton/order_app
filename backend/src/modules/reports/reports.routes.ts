@@ -30,16 +30,19 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
 
         // 2. Count served items across all served parts in this restaurant
         const servedItemsRes = await query(`
-            SELECT 
-                oi.snapshot_name as item_name,
-                SUM(oip.quantity) as total_served,
-                SUM(oip.quantity * oi.snapshot_price) as total_amount
-            FROM order_item_parts oip
-            JOIN order_items oi ON oi.id = oip.order_item_id
-            JOIN orders o ON o.id = oi.order_id
-            JOIN table_sessions ts ON ts.id = o.session_id
-            WHERE ts.tenant_id = $1 AND oip.status = 'SERVED'
-            GROUP BY oi.snapshot_name
+            WITH served_lines AS (
+                SELECT oi.id, oi.snapshot_name, oi.snapshot_price, oi.quantity,
+                       oi.discount_amount, SUM(oip.quantity) as served_quantity
+                FROM order_item_parts oip
+                JOIN order_items oi ON oi.id = oip.order_item_id
+                JOIN orders o ON o.id = oi.order_id
+                WHERE o.tenant_id = $1 AND oip.status = 'SERVED'
+                GROUP BY oi.id
+            )
+            SELECT snapshot_name as item_name, SUM(served_quantity) as total_served,
+                   SUM(served_quantity * snapshot_price - FLOOR(discount_amount::numeric * served_quantity / quantity)) as total_amount
+            FROM served_lines
+            GROUP BY snapshot_name
             ORDER BY total_served DESC
             LIMIT 15
         `, [staff.tenantId]);

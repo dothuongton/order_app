@@ -2,6 +2,17 @@ import { query, withTransaction } from '../../db/pool.js';
 import { broadcastToStaff, broadcastToSession } from '../../realtime/socket.js';
 import qrcode from 'qrcode';
 
+import { z } from 'zod';
+import { validate, requestedQuantity } from '../../utils/validation.js';
+import { partAmount } from '../../utils/billing.js';
+import { PoolClient } from 'pg';
+
+async function lockOpenSession(client: PoolClient, tenantId: string, sessionId: string) {
+    const result = await client.query(`SELECT status FROM table_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [sessionId, tenantId]);
+    if (!result.rows.length) throw { status: 404, code: 'SESSION_NOT_FOUND', message: 'Không tìm thấy phiên' };
+    if (result.rows[0].status !== 'OPEN') throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
+}
+
 export class StaffService {
     // 1. Get Dashboard Snapshot
     static async getDashboardSnapshot(tenantId: string) {
@@ -143,6 +154,8 @@ export class StaffService {
     // 2. Open Session (F01)
     static async openSession(tenantId: string, tableId: string, userId: string) {
         return await withTransaction(async (client) => {
+            const tenant = await client.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
+            if (tenant.rows[0]?.status !== 'active') throw { status: 403, code: 'SHOP_SUSPENDED', message: 'Quán đang ngừng nhận khách' };
             // Lock table row
             const tableRes = await client.query(`
                 SELECT id, table_number, readiness, is_enabled
@@ -210,6 +223,10 @@ export class StaffService {
     static async acceptOrderItem(tenantId: string, orderItemId: string, quantityToAccept: number, userId: string) {
         return await withTransaction(async (client) => {
             // Find order item and pending part
+            const lookup = await client.query(`SELECT o.session_id FROM order_items oi
+                JOIN orders o ON o.id = oi.order_id WHERE oi.id = $1 AND o.tenant_id = $2`, [orderItemId, tenantId]);
+            if (!lookup.rows.length) throw { status: 404, code: 'ITEM_NOT_FOUND', message: 'Không tìm thấy món' };
+            await lockOpenSession(client, tenantId, lookup.rows[0].session_id);
             const itemRes = await client.query(`
                 SELECT oi.id, oi.order_id, oi.snapshot_name, o.session_id, o.tenant_id
                 FROM order_items oi
@@ -236,7 +253,7 @@ export class StaffService {
             }
 
             const pendingPart = partRes.rows[0];
-            const acceptQty = Math.min(quantityToAccept || pendingPart.quantity, pendingPart.quantity);
+            const acceptQty = requestedQuantity(quantityToAccept, pendingPart.quantity);
 
             if (acceptQty <= 0) {
                 throw { status: 400, code: 'INVALID_QUANTITY', message: 'Số lượng tiếp nhận không hợp lệ' };
@@ -294,6 +311,7 @@ export class StaffService {
     // Accept all pending items for a session
     static async acceptAllPending(tenantId: string, sessionId: string, userId: string) {
         return await withTransaction(async (client) => {
+            await lockOpenSession(client, tenantId, sessionId);
             const pendingParts = await client.query(`
                 SELECT oip.id, oip.order_item_id, oip.quantity, oi.snapshot_name
                 FROM order_item_parts oip
@@ -341,6 +359,10 @@ export class StaffService {
     // 4. Mark Served (F06)
     static async serveOrderItem(tenantId: string, orderItemId: string, quantityToServe: number, userId: string) {
         return await withTransaction(async (client) => {
+            const lookup = await client.query(`SELECT o.session_id FROM order_items oi
+                JOIN orders o ON o.id = oi.order_id WHERE oi.id = $1 AND o.tenant_id = $2`, [orderItemId, tenantId]);
+            if (!lookup.rows.length) throw { status: 404, code: 'ITEM_NOT_FOUND', message: 'Không tìm thấy món' };
+            await lockOpenSession(client, tenantId, lookup.rows[0].session_id);
             const itemRes = await client.query(`
                 SELECT oi.id, oi.snapshot_name, o.session_id, o.tenant_id
                 FROM order_items oi
@@ -366,30 +388,19 @@ export class StaffService {
                 throw { status: 400, code: 'INVALID_TRANSITION', message: 'Món chưa được tiếp nhận hoặc đã được phục vụ hết' };
             }
 
-            const acceptedPart = partRes.rows[0];
-            const serveQty = Math.min(quantityToServe || acceptedPart.quantity, acceptedPart.quantity);
-
-            if (serveQty <= 0) {
-                throw { status: 400, code: 'INVALID_QUANTITY', message: 'Số lượng phục vụ không hợp lệ' };
-            }
-
-            if (serveQty === acceptedPart.quantity) {
-                await client.query(`
-                    UPDATE order_item_parts
-                    SET status = 'SERVED', updated_at = NOW()
-                    WHERE id = $1
-                `, [acceptedPart.id]);
-            } else {
-                await client.query(`
-                    UPDATE order_item_parts
-                    SET quantity = quantity - $1, updated_at = NOW()
-                    WHERE id = $2
-                `, [serveQty, acceptedPart.id]);
-
-                await client.query(`
-                    INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
-                    VALUES ($1, $2, 'SERVED', $3)
-                `, [tenantId, orderItemId, serveQty]);
+            const available = partRes.rows.reduce((sum, part) => sum + part.quantity, 0);
+            const serveQty = requestedQuantity(quantityToServe, available);
+            let remaining = serveQty;
+            for (const part of partRes.rows) {
+                if (remaining === 0) break;
+                const take = Math.min(part.quantity, remaining);
+                if (take === part.quantity) {
+                    await client.query(`UPDATE order_item_parts SET status = 'SERVED', updated_at = NOW() WHERE id = $1`, [part.id]);
+                } else {
+                    await client.query(`UPDATE order_item_parts SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2`, [take, part.id]);
+                    await client.query(`INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity) VALUES ($1, $2, 'SERVED', $3)`, [tenantId, orderItemId, take]);
+                }
+                remaining -= take;
             }
 
             await client.query(`
@@ -421,6 +432,7 @@ export class StaffService {
     // Serve all accepted items for a session
     static async serveAllAccepted(tenantId: string, sessionId: string, userId: string) {
         return await withTransaction(async (client) => {
+            await lockOpenSession(client, tenantId, sessionId);
             const acceptedParts = await client.query(`
                 SELECT oip.id, oip.order_item_id, oip.quantity, oi.snapshot_name
                 FROM order_item_parts oip
@@ -475,6 +487,10 @@ export class StaffService {
         markItemOutOfStock: boolean = false
     ) {
         return await withTransaction(async (client) => {
+            const lookup = await client.query(`SELECT o.session_id FROM order_items oi
+                JOIN orders o ON o.id = oi.order_id WHERE oi.id = $1 AND o.tenant_id = $2`, [orderItemId, tenantId]);
+            if (!lookup.rows.length) throw { status: 404, code: 'ITEM_NOT_FOUND', message: 'Không tìm thấy món' };
+            await lockOpenSession(client, tenantId, lookup.rows[0].session_id);
             const itemRes = await client.query(`
                 SELECT oi.id, oi.menu_item_id, oi.snapshot_name, o.session_id, o.tenant_id
                 FROM order_items oi
@@ -507,7 +523,7 @@ export class StaffService {
                 };
             }
 
-            const cancelQty = Math.min(quantityToCancel || availableQty, availableQty);
+            const cancelQty = requestedQuantity(quantityToCancel, availableQty);
             let remainingToCancel = cancelQty;
 
             for (const part of partsRes.rows) {
@@ -616,8 +632,9 @@ export class StaffService {
                 };
             }
 
-            // Version check
-            if (clientSettlementVersion && session.settlement_version !== clientSettlementVersion) {
+            // Never allow clients to bypass optimistic concurrency with 0/null/missing.
+            validate(z.number().int().positive(), clientSettlementVersion);
+            if (session.settlement_version !== clientSettlementVersion) {
                 throw {
                     status: 409,
                     code: 'SUMMARY_CHANGED',
@@ -668,6 +685,8 @@ export class StaffService {
                     oi.snapshot_name,
                     oi.snapshot_variant_name,
                     oi.snapshot_price,
+                    oi.quantity as original_quantity,
+                    oi.discount_amount,
                     SUM(oip.quantity) as quantity_served
                 FROM order_item_parts oip
                 JOIN order_items oi ON oi.id = oip.order_item_id
@@ -682,7 +701,7 @@ export class StaffService {
             for (const r of servedPartsRes.rows) {
                 const qty = parseInt(r.quantity_served, 10);
                 const price = Number(r.snapshot_price);
-                const subtotal = qty * price;
+                const subtotal = partAmount(price, qty, r.original_quantity, Number(r.discount_amount || 0));
                 finalAmount += subtotal;
 
                 billLinesToInsert.push({

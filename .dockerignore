@@ -9,3 +9,8 @@ dist
 .env
 .env.local
 .vercel
+
+**/node_modules
+**/dist
+**/.env
+**/.env.*

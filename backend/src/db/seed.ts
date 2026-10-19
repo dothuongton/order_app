@@ -1,8 +1,12 @@
 import bcrypt from 'bcryptjs';
 import { pool, withTransaction } from './pool.js';
 import { fileURLToPath } from 'url';
+import { config } from '../config/index.js';
 
 export async function seed(force: boolean = false) {
+    if (process.env.NODE_ENV === 'test' && !new URL(config.databaseUrl).pathname.startsWith('/qr_order_test_')) {
+        throw new Error('Tests may only seed an isolated qr_order_test_ database');
+    }
     console.log('🌱 Checking database seed status...');
 
     await withTransaction(async (client) => {
@@ -87,8 +91,6 @@ export async function seed(force: boolean = false) {
                 ]),
                 ($1, $3, 'waiter', ARRAY[
                     'session.open',
-                    'session.confirm_payment_close',
-                    'session.close_without_charge',
                     'order.manage',
                     'order.serve',
                     'order.cancel',

@@ -16,6 +16,8 @@ describe('QR Ordering System v1.2 - Acceptance Tests', () => {
 
     beforeAll(async () => {
         await seed();
+        // List-price acceptance cases; promotions have dedicated regression coverage.
+        await query('UPDATE promotions SET is_active = false');
 
         // Get tenant & users
         const tenantRes = await query(`SELECT id FROM tenants WHERE slug = 'pho-co'`);

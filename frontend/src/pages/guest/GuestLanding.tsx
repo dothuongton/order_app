@@ -25,6 +25,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
 
   const [activeTab, setActiveTab] = useState<'menu' | 'orders' | 'bill'>('menu');
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [waitingForOpen, setWaitingForOpen] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,7 +36,8 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
         try {
           await joinSession(qrId);
         } catch (err: any) {
-          // If session is not open, it's normal (AT02)
+          if (err.code === 'SESSION_NOT_OPEN') setWaitingForOpen(true);
+          else setInitError(err.message || 'Không thể tham gia phiên bàn');
         }
       } catch (err: any) {
         setInitError(err.message || 'Không thể tải thông tin bàn');
@@ -43,6 +45,18 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     };
     init();
   }, [qrId, loadTableMenu, joinSession]);
+
+  // A guest who scans before staff open the table should not need to reload.
+  // Stop after the first successful join; never auto-join a later customer session.
+  useEffect(() => {
+    if (!waitingForOpen) return;
+    const timer = setInterval(() => {
+      joinSession(qrId).then(() => setWaitingForOpen(false)).catch((err: any) => {
+        if (err.code !== 'SESSION_NOT_OPEN') { setWaitingForOpen(false); setInitError(err.message); }
+      });
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [waitingForOpen, qrId, joinSession]);
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -85,7 +99,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
+    <div style={{ '--brand-color': /^#[0-9a-fA-F]{6}$/.test(tenant?.activeThemeConfig?.primaryColor || '') ? tenant!.activeThemeConfig!.primaryColor : '#ea580c' } as React.CSSProperties} className="guest-storefront min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
       {/* Top Bar / Restaurant & Table Info */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-xs">
         <div>
@@ -120,7 +134,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       </header>
 
       {/* Notice Banner: If table session is closed (F10) */}
-      {isSessionClosed && (
+      {isSessionClosed && !waitingForOpen && (
         <div className="bg-emerald-600 text-white p-4 shadow-sm flex items-center gap-3">
           <Sparkles className="w-6 h-6 flex-shrink-0" />
           <div className="flex-1">
@@ -133,7 +147,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       )}
 
       {/* Notice Banner: If table not opened yet (AT02) */}
-      {!session && !isSessionClosed && (
+      {!session && (!isSessionClosed || waitingForOpen) && (
         <div className="bg-amber-500 text-white px-4 py-3 shadow-sm flex items-center gap-2.5">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <p className="text-xs font-medium leading-tight">

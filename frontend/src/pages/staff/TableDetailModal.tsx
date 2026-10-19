@@ -387,6 +387,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     </div>
                     <button
                       onClick={handleAcceptAndServeAll}
+                      disabled={!hasPermission('order.manage') || !hasPermission('order.serve')}
                       className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 min-h-[44px]"
                     >
                       <Sparkles className="w-4 h-4" />
@@ -420,11 +421,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   }
 
                   // Case 2: 0 unresolved items, but total is 0đ (e.g. empty session or all items cancelled) -> Tắt bàn 0đ
-                  if (totalPayable === 0) {
+                  if (totalPayable === 0 && !billSummary.rounds.some(round => round.items.some(item => item.status === 'SERVED'))) {
                     return (
                       <button
                         onClick={handleCloseWithoutCharge}
-                        disabled={isSettling}
+                        disabled={isSettling || !hasPermission('session.close_without_charge')}
                         className="w-full min-h-[48px] bg-rose-600 hover:bg-rose-700 active:bg-rose-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
                       >
                         <XCircle className="w-5 h-5" />
@@ -561,7 +562,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 Sau khi xác nhận:
                 <br />• Phiên bàn sẽ <strong>kết thúc</strong> ngay lập tức.
                 <br />• Quyền truy cập của khách tại bàn sẽ bị thu hồi.
-                <br />• Bàn chuyển sang trạng thái <strong>Chờ dọn</strong> trước khi đón lượt mới.
+                <br />• Bàn chuyển sang trạng thái <strong>Sẵn sàng</strong> để đón lượt mới.
               </p>
 
               <div>

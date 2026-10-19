@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
+import { revokeStaffToken } from '../../utils/staff-token.js';
 import jwt from 'jsonwebtoken';
 import { query } from '../../db/pool.js';
 import { config } from '../../config/index.js';
@@ -10,7 +12,7 @@ export const authRouter = Router();
 authRouter.post('/login', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
-        if (!email || !password) {
+        if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password || email.length > 254 || Buffer.byteLength(password) > 72) {
             return res.status(400).json({
                 error: 'BAD_REQUEST',
                 message: 'Vui lòng nhập email và mật khẩu'
@@ -63,7 +65,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
                 isPlatformAdmin: user.is_platform_admin
             },
             config.jwtSecret,
-            { expiresIn: '7d' }
+            { expiresIn: '7d', jwtid: randomUUID(), algorithm: 'HS256' }
         );
 
         res.cookie('staff_token', token, {
@@ -112,7 +114,15 @@ authRouter.get('/me', authenticateStaff, async (req: Request, res: Response) => 
     });
 });
 
-authRouter.post('/logout', (req: Request, res: Response) => {
-    res.clearCookie('staff_token');
-    return res.json({ success: true, message: 'Đã đăng xuất' });
+authRouter.post('/logout', async (req: Request, res: Response) => {
+    try {
+        const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined;
+        const tokens = new Set([bearer, req.cookies?.staff_token, req.cookies?.admin_token].filter((token): token is string => typeof token === 'string' && !!token));
+        await Promise.all([...tokens].map(revokeStaffToken));
+        res.clearCookie('staff_token');
+        res.clearCookie('admin_token');
+        return res.json({ success: true, message: 'Đã đăng xuất' });
+    } catch {
+        return res.status(500).json({ error: 'SERVER_ERROR', message: 'Không thể đăng xuất; vui lòng thử lại' });
+    }
 });

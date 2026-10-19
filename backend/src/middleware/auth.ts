@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { verifyStaffToken } from '../utils/staff-token.js';
 import { config } from '../config/index.js';
 import { query } from '../db/pool.js';
 import { hashToken } from '../utils/crypto.js';
@@ -55,7 +55,7 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             });
         }
 
-        const decoded = jwt.verify(token, config.jwtSecret) as any;
+        const decoded = await verifyStaffToken(token);
         const userId = decoded.userId;
         const tenantId = req.headers['x-tenant-id'] as string || decoded.tenantId;
 
@@ -104,8 +104,8 @@ export function requirePermission(permission: string) {
         if (!req.staff) {
             return res.status(401).json({ error: 'UNAUTHORIZED' });
         }
-        // Owner, manager, cashier, and waiter are all active staff roles
-        if (req.staff.role === 'owner' || req.staff.role === 'manager' || req.staff.role === 'cashier' || req.staff.role === 'waiter') {
+        // Only owner and manager have implicit full access; other roles use explicit grants.
+        if (req.staff.role === 'owner' || req.staff.role === 'manager') {
             return next();
         }
         if (!req.staff.permissions.includes(permission)) {
@@ -120,7 +120,7 @@ export function requirePermission(permission: string) {
 
 export async function authenticateGuest(req: Request, res: Response, next: NextFunction) {
     try {
-        const token = req.cookies?.guest_token || (req.headers['x-guest-token'] as string);
+        const token = (req.headers['x-guest-token'] as string) || req.cookies?.guest_token;
 
         if (!token) {
             return res.status(401).json({
@@ -141,10 +141,11 @@ export async function authenticateGuest(req: Request, res: Response, next: NextF
                 gs.expires_at,
                 gs.revoked_at,
                 ts.status as session_status,
-                t.table_number
+                t.table_number, t.is_enabled, te.status as tenant_status
             FROM guest_sessions gs
             JOIN table_sessions ts ON ts.id = gs.session_id
             JOIN tables t ON t.id = gs.table_id
+            JOIN tenants te ON te.id = gs.tenant_id
             WHERE gs.token_hash = $1
         `, [tokenHash]);
 
@@ -169,6 +170,10 @@ export async function authenticateGuest(req: Request, res: Response, next: NextF
                 error: 'SESSION_CLOSED',
                 message: 'Phiên bàn đã kết thúc. Cảm ơn quý khách!'
             });
+        }
+
+        if (row.tenant_status !== 'active' || !row.is_enabled) {
+            return res.status(403).json({ error: 'SHOP_SUSPENDED', message: 'Quán hoặc bàn đang ngừng phục vụ' });
         }
 
         req.guest = {
@@ -204,7 +209,7 @@ export async function authenticateSuperAdmin(req: Request, res: Response, next: 
             });
         }
 
-        const decoded = jwt.verify(token, config.jwtSecret) as any;
+        const decoded = await verifyStaffToken(token);
         const userId = decoded.userId;
 
         const resUser = await query(`

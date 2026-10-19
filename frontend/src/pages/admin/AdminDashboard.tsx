@@ -31,7 +31,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         address: '',
         ownerEmail: '',
         ownerFullName: '',
-        ownerPassword: 'password123'
+        ownerPassword: ''
     });
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
     const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -86,7 +86,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 address: '',
                 ownerEmail: '',
                 ownerFullName: '',
-                ownerPassword: 'password123'
+                ownerPassword: ''
             });
             loadData();
         } catch (err: any) {

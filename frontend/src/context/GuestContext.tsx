@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { request, ApiError } from '../api/client.js';
 import { Tenant, MenuItem, MenuCategory, CartItem, Order, BillSummary } from '../types/index.js';
 import { useNotification } from './NotificationContext.js';
@@ -21,8 +21,8 @@ interface GuestContextType {
   loadTableMenu: (qrId: string) => Promise<void>;
   joinSession: (qrId: string) => Promise<void>;
   addToCart: (item: MenuItem, quantity?: number, note?: string) => void;
-  updateCartQuantity: (menuItemId: string, quantity: number) => void;
-  removeFromCart: (menuItemId: string) => void;
+  updateCartQuantity: (menuItemId: string, quantity: number, note?: string) => void;
+  removeFromCart: (menuItemId: string, note?: string) => void;
   clearCart: () => void;
   submitOrder: () => Promise<any>;
   requestAssistance: (note?: string) => Promise<any>;
@@ -49,10 +49,19 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [banners, setBanners] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
 
+  const pendingOrder = useRef<{ payload: string; key: string } | null>(null);
+  const submittingOrder = useRef<Promise<any> | null>(null);
+
   // Load menu by QR id
   const loadTableMenu = useCallback(async (qrId: string) => {
     setIsLoading(true);
     setPublicQrId(qrId);
+    setOrders([]);
+    setBillSummary(null);
+    setCart([]);
+    setActiveServiceRequests([]);
+    pendingOrder.current = null;
+    sessionStorage.removeItem('guest_token');
     try {
       const data = await request<any>(`/public/tables/${qrId}/menu`);
       setTenant(data.tenant);
@@ -82,7 +91,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         method: 'POST',
         body: JSON.stringify({ deviceFingerprint: navigator.userAgent })
       });
-      localStorage.setItem('guest_token', res.token);
+      sessionStorage.setItem('guest_token', res.token);
       setSession({ id: res.sessionId, status: 'OPEN' });
       setIsSessionClosed(false);
       await refreshOrdersAndBill();
@@ -98,7 +107,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Refresh orders & bill
   const refreshOrdersAndBill = useCallback(async () => {
-    const token = localStorage.getItem('guest_token');
+    const token = sessionStorage.getItem('guest_token');
     if (!token) return;
 
     try {
@@ -114,7 +123,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (err.code === 'SESSION_CLOSED' || err.code === 'ACCESS_REVOKED') {
         setIsSessionClosed(true);
         setActiveServiceRequests([]);
-        localStorage.removeItem('guest_token');
+        sessionStorage.removeItem('guest_token');
         setCart([]);
       }
     }
@@ -125,7 +134,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!socket || !session?.id) return;
 
     const joinRoom = () => {
-      socket.emit('join_session_room', session.id);
+      socket.emit('join_session_room', { sessionId: session.id, token: sessionStorage.getItem('guest_token') });
     };
 
     joinRoom();
@@ -136,7 +145,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setIsSessionClosed(true);
       setSession(null);
       setActiveServiceRequests([]);
-      localStorage.removeItem('guest_token');
+      sessionStorage.removeItem('guest_token');
       setCart([]);
       showToast({
         title: 'Phiên bàn đã kết thúc',
@@ -184,6 +193,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, 3000);
 
     return () => {
+      socket.emit('leave_session_room');
       socket.off('connect', joinRoom);
       socket.off('reconnect', joinRoom);
       socket.off('session.closed', handleSessionClosed);
@@ -200,9 +210,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCart(prev => {
       const idx = prev.findIndex(c => c.menuItemId === item.id && (c.note || '') === (note || ''));
       if (idx > -1) {
-        const next = [...prev];
-        next[idx].quantity += quantity;
-        return next;
+        return prev.map((entry, index) => index === idx ? { ...entry, quantity: entry.quantity + quantity } : entry);
       }
       return [...prev, {
         menuItemId: item.id,
@@ -214,16 +222,16 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  const updateCartQuantity = (menuItemId: string, quantity: number) => {
+  const updateCartQuantity = (menuItemId: string, quantity: number, note?: string) => {
     if (quantity <= 0) {
-      removeFromCart(menuItemId);
+      removeFromCart(menuItemId, note);
       return;
     }
-    setCart(prev => prev.map(c => c.menuItemId === menuItemId ? { ...c, quantity } : c));
+    setCart(prev => prev.map(c => c.menuItemId === menuItemId && (c.note || '') === (note || '') ? { ...c, quantity } : c));
   };
 
-  const removeFromCart = (menuItemId: string) => {
-    setCart(prev => prev.filter(c => c.menuItemId !== menuItemId));
+  const removeFromCart = (menuItemId: string, note?: string) => {
+    setCart(prev => prev.filter(c => c.menuItemId !== menuItemId || (c.note || '') !== (note || '')));
   };
 
   const clearCart = () => setCart([]);
@@ -231,7 +239,11 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Submit order with stable idempotency key
   const submitOrder = async () => {
     if (cart.length === 0) return;
-    const idempotencyKey = `req-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    if (submittingOrder.current) return submittingOrder.current;
+    const payload = JSON.stringify(cart.map(c => ({ menuItemId: c.menuItemId, quantity: c.quantity, note: c.note })));
+    if (pendingOrder.current?.payload !== payload) pendingOrder.current = { payload, key: crypto.randomUUID() };
+    const idempotencyKey = pendingOrder.current.key;
+    const operation = (async () => {
 
     try {
       const res = await request<any>('/guest/orders', {
@@ -247,6 +259,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         })
       });
 
+      pendingOrder.current = null;
       playSuccessSound();
       const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
       showToast({
@@ -261,6 +274,9 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (err: any) {
       throw err;
     }
+    })();
+    submittingOrder.current = operation;
+    try { return await operation; } finally { submittingOrder.current = null; }
   };
 
   const requestAssistance = async (note?: string) => {

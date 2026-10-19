@@ -86,18 +86,12 @@ export const StaffDashboard: React.FC = () => {
     if (!socket || !currentTenant?.id) return;
 
     const joinRoom = () => {
-      socket.emit('join_staff_room', currentTenant.id);
+      fetchDashboard();
+      socket.emit('join_staff_room', { tenantId: currentTenant.id, token: localStorage.getItem('staff_token') });
     };
 
     joinRoom();
-    socket.on('connect', () => {
-      joinRoom();
-      fetchDashboard();
-    });
-    socket.on('reconnect', () => {
-      joinRoom();
-      fetchDashboard();
-    });
+    socket.on('connect', joinRoom);
 
     const handleOrderCreated = (payload: any) => {
       const tableName = payload?.tableName || 'Bàn';
@@ -143,6 +137,7 @@ export const StaffDashboard: React.FC = () => {
     const interval = setInterval(fetchDashboard, 3000);
 
     return () => {
+      socket.emit('leave_staff_room');
       socket.off('connect', joinRoom);
       socket.off('reconnect', joinRoom);
       socket.off('order.created', handleOrderCreated);
@@ -611,6 +606,7 @@ export const StaffDashboard: React.FC = () => {
                         {!isServing ? (
                           <button
                             onClick={() => handleQuickOpenSession(table.table_id)}
+                            disabled={!hasPermission('session.open')}
                             className="flex-1 py-1.5 px-2 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white font-bold text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
                             title="Mở phiên bàn"
                           >
@@ -620,6 +616,7 @@ export const StaffDashboard: React.FC = () => {
                         ) : isZeroOrder ? (
                           <button
                             onClick={() => handleQuickCloseWithoutCharge(table.active_session_id!)}
+                            disabled={!hasPermission('session.close_without_charge')}
                             className="flex-1 py-1.5 px-2 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl border border-rose-300 transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
                             title="Tắt bàn mở nhầm"
                           >
@@ -1178,6 +1175,7 @@ export const StaffDashboard: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('reports')}
+          disabled={!hasPermission('report.view')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
             activeTab === 'reports' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
           }`}
@@ -1198,6 +1196,7 @@ export const StaffDashboard: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('cms')}
+          disabled={!['owner', 'manager'].includes(currentTenant?.role || '')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
             activeTab === 'cms' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
           }`}

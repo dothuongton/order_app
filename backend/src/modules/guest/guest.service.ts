@@ -5,6 +5,10 @@ import { broadcastToStaff, broadcastToSession } from '../../realtime/socket.js';
 import { PushService } from '../push/push.service.js';
 import { PricingService } from '../pricing/pricing.service.js';
 
+import { z } from 'zod';
+import { validate, orderInputSchema } from '../../utils/validation.js';
+import { partAmount } from '../../utils/billing.js';
+
 export interface CreateOrderItemInput {
     menuItemId: string;
     quantity: number;
@@ -20,7 +24,7 @@ export class GuestService {
     // 1. Get public table menu & status
     static async getPublicTableMenu(publicQrId: string) {
         const tableRes = await query(`
-            SELECT 
+            SELECT
                 t.id as table_id,
                 t.table_number,
                 t.readiness,
@@ -68,7 +72,7 @@ export class GuestService {
         `, [table.tenant_id]);
 
         const itemsRes = await query(`
-            SELECT 
+            SELECT
                 mi.id,
                 mi.category_id,
                 mi.name,
@@ -86,6 +90,7 @@ export class GuestService {
             SELECT id, title, description, image_url, cta_link, sort_order
             FROM banners
             WHERE tenant_id = $1 AND is_active = true
+              AND (start_time IS NULL OR start_time <= NOW()) AND (end_time IS NULL OR end_time >= NOW())
             ORDER BY sort_order ASC, created_at DESC
         `, [table.tenant_id]);
 
@@ -135,64 +140,70 @@ export class GuestService {
 
     // 2. Join session
     static async joinSession(publicQrId: string, deviceFingerprint?: string) {
-        const tableRes = await query(`
-            SELECT 
-                t.id as table_id,
-                t.tenant_id,
-                t.table_number,
-                t.is_enabled,
-                ts.id as session_id,
-                ts.status as session_status,
-                te.status as tenant_status
-            FROM tables t
-            JOIN tenants te ON te.id = t.tenant_id
-            LEFT JOIN table_sessions ts ON ts.table_id = t.id AND ts.status = 'OPEN'
-            WHERE t.public_qr_id = $1
-        `, [publicQrId]);
+        validate(z.string().max(1000).optional(), deviceFingerprint);
+        return withTransaction(async client => {
+            const tableRes = await client.query(`
+                SELECT
+                    t.id as table_id,
+                    t.tenant_id,
+                    t.table_number,
+                    t.is_enabled,
+                    ts.id as session_id,
+                    ts.status as session_status,
+                    te.status as tenant_status
+                FROM tables t
+                JOIN tenants te ON te.id = t.tenant_id
+                LEFT JOIN table_sessions ts ON ts.table_id = t.id AND ts.status = 'OPEN'
+                WHERE t.public_qr_id = $1
+            `, [publicQrId]);
 
-        if (tableRes.rows.length === 0) {
-            throw { status: 404, code: 'TABLE_NOT_FOUND', message: 'Không tìm thấy bàn tương ứng với mã QR' };
-        }
+            if (tableRes.rows.length === 0) {
+                throw { status: 404, code: 'TABLE_NOT_FOUND', message: 'Không tìm thấy bàn tương ứng với mã QR' };
+            }
 
-        const row = tableRes.rows[0];
-        if (row.tenant_status === 'suspended') {
-            throw {
-                status: 403,
-                code: 'SHOP_SUSPENDED',
-                message: 'Quán ăn hiện đang tạm ngừng hoạt động. Vui lòng liên hệ nhân viên.'
+            const row = tableRes.rows[0];
+            if (row.tenant_status !== 'active') {
+                throw {
+                    status: 403,
+                    code: 'SHOP_SUSPENDED',
+                    message: 'Quán ăn hiện đang tạm ngừng hoạt động. Vui lòng liên hệ nhân viên.'
+                };
+            }
+
+            if (!row.is_enabled) {
+                throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn này hiện đang tạm ngừng sử dụng' };
+            }
+
+            if (!row.session_id || row.session_status !== 'OPEN') {
+                throw {
+                    status: 400,
+                    code: 'SESSION_NOT_OPEN',
+                    message: 'Bàn chưa được mở gọi món. Vui lòng liên hệ nhân viên'
+                };
+            }
+
+            const locked = await client.query(`SELECT status FROM table_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [row.session_id, row.tenant_id]);
+            if (locked.rows[0]?.status !== 'OPEN') throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
+
+            // Generate token and record guest_session
+            const rawToken = generateRandomToken(32);
+            const tokenHash = hashToken(rawToken);
+            const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
+            await client.query(`
+                INSERT INTO guest_sessions (tenant_id, table_id, session_id, token_hash, device_fingerprint, expires_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `, [row.tenant_id, row.table_id, row.session_id, tokenHash, deviceFingerprint || null, expiresAt]);
+
+            return {
+                token: rawToken,
+                tenantId: row.tenant_id,
+                tableId: row.table_id,
+                sessionId: row.session_id,
+                tableNumber: row.table_number,
+                expiresAt
             };
-        }
-
-        if (!row.is_enabled) {
-            throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn này hiện đang tạm ngừng sử dụng' };
-        }
-
-        if (!row.session_id || row.session_status !== 'OPEN') {
-            throw {
-                status: 400,
-                code: 'SESSION_NOT_OPEN',
-                message: 'Bàn chưa được mở gọi món. Vui lòng liên hệ nhân viên'
-            };
-        }
-
-        // Generate token and record guest_session
-        const rawToken = generateRandomToken(32);
-        const tokenHash = hashToken(rawToken);
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-
-        await query(`
-            INSERT INTO guest_sessions (tenant_id, table_id, session_id, token_hash, device_fingerprint, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-        `, [row.tenant_id, row.table_id, row.session_id, tokenHash, deviceFingerprint || null, expiresAt]);
-
-        return {
-            token: rawToken,
-            tenantId: row.tenant_id,
-            tableId: row.table_id,
-            sessionId: row.session_id,
-            tableNumber: row.table_number,
-            expiresAt
-        };
+        });
     }
 
     // 3. Create Order (F02, F03, F04)
@@ -202,24 +213,12 @@ export class GuestService {
         tableId: string,
         input: CreateOrderInput
     ) {
+        input = validate(orderInputSchema, input);
         if (!input.items || input.items.length === 0) {
             throw { status: 400, code: 'EMPTY_ORDER', message: 'Giỏ hàng đang trống' };
         }
 
         return await withTransaction(async (client) => {
-            // Check idempotency first
-            const idempotency = await checkIdempotency(
-                client,
-                tenantId,
-                'CREATE_ORDER',
-                sessionId,
-                input.idempotencyKey,
-                input
-            );
-            if (idempotency.handled) {
-                return idempotency.result;
-            }
-
             // Lock session row FOR UPDATE
             const sessionRes = await client.query(`
                 SELECT ts.id, ts.status, ts.settlement_version, ts.table_id, t.table_number
@@ -233,6 +232,19 @@ export class GuestService {
                 throw { status: 404, code: 'SESSION_NOT_FOUND', message: 'Không tìm thấy phiên bàn' };
             }
 
+            // Check idempotency first
+            const idempotency = await checkIdempotency(
+                client,
+                tenantId,
+                'CREATE_ORDER',
+                sessionId,
+                input.idempotencyKey,
+                input
+            );
+            if (idempotency.handled) {
+                return idempotency.result;
+            }
+
             const session = sessionRes.rows[0];
             if (session.status !== 'OPEN') {
                 throw { status: 400, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc, không thể gọi thêm món' };
@@ -240,7 +252,7 @@ export class GuestService {
 
             // Check if shop is suspended
             const tenantStatusRes = await client.query('SELECT status FROM tenants WHERE id = $1', [tenantId]);
-            if (tenantStatusRes.rows.length === 0 || tenantStatusRes.rows[0].status === 'suspended') {
+            if (tenantStatusRes.rows.length === 0 || tenantStatusRes.rows[0].status !== 'active') {
                 throw {
                     status: 403,
                     code: 'SHOP_SUSPENDED',
@@ -294,8 +306,8 @@ export class GuestService {
             for (const item of pricing.items) {
                 const orderItemRes = await client.query(`
                     INSERT INTO order_items (
-                        tenant_id, order_id, menu_item_id, 
-                        snapshot_name, snapshot_price, 
+                        tenant_id, order_id, menu_item_id,
+                        snapshot_name, snapshot_price,
                         quantity, note, discount_amount, applied_promotion_id, final_price
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -411,7 +423,7 @@ export class GuestService {
 
         for (const o of ordersRes.rows) {
             const itemsRes = await query(`
-                SELECT 
+                SELECT
                     oi.id,
                     oi.snapshot_name,
                     oi.snapshot_price,
@@ -496,11 +508,13 @@ export class GuestService {
 
         // Fetch all order item parts with their snapshot price
         const partsRes = await query(`
-            SELECT 
+            SELECT
                 o.order_number,
                 oi.id as item_id,
                 oi.snapshot_name,
                 oi.snapshot_price,
+                oi.quantity as original_quantity,
+                oi.discount_amount,
                 oi.note,
                 oip.status,
                 oip.quantity,
@@ -509,7 +523,8 @@ export class GuestService {
             JOIN order_items oi ON oi.order_id = o.id
             JOIN order_item_parts oip ON oip.order_item_id = oi.id
             WHERE o.session_id = $1 AND o.tenant_id = $2
-            ORDER BY o.order_number ASC, oi.created_at ASC
+            ORDER BY o.order_number ASC, oi.created_at ASC, oi.id,
+                CASE oip.status WHEN 'SERVED' THEN 1 WHEN 'ACCEPTED' THEN 2 WHEN 'PENDING' THEN 3 ELSE 4 END, oip.id
         `, [sessionId, tenantId]);
 
         let confirmedOrAcceptedTotal = 0; // ACCEPTED + SERVED
@@ -519,10 +534,13 @@ export class GuestService {
 
         const roundSummaries: Record<number, any> = {};
 
+        const allocatedQuantities = new Map<string, number>();
         for (const row of partsRes.rows) {
             const price = Number(row.snapshot_price);
             const qty = row.quantity;
-            const subtotal = price * qty;
+            const preceding = allocatedQuantities.get(row.item_id) || 0;
+            const subtotal = row.status === 'CANCELLED' ? 0 : partAmount(price, qty, row.original_quantity, Number(row.discount_amount || 0), preceding);
+            allocatedQuantities.set(row.item_id, preceding + qty);
             const roundNum = row.order_number;
 
             if (!roundSummaries[roundNum]) {
@@ -582,6 +600,13 @@ export class GuestService {
         note?: string
     ) {
         return await withTransaction(async (client) => {
+            validate(z.enum(['ASSISTANCE', 'CHECKOUT']), type);
+            validate(z.string().max(1000).optional(), note);
+            const locked = await client.query(`SELECT id, status FROM table_sessions
+                WHERE id = $1 AND tenant_id = $2 AND table_id = $3 FOR UPDATE`, [sessionId, tenantId, tableId]);
+            if (!locked.rows.length || locked.rows[0].status !== 'OPEN') {
+                throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
+            }
             // Check if there is already an open request of this type
             const existingRes = await client.query(`
                 SELECT id, type, status, note, COALESCE(call_count, 1) as call_count, created_at
@@ -642,8 +667,8 @@ export class GuestService {
                     request: updated,
                     isExisting: true,
                     callCount: updated.call_count,
-                    message: type === 'CHECKOUT' 
-                        ? `Đã gửi lại yêu cầu thanh toán (Nhắc lần ${updated.call_count})` 
+                    message: type === 'CHECKOUT'
+                        ? `Đã gửi lại yêu cầu thanh toán (Nhắc lần ${updated.call_count})`
                         : `Đã gửi lại gọi nhân viên (Nhắc lần ${updated.call_count})`
                 };
             }

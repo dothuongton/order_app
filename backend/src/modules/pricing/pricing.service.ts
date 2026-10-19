@@ -78,10 +78,10 @@ export class PricingService {
         for (const item of items) {
             const dbItem = dbItemMap.get(item.menuItemId);
             if (!dbItem) {
-                throw new Error(`Món không tồn tại trong quán (ID: ${item.menuItemId})`);
+                throw { status: 400, code: 'ITEM_NOT_FOUND', message: 'Món không tồn tại trong quán' };
             }
             if (!dbItem.isAvailable) {
-                throw new Error(`Món "${dbItem.name}" hiện đã hết hàng`);
+                throw { status: 409, code: 'ITEM_UNAVAILABLE', message: `Món "${dbItem.name}" hiện đã hết hàng` };
             }
             if (item.quantity <= 0) {
                 throw new Error(`Số lượng món "${dbItem.name}" phải lớn hơn 0`);
@@ -150,20 +150,18 @@ export class PricingService {
             }
         }
 
-        // 4. Distribute discount proportionally across order items
-        let allocatedDiscount = 0;
+        // Largest-remainder allocation preserves the exact discount without ever
+        // assigning more than a line's subtotal, including many tiny-value lines.
+        const discounts = lineItems.map(li => rawSubtotal > 0 ? Number(BigInt(li.lineSubtotal) * BigInt(bestDiscount) / BigInt(rawSubtotal)) : 0);
+        let remainder = bestDiscount - discounts.reduce((sum, value) => sum + value, 0);
+        const allocationOrder = lineItems.map((li, index) => ({ index, remainder: rawSubtotal > 0 ? (BigInt(li.lineSubtotal) * BigInt(bestDiscount)) % BigInt(rawSubtotal) : 0n }))
+            .sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1);
+        for (const { index } of allocationOrder) {
+            if (remainder <= 0) break;
+            if (discounts[index] < lineItems[index].lineSubtotal) { discounts[index]++; remainder--; }
+        }
         const calculatedItems: CalculatedOrderItem[] = lineItems.map((li, index) => {
-            let itemDiscount = 0;
-            if (bestDiscount > 0 && rawSubtotal > 0) {
-                if (index === lineItems.length - 1) {
-                    // Last item absorbs remaining difference to avoid rounding loss
-                    itemDiscount = bestDiscount - allocatedDiscount;
-                } else {
-                    itemDiscount = Math.floor((li.lineSubtotal / rawSubtotal) * bestDiscount);
-                    allocatedDiscount += itemDiscount;
-                }
-            }
-
+            const itemDiscount = discounts[index];
             const itemFinal = Math.max(0, li.lineSubtotal - itemDiscount);
 
             return {
@@ -218,7 +216,7 @@ export class PricingService {
         `, [promotionId, tenantId]);
 
         if (updateRes.rows.length === 0) {
-            throw new Error('Chương trình khuyến mãi đã hết lượt sử dụng đồng thời');
+            throw { status: 409, code: 'PROMOTION_EXHAUSTED', message: 'Chương trình khuyến mãi đã hết lượt sử dụng; vui lòng gửi lại đơn' };
         }
 
         // Record redemption history

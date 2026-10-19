@@ -11,16 +11,20 @@ import { adminRouter } from './modules/admin/admin.routes.js';
 import { cmsRouter } from './modules/cms/cms.routes.js';
 import { query } from './db/pool.js';
 
+import { securityHeaders, protectOrigin, isAllowedOrigin, loginLimiter, guestWriteLimiter } from './middleware/security.js';
+
 export const app = express();
+app.disable('x-powered-by');
+app.use(securityHeaders);
+app.use(protectOrigin);
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests from frontend URL, localhost, mobile browsers
-        callback(null, true);
+        callback(null, isAllowedOrigin(origin));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-guest-token', 'x-idempotency-key']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-guest-token', 'x-idempotency-key', 'Cache-Control', 'Pragma', 'Expires']
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -29,7 +33,7 @@ app.use(cookieParser(config.guestCookieSecret));
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {
-    return res.json({ status: 'ok', time: new Date().toISOString() });
+    return res.json({ status: 'ok', time: new Date().toISOString(), commit: process.env.RENDER_GIT_COMMIT || undefined });
 });
 
 // Public image serving endpoint (with immutable caching for max performance)
@@ -41,6 +45,9 @@ app.get('/api/v1/public/images/:id', async (req: Request, res: Response) => {
             return res.status(404).send('Image not found');
         }
         const { mime_type, data_base64 } = result.rows[0];
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mime_type)) {
+            return res.status(415).send('Unsupported image type');
+        }
         const base64Data = data_base64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
         res.setHeader('Content-Type', mime_type || 'image/jpeg');
@@ -56,6 +63,18 @@ app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
+    next();
+});
+
+app.use('/api/v1/auth/login', loginLimiter);
+app.use('/api/v1/guest', guestWriteLimiter);
+app.use('/api/v1/public/tables', guestWriteLimiter);
+
+// Never expose internal database or stack details from route-level error responses.
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+    const json = res.json.bind(res);
+    res.json = ((body: any) => json(res.statusCode >= 500
+        ? { error: 'INTERNAL_SERVER_ERROR', message: 'Đã có lỗi xảy ra trên máy chủ' } : body)) as typeof res.json;
     next();
 });
 

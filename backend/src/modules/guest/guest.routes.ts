@@ -20,7 +20,7 @@ guestRouter.get('/public/tables/:qrId/menu', async (req: Request, res: Response)
         }
         return res.json(data);
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -74,7 +74,7 @@ guestRouter.get('/guest/session', async (req: Request, res: Response) => {
             openRequests: requests
         });
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -115,7 +115,7 @@ guestRouter.get('/guest/orders', async (req: Request, res: Response) => {
         const orders = await GuestService.getSessionOrders(guest.tenantId, guest.sessionId);
         return res.json({ orders });
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -126,7 +126,7 @@ guestRouter.get('/guest/bill-summary', async (req: Request, res: Response) => {
         const summary = await GuestService.getBillSummary(guest.tenantId, guest.sessionId);
         return res.json(summary);
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -153,7 +153,7 @@ guestRouter.post('/guest/service-requests', async (req: Request, res: Response) 
 
         return res.json(result);
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -182,6 +182,6 @@ guestRouter.get('/guest/operations/:requestId', async (req: Request, res: Respon
             createdAt: resRecord.rows[0].created_at
         });
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });

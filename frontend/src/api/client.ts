@@ -34,7 +34,7 @@ export async function request<T = any>(endpoint: string, options: RequestInit = 
   }
 
   // Attach guest token if present in localStorage
-  const guestToken = localStorage.getItem('guest_token');
+  const guestToken = sessionStorage.getItem('guest_token');
   if (guestToken && !headers.has('x-guest-token')) {
     headers.set('x-guest-token', guestToken);
   }

@@ -27,3 +27,9 @@ html, body {
 .animate-pulse-attention {
   animation: pulse-attention 1.5s ease-in-out infinite;
 }
+
+/* Published guest branding, scoped away from the staff/admin portals. */
+.guest-storefront .bg-orange-600 { background-color: var(--brand-color); }
+.guest-storefront .text-orange-600 { color: var(--brand-color); }
+.guest-storefront .bg-orange-50 { background-color: color-mix(in srgb, var(--brand-color) 8%, white); }
+.guest-storefront .border-orange-100 { border-color: color-mix(in srgb, var(--brand-color) 22%, white); }

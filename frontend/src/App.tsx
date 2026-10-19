@@ -40,7 +40,10 @@ function AdminApp() {
     setAdminUser(user);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/v1/auth/logout`, { method: 'POST', credentials: 'include', headers: { Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}` } });
+    } catch {}
     localStorage.removeItem('admin_token');
     localStorage.removeItem('admin_user');
     setAdminUser(null);

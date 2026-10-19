@@ -24,8 +24,8 @@ Hệ thống gọi món qua mã QR tại bàn dành cho nhà hàng/quán ăn (Mu
    - Món đã hủy (`CANCELLED`) tính 0đ.
 5. **Xác nhận thanh toán & kết thúc phiên nguyên tử (F10):**
    - Điều kiện bắt buộc: không còn món nào ở trạng thái `PENDING` hoặc `ACCEPTED`.
-   - Một transaction duy nhất: Snapshot hóa đơn $\rightarrow$ Bill `CONFIRMED` $\rightarrow$ Session `CLOSED` $\rightarrow$ Thu hồi quyền khách $\rightarrow$ Bàn chuyển sang `Chờ dọn` (NEEDS_CLEANING).
-   - Bàn dọn xong nhân viên bấm `Đã dọn sẵn sàng` mới có thể mở phiên cho lượt khách tiếp theo.
+   - Một transaction duy nhất: Snapshot hóa đơn $\rightarrow$ Bill `CONFIRMED` $\rightarrow$ Session `CLOSED` $\rightarrow$ Thu hồi quyền khách $\rightarrow$ Bàn chuyển sang `Sẵn sàng` (READY).
+   - Bản triển khai hiện tại cho phép mở lượt tiếp theo ngay sau khi đóng phiên (khác bước chờ dọn trong SPEC gốc).
 
 ---
 
@@ -102,7 +102,7 @@ Cổng nhân viên truy cập tại: [http://localhost:5173/staff](http://localh
 
 ## 5. Chạy Kiểm thử Tự động (Acceptance Tests)
 
-Bộ kiểm thử được viết bằng `vitest`, kiểm tra đầy đủ các kịch bản nghiệm thu AT01 - AT21 từ đặc tả v1.2:
+Bộ kiểm thử Vitest hiện có 68 test cho các luồng nghiệm thu chính và hồi quy bảo mật. Mỗi lượt chạy tạo cơ sở dữ liệu PostgreSQL tạm `qr_order_test_*`, không dùng DB ứng dụng để seed/truncate. Tài khoản test cần quyền tạo/xóa DB; có thể cấu hình `TEST_DATABASE_ADMIN_URL`.
 ```bash
 npm test
 ```
@@ -114,7 +114,7 @@ npm test
 - `AT05, AT06, AT07`: Tiếp nhận món, phục vụ một phần và hủy một phần do hết nguyên liệu; tính toán chuẩn theo công thức Mục 8.3.
 - `AT10`: Khách bấm Yêu cầu thanh toán nhiều lần không bị spam thông báo.
 - `AT12`: Chặn xác nhận thanh toán khi còn món chưa giải quyết (`UNRESOLVED_ITEMS`).
-- `AT10, AT14, AT18, AT21`: Giao dịch xác nhận thanh toán nguyên tử (F10); thu hồi token khách; bàn chuyển sang chờ dọn.
+- `AT10, AT14, AT18, AT21`: Giao dịch xác nhận thanh toán nguyên tử (F10); thu hồi token khách; bàn chuyển sang sẵn sàng.
 - `AT20`: Kết thúc phiên không phát sinh tiền 0đ (F12).
 
 ---
@@ -153,3 +153,7 @@ qr_order/
 ├── SPEC_v1.2.md                # Tài liệu đặc tả yêu cầu v1.2
 └── README.md
 ```
+
+## Đánh giá luồng và bảo mật ngày 19/10/2026
+
+Xem [báo cáo kiểm tra và các giới hạn còn lại](security-flow-audit.md). Trước khi triển khai bản mới, chạy migration (có migration 003 cho thu hồi token), thay các secret mẫu, cấu hình FRONTEND_URL/CORS_ORIGINS đúng origin thực tế và rà lại quyền được cấp trong memberships. Production sẽ từ chối secret mẫu/khóa ngắn.

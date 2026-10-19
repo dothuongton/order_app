@@ -1,8 +1,13 @@
+import { z } from 'zod';
 import { Router, Request, Response } from 'express';
 import { authenticateSuperAdmin } from '../../middleware/auth.js';
 import { AdminService } from './admin.service.js';
 
 export const adminRouter = Router();
+adminRouter.param('id', (req, res, next, id) => {
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).json({ error: 'INVALID_ID', message: 'ID không hợp lệ' });
+    next();
+});
 
 // Protect all admin routes with Super Admin authentication
 adminRouter.use(authenticateSuperAdmin);

@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { transactionEffects } from '../utils/transaction-effects.js';
 import { config } from '../config/index.js';
 
 const { Pool } = pg;
@@ -22,8 +23,13 @@ export async function withTransaction<T>(callback: (client: pg.PoolClient) => Pr
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        const result = await callback(client);
+        const effects: Array<() => void | Promise<unknown>> = [];
+        const result = await transactionEffects.run(effects, () => callback(client));
         await client.query('COMMIT');
+        for (const effect of effects) {
+            try { Promise.resolve(effect()).catch(err => console.error('Post-commit notification failed:', err.message)); }
+            catch (err) { console.error('Post-commit notification failed'); }
+        }
         return result;
     } catch (error) {
         await client.query('ROLLBACK');

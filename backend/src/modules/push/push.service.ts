@@ -1,6 +1,9 @@
 import webpush from 'web-push';
+import { assertPushEndpoint } from '../../utils/push-endpoint.js';
 import { query } from '../../db/pool.js';
 import { config } from '../../config/index.js';
+
+import { deferUntilCommit } from '../../utils/transaction-effects.js';
 
 // Configure Web Push VAPID credentials
 if (config.vapidPublicKey && config.vapidPrivateKey) {
@@ -44,14 +47,11 @@ export class PushService {
      * Upsert a staff push subscription linked to authenticated user and tenant
      */
     static async subscribe(tenantId: string, userId: string, input: PushSubscriptionInput) {
-        if (!input.endpoint || !input.keys?.p256dh || !input.keys?.auth) {
+        if (!input.endpoint || typeof input.keys?.p256dh !== 'string' || !input.keys.p256dh || input.keys.p256dh.length > 256 || typeof input.keys?.auth !== 'string' || !input.keys.auth || input.keys.auth.length > 128) {
             throw { status: 400, code: 'INVALID_SUBSCRIPTION', message: 'Dữ liệu subscription không hợp lệ' };
         }
 
-        // Endpoint must be HTTPS (except localhost in dev)
-        if (!input.endpoint.startsWith('https://') && !input.endpoint.startsWith('http://localhost')) {
-            throw { status: 400, code: 'INSECURE_ENDPOINT', message: 'Push endpoint phải sử dụng giao thức HTTPS' };
-        }
+        assertPushEndpoint(input.endpoint);
 
         const res = await query(`
             INSERT INTO staff_push_subscriptions (tenant_id, user_id, endpoint, p256dh, auth, user_agent, updated_at)
@@ -63,9 +63,12 @@ export class PushService {
                 auth = EXCLUDED.auth,
                 user_agent = EXCLUDED.user_agent,
                 updated_at = NOW()
+            WHERE staff_push_subscriptions.user_id = EXCLUDED.user_id
+              AND staff_push_subscriptions.tenant_id = EXCLUDED.tenant_id
             RETURNING id, endpoint, created_at
         `, [tenantId, userId, input.endpoint, input.keys.p256dh, input.keys.auth, input.userAgent || null]);
 
+        if (!res.rows.length) throw { status: 409, code: 'SUBSCRIPTION_OWNED', message: 'Thiết bị đã được đăng ký bởi tài khoản khác; hãy hủy đăng ký trước' };
         return {
             success: true,
             id: res.rows[0].id,
@@ -110,6 +113,7 @@ export class PushService {
      * Send Web Push to all active staff subscriptions for a tenant having the required permission
      */
     static async sendToStaff(tenantId: string, payload: PushNotificationPayload) {
+        if (deferUntilCommit(() => PushService.sendToStaff(tenantId, payload))) return { sentCount: 0, deferred: true };
         try {
             // Find subscriptions of active members in this tenant
             let queryStr = `
@@ -130,7 +134,7 @@ export class PushService {
             // Filter by permission / role if required
             const validSubs = subRes.rows.filter(row => {
                 if (!payload.requiredPermission) return true;
-                if (['owner', 'manager', 'waiter', 'cashier'].includes(row.role)) return true;
+                if (['owner', 'manager'].includes(row.role)) return true;
                 return Array.isArray(row.permissions) && row.permissions.includes(payload.requiredPermission);
             });
 
@@ -167,6 +171,7 @@ export class PushService {
                 };
 
                 try {
+                    assertPushEndpoint(sub.endpoint);
                     await webpush.sendNotification(pushSubscription, pushData, {
                         TTL: 3600, // 1 hour time-to-live
                         urgency: 'high'
@@ -249,6 +254,7 @@ export class PushService {
             }
         });
 
+        assertPushEndpoint(sub.endpoint);
         await webpush.sendNotification(pushSubscription, pushData, {
             TTL: 60,
             urgency: 'high'

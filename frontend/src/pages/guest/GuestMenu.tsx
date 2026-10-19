@@ -4,7 +4,9 @@ import { MenuItem } from '../../types/index.js';
 import { Plus, Minus, X, AlertCircle } from 'lucide-react';
 
 export const GuestMenu: React.FC = () => {
-  const { categories, menuItems, addToCart, session, isSessionClosed } = useGuest();
+  const { categories, menuItems, addToCart, session, isSessionClosed, tenant, banners, promotions } = useGuest();
+  const theme = tenant?.activeThemeConfig || {};
+  const layout = theme.layout || tenant?.activeTemplateId || 'classic';
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [quantity, setQuantity] = useState<number>(1);
@@ -38,6 +40,31 @@ export const GuestMenu: React.FC = () => {
 
   return (
     <div className="pb-28">
+      {theme.showBanner !== false && banners.length > 0 && (
+        <section aria-label="Thông tin và ưu đãi của quán" className="px-4 pt-4 space-y-3">
+          {banners.map(banner => (
+            <article key={banner.id} className="rounded-2xl overflow-hidden bg-white border border-slate-200">
+              {banner.image_url && <img src={banner.image_url} alt={banner.title} className="w-full h-36 object-cover" />}
+              <div className="p-3">
+                <h2 className="font-bold text-sm">{banner.title}</h2>
+                {banner.description && <p className="mt-1 text-xs text-slate-600">{banner.description}</p>}
+                {banner.cta_link && /^(https:\/\/|\/(?!\/))/.test(banner.cta_link) && <a href={banner.cta_link} className="text-sm text-orange-600 underline">Xem chi tiết</a>}
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+      {theme.showPromotions !== false && promotions.length > 0 && (
+        <section aria-label="Khuyến mãi đang áp dụng" className="px-4 pt-3 space-y-2">
+          {promotions.map(promotion => (
+            <div key={promotion.id} className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-xs text-orange-800">
+              <strong>{promotion.title}</strong>
+              {promotion.description && <p className="mt-1">{promotion.description}</p>}
+              <p className="mt-1">Ưu đãi tốt nhất được tính khi gửi đơn. Hóa đơn chỉ tính số món được phục vụ.</p>
+            </div>
+          ))}
+        </section>
+      )}
       {/* Category Tabs */}
       <div className="sticky top-14 z-20 bg-slate-50/95 backdrop-blur border-b border-slate-200 py-2.5 px-4 overflow-x-auto no-scrollbar flex gap-2">
         <button
@@ -66,16 +93,16 @@ export const GuestMenu: React.FC = () => {
       </div>
 
       {/* Menu Items Grid */}
-      <div className="p-4 space-y-3">
+      <div className={layout === 'modern_grid' ? "p-4 grid grid-cols-2 gap-3" : "p-4 space-y-3"}>
         {filteredItems.map(item => (
           <div
             key={item.id}
-            className={`bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-sm flex gap-3.5 items-center transition ${
+            className={`bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-sm flex ${layout === 'modern_grid' ? 'flex-col items-stretch' : 'items-center'} gap-3.5 transition ${
               !item.is_available ? 'opacity-60 bg-slate-50' : 'hover:border-orange-200 active:scale-[0.99]'
             }`}
           >
             {/* Image / Placeholder */}
-            <div className="w-20 h-20 rounded-xl bg-orange-50 border border-orange-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
+            <div className={`${layout === 'modern_grid' ? 'w-full h-32' : layout === 'compact_list' ? 'w-12 h-12' : 'w-20 h-20'} rounded-xl bg-orange-50 border border-orange-100 flex-shrink-0 flex items-center justify-center overflow-hidden`}>
               {item.image_url ? (
                 <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
               ) : (

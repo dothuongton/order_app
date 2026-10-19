@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { Router, Request, Response } from 'express';
 import { StaffService } from './staff.service.js';
 import { GuestService } from '../guest/guest.service.js';
@@ -6,6 +7,10 @@ import { config } from '../../config/index.js';
 import { query } from '../../db/pool.js';
 
 export const staffRouter = Router();
+staffRouter.param('id', (req, res, next, id) => {
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).json({ error: 'INVALID_ID', message: 'ID không hợp lệ' });
+    next();
+});
 
 staffRouter.use(authenticateStaff);
 
@@ -16,7 +21,7 @@ staffRouter.get('/dashboard/snapshot', async (req: Request, res: Response) => {
         const data = await StaffService.getDashboardSnapshot(staff.tenantId);
         return res.json(data);
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -77,7 +82,7 @@ staffRouter.post('/sessions/:id/accept-all', requirePermission('order.manage'), 
         const result = await StaffService.acceptAllPending(staff.tenantId, sessionId, staff.id);
         return res.json(result);
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -106,7 +111,7 @@ staffRouter.post('/sessions/:id/serve-all', requirePermission('order.serve'), as
         const result = await StaffService.serveAllAccepted(staff.tenantId, sessionId, staff.id);
         return res.json(result);
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -278,11 +283,18 @@ staffRouter.get('/tables/:id/qr-code', async (req: Request, res: Response) => {
             dataUrl: qr.dataUrl
         });
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
 // 12. Menu toggle availability
+staffRouter.get('/menu/categories', async (req: Request, res: Response) => {
+    try {
+        const result = await query('SELECT id, name, sort_order FROM menu_categories WHERE tenant_id = $1 AND is_active = true ORDER BY sort_order, name', [req.staff!.tenantId]);
+        return res.json({ categories: result.rows });
+    } catch { return res.status(500).json({ error: 'SERVER_ERROR' }); }
+});
+
 staffRouter.get('/menu/items', async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;
@@ -295,7 +307,7 @@ staffRouter.get('/menu/items', async (req: Request, res: Response) => {
         `, [staff.tenantId]);
         return res.json({ items: items.rows });
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -304,6 +316,7 @@ staffRouter.put('/menu/items/:id/toggle-available', requirePermission('menu.mana
         const staff = req.staff!;
         const itemId = req.params.id;
         const { isAvailable } = req.body;
+        if (typeof isAvailable !== 'boolean') return res.status(400).json({ error: 'INVALID_INPUT', message: 'isAvailable phải là boolean' });
 
         const result = await query(`
             UPDATE menu_items
@@ -318,6 +331,6 @@ staffRouter.put('/menu/items/:id/toggle-available', requirePermission('menu.mana
 
         return res.json({ item: result.rows[0], message: `Đã cập nhật trạng thái món ${result.rows[0].name}` });
     } catch (err: any) {
-        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });

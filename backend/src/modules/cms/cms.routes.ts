@@ -1,9 +1,16 @@
+import { z } from 'zod';
 import { Router, Request, Response } from 'express';
 import { authenticateStaff, requireShopAdmin } from '../../middleware/auth.js';
 import { CmsService } from './cms.service.js';
 import { query } from '../../db/pool.js';
 
+import { decodeImage } from '../../utils/images.js';
+
 export const cmsRouter = Router();
+cmsRouter.param('id', (req, res, next, id) => {
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).json({ error: 'INVALID_ID', message: 'ID không hợp lệ' });
+    next();
+});
 
 // Protect all CMS routes with staff authentication + owner/manager role
 cmsRouter.use(authenticateStaff);
@@ -221,15 +228,7 @@ cmsRouter.post('/upload', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'INVALID_DATA', message: 'Vui lòng cung cấp dữ liệu ảnh' });
         }
 
-        // Match mime type
-        const match = data.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
-        const mimeType = match ? match[1] : 'image/jpeg';
-        const cleanBase64 = data.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
-        const sizeBytes = Buffer.byteLength(cleanBase64, 'base64');
-
-        if (sizeBytes > 5 * 1024 * 1024) {
-            return res.status(400).json({ error: 'IMAGE_TOO_LARGE', message: 'Kích thước ảnh tối đa là 5MB' });
-        }
+        const { mimeType, sizeBytes } = decodeImage(data);
 
         const insertRes = await query(`
             INSERT INTO uploaded_images (tenant_id, filename, mime_type, size_bytes, data_base64)
@@ -245,6 +244,6 @@ cmsRouter.post('/upload', async (req: Request, res: Response) => {
             sizeBytes: row.size_bytes
         });
     } catch (err: any) {
-        return res.status(500).json({ error: 'UPLOAD_FAILED', message: err.message || 'Lỗi tải ảnh lên' });
+        return res.status(err.status || 500).json({ error: err.code || 'UPLOAD_FAILED', message: err.message || 'Lỗi tải ảnh lên' });
     }
 });

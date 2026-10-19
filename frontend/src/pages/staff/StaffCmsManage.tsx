@@ -63,13 +63,14 @@ export const StaffCmsManage: React.FC = () => {
     const loadCmsData = async () => {
         setLoading(true);
         try {
-            const [profileRes, draftRes, bannersRes, promosRes, versionsRes, snapshotRes] = await Promise.all([
+            const [profileRes, draftRes, bannersRes, promosRes, versionsRes, categoriesRes, menuRes] = await Promise.all([
                 request<{ profile: any }>('/cms/profile'),
                 request<{ draft: any }>('/cms/draft'),
                 request<{ banners: Banner[] }>('/cms/banners'),
                 request<{ promotions: Promotion[] }>('/cms/promotions'),
                 request<{ versions: CmsPublishedVersion[] }>('/cms/versions'),
-                request<any>('/staff/dashboard/snapshot')
+                request<any>('/staff/menu/categories'),
+                request<any>('/staff/menu/items')
             ]);
 
             setShopProfile(profileRes.profile);
@@ -82,8 +83,8 @@ export const StaffCmsManage: React.FC = () => {
             setBanners(bannersRes.banners || []);
             setPromotions(promosRes.promotions || []);
             setVersions(versionsRes.versions || []);
-            setCategories(snapshotRes.categories || []);
-            setMenuItems(snapshotRes.menuItems || []);
+            setCategories(categoriesRes.categories || []);
+            setMenuItems(menuRes.items || []);
         } catch (err: any) {
             setActionMsg({ type: 'error', text: err.message || 'Lỗi tải dữ liệu CMS' });
         } finally {
@@ -126,8 +127,10 @@ export const StaffCmsManage: React.FC = () => {
             }
 
             setActionMsg({ type: 'success', text: 'Đã lưu bản nháp CMS thành công' });
+            return true;
         } catch (err: any) {
             setActionMsg({ type: 'error', text: err.message || 'Lỗi lưu bản nháp' });
+            return false;
         } finally {
             setIsSaving(false);
         }
@@ -139,7 +142,8 @@ export const StaffCmsManage: React.FC = () => {
         setActionMsg(null);
         try {
             // First save draft
-            await handleSaveDraft();
+            if (!await handleSaveDraft()) return;
+            setIsSaving(true);
 
             // Then publish
             const res = await request<any>('/cms/publish', {
@@ -182,13 +186,13 @@ export const StaffCmsManage: React.FC = () => {
             if (editingBanner.id) {
                 await request(`/cms/banners/${editingBanner.id}`, {
                     method: 'PATCH',
-                    body: JSON.stringify(editingBanner)
+                    body: JSON.stringify(Object.fromEntries(Object.entries(editingBanner).filter(([key, value]) => ['title','description','imageUrl','ctaLink','sortOrder','isActive','startTime','endTime'].includes(key) && value != null)))
                 });
                 setActionMsg({ type: 'success', text: 'Cập nhật banner thành công' });
             } else {
                 await request('/cms/banners', {
                     method: 'POST',
-                    body: JSON.stringify(editingBanner)
+                    body: JSON.stringify(Object.fromEntries(Object.entries(editingBanner).filter(([key, value]) => ['title','description','imageUrl','ctaLink','sortOrder','isActive','startTime','endTime'].includes(key) && value != null)))
                 });
                 setActionMsg({ type: 'success', text: 'Tạo banner mới thành công' });
             }
@@ -221,13 +225,13 @@ export const StaffCmsManage: React.FC = () => {
             if (editingPromo.id) {
                 await request(`/cms/promotions/${editingPromo.id}`, {
                     method: 'PATCH',
-                    body: JSON.stringify(editingPromo)
+                    body: JSON.stringify(Object.fromEntries(Object.entries(editingPromo).filter(([key, value]) => ['code','title','description','discountType','discountValue','minOrderAmount','maxDiscountAmount','maxRedemptions','priority','isActive','startTime','endTime'].includes(key) && value != null)))
                 });
                 setActionMsg({ type: 'success', text: 'Cập nhật khuyến mãi thành công' });
             } else {
                 await request('/cms/promotions', {
                     method: 'POST',
-                    body: JSON.stringify(editingPromo)
+                    body: JSON.stringify(Object.fromEntries(Object.entries(editingPromo).filter(([key, value]) => ['code','title','description','discountType','discountValue','minOrderAmount','maxDiscountAmount','maxRedemptions','priority','isActive','startTime','endTime'].includes(key) && value != null)))
                 });
                 setActionMsg({ type: 'success', text: 'Tạo khuyến mãi mới thành công' });
             }

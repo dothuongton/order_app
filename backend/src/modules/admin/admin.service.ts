@@ -1,4 +1,6 @@
 import bcrypt from 'bcryptjs';
+import { z } from 'zod';
+import { validate } from '../../utils/validation.js';
 import { query, withTransaction } from '../../db/pool.js';
 
 export interface CreateShopInput {
@@ -112,6 +114,13 @@ export class AdminService {
      * Create a new shop along with its owner, draft and default tables
      */
     static async createShop(input: CreateShopInput, createdBySuperAdminId: string) {
+        input = validate(z.object({
+            name: z.string().trim().min(1).max(200), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100),
+            phone: z.string().max(30).optional(), address: z.string().max(1000).optional(),
+            ownerEmail: z.string().trim().email().max(254).transform(v => v.toLowerCase()),
+            ownerFullName: z.string().trim().min(1).max(200),
+            ownerPassword: z.string().min(8).refine(v => Buffer.byteLength(v) <= 72)
+        }).strict(), input);
         return await withTransaction(async (client) => {
             // Check slug uniqueness
             const slugCheck = await client.query('SELECT id FROM tenants WHERE slug = $1', [input.slug]);
@@ -130,13 +139,13 @@ export class AdminService {
             const tenantId = tenant.id;
 
             // 2. Create or find Owner User
-            const password = input.ownerPassword || '123456';
+            const password = input.ownerPassword!;
             const passwordHash = await bcrypt.hash(password, 10);
 
             const userRes = await client.query(`
                 INSERT INTO users (email, password_hash, full_name, phone)
                 VALUES ($1, $2, $3, $4)
-                ON CONFLICT (email) DO UPDATE SET full_name = EXCLUDED.full_name
+                ON CONFLICT (email) DO UPDATE SET email = users.email
                 RETURNING id, email, full_name
             `, [input.ownerEmail, passwordHash, input.ownerFullName, input.phone || null]);
 
@@ -214,6 +223,8 @@ export class AdminService {
      * Update shop details or status (e.g. suspend or activate)
      */
     static async updateShop(tenantId: string, input: UpdateShopInput, adminUserId: string) {
+        validate(z.enum(['draft', 'active', 'suspended', 'archived']).optional(), input.status);
+        validate(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100).optional(), input.slug);
         return await withTransaction(async (client) => {
             const currentRes = await client.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
             if (currentRes.rows.length === 0) {
@@ -271,6 +282,7 @@ export class AdminService {
      * List audit logs with pagination
      */
     static async listAuditLogs(limit: number = 50) {
+        validate(z.number().int().min(1).max(200), limit);
         const res = await query(`
             SELECT 
                 al.id, al.tenant_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
