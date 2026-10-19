@@ -1012,9 +1012,14 @@ export const StaffDashboard: React.FC = () => {
                             <div className="space-y-2">
                               {/* Row 1: Quantity + Dish Name + Status (Full Width, never truncated) */}
                               <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-baseline gap-2 min-w-0 flex-1">
+                                <div className="flex items-baseline gap-2 min-w-0 flex-1 flex-wrap">
                                   <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">{item.quantity}x</span>
                                   <span className="font-extrabold text-slate-900 text-sm sm:text-base break-words line-clamp-2 leading-tight">{item.name}</span>
+                                  {item.variantName && (
+                                    <span className="text-[11px] font-bold px-2 py-0.5 bg-orange-100 text-orange-700 rounded-md shrink-0">
+                                      {item.variantName}
+                                    </span>
+                                  )}
                                 </div>
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                                   item.status === 'PENDING' ? 'bg-amber-100 text-amber-800 border border-amber-200' :

@@ -142,6 +142,9 @@ export const GuestBill: React.FC = () => {
                     <span className="text-slate-400">{item.quantity}x</span>
                     <span className={`truncate max-w-[190px] ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-800 font-medium'}`}>
                       {item.name}
+                      {item.variantName && (
+                        <span className="text-[10px] text-orange-600 font-bold ml-1">({item.variantName})</span>
+                      )}
                     </span>
                     {item.status === 'CANCELLED' && (
                       <span className="text-[10px] text-rose-600">(Đã hủy)</span>

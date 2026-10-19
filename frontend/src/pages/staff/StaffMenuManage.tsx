@@ -7,6 +7,13 @@ import {
   Utensils, Image as ImageIcon, Loader2
 } from 'lucide-react';
 
+export interface MenuItemVariantData {
+  id?: string;
+  name: string;
+  price_adjustment: number;
+  is_available?: boolean;
+}
+
 interface MenuItemData {
   id?: string;
   name: string;
@@ -16,6 +23,7 @@ interface MenuItemData {
   description?: string;
   image_url?: string;
   is_available: boolean;
+  variants?: MenuItemVariantData[];
 }
 
 interface MenuCategory {
@@ -98,7 +106,8 @@ export const StaffMenuManage: React.FC = () => {
       price: 0,
       description: '',
       image_url: '',
-      is_available: true
+      is_available: true,
+      variants: []
     });
     setShowItemModal(true);
   };
@@ -108,8 +117,40 @@ export const StaffMenuManage: React.FC = () => {
       alert('Bạn không có quyền quản lý thực đơn');
       return;
     }
-    setEditingItem({ ...item });
+    setEditingItem({
+      ...item,
+      variants: (item.variants || []).map(v => ({ ...v }))
+    });
     setShowItemModal(true);
+  };
+
+  const handleAddVariant = () => {
+    if (!editingItem) return;
+    const currentVariants = editingItem.variants || [];
+    if (currentVariants.length >= 3) {
+      alert('Một sản phẩm chỉ có tối đa 3 dạng biến thể');
+      return;
+    }
+    setEditingItem({
+      ...editingItem,
+      variants: [
+        ...currentVariants,
+        { name: '', price_adjustment: 0, is_available: true }
+      ]
+    });
+  };
+
+  const handleUpdateVariant = (index: number, field: string, value: any) => {
+    if (!editingItem) return;
+    const currentVariants = [...(editingItem.variants || [])];
+    currentVariants[index] = { ...currentVariants[index], [field]: value };
+    setEditingItem({ ...editingItem, variants: currentVariants });
+  };
+
+  const handleRemoveVariant = (index: number) => {
+    if (!editingItem) return;
+    const currentVariants = (editingItem.variants || []).filter((_, i) => i !== index);
+    setEditingItem({ ...editingItem, variants: currentVariants });
   };
 
   const handleSaveItem = async (e: React.FormEvent) => {
@@ -129,6 +170,21 @@ export const StaffMenuManage: React.FC = () => {
       return;
     }
 
+    // Filter valid variants: only those with non-empty names
+    const filteredVariants = (editingItem.variants || [])
+      .filter(v => v.name.trim().length > 0)
+      .map(v => ({
+        id: v.id,
+        name: v.name.trim(),
+        price_adjustment: Math.max(0, parseInt(String(v.price_adjustment), 10) || 0),
+        is_available: v.is_available !== false
+      }));
+
+    if (filteredVariants.length > 3) {
+      alert('Một sản phẩm chỉ có tối đa 3 dạng biến thể');
+      return;
+    }
+
     setIsSaving(true);
     try {
       if (editingItem.id) {
@@ -141,7 +197,8 @@ export const StaffMenuManage: React.FC = () => {
             price: Number(editingItem.price),
             description: editingItem.description?.trim() || null,
             image_url: editingItem.image_url?.trim() || null,
-            is_available: editingItem.is_available
+            is_available: editingItem.is_available,
+            variants: filteredVariants
           })
         });
         showNotification(`Đã cập nhật món "${res.item.name}"`);
@@ -155,7 +212,8 @@ export const StaffMenuManage: React.FC = () => {
             price: Number(editingItem.price),
             description: editingItem.description?.trim() || null,
             image_url: editingItem.image_url?.trim() || null,
-            is_available: editingItem.is_available
+            is_available: editingItem.is_available,
+            variants: filteredVariants
           })
         });
         showNotification(`Đã thêm món "${res.item.name}" thành công`);
@@ -332,6 +390,18 @@ export const StaffMenuManage: React.FC = () => {
                       {item.description}
                     </p>
                   )}
+                  {item.variants && item.variants.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                      {item.variants.map((v, idx) => (
+                        <span
+                          key={v.id || idx}
+                          className="text-[10px] font-medium bg-orange-50 text-orange-700 px-2 py-0.5 rounded-md border border-orange-200/70"
+                        >
+                          {v.name} {Number(v.price_adjustment) > 0 ? `(+${Number(v.price_adjustment).toLocaleString('vi-VN')}đ)` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -470,6 +540,76 @@ export const StaffMenuManage: React.FC = () => {
                 aspectRatio="square"
                 helperText="Chụp hoặc tải ảnh món ăn từ máy (tự nén nhẹ ~150KB) hoặc nhập liên kết ảnh"
               />
+
+              {/* Product Variants (Max 3) */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block text-slate-800 font-bold text-xs">
+                      Biến thể món ăn <span className="text-slate-400 font-normal">({(editingItem.variants || []).length}/3)</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Tối đa 3 biến thể (VD: Size L, Không đường, Có đường...)
+                    </p>
+                  </div>
+                  {(editingItem.variants || []).length < 3 && (
+                    <button
+                      type="button"
+                      onClick={handleAddVariant}
+                      className="px-2.5 py-1 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold text-xs rounded-lg transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Thêm</span>
+                    </button>
+                  )}
+                </div>
+
+                {(editingItem.variants || []).length === 0 ? (
+                  <p className="text-[11px] text-slate-400 italic">
+                    Chưa có biến thể nào. Món sẽ phục vụ theo định lượng / công thức gốc.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {editingItem.variants!.map((variant, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            placeholder="Tên biến thể (vd: Size L, Ít đường)"
+                            value={variant.name}
+                            onChange={(e) => handleUpdateVariant(idx, 'name', e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:border-orange-500"
+                          />
+                        </div>
+                        <div className="w-28 shrink-0">
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              placeholder="+0đ"
+                              value={variant.price_adjustment}
+                              onChange={(e) => handleUpdateVariant(idx, 'price_adjustment', Math.max(0, parseInt(e.target.value) || 0))}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2 pr-6 py-1.5 text-xs text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500"
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
+                              đ
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveVariant(idx)}
+                          className="w-7 h-7 rounded-lg text-rose-500 hover:bg-rose-50 flex items-center justify-center shrink-0 cursor-pointer"
+                          title="Xóa biến thể"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Availability Toggle */}
               <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer">

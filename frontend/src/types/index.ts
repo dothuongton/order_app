@@ -15,6 +15,13 @@ export interface Tenant {
   activePublishedVersion?: number;
 }
 
+export interface MenuItemVariant {
+  id?: string;
+  name: string;
+  price_adjustment: number;
+  is_available?: boolean;
+}
+
 export interface MenuItem {
   id: string;
   category_id: string;
@@ -23,6 +30,7 @@ export interface MenuItem {
   price: number;
   image_url: string | null;
   is_available: boolean;
+  variants?: MenuItemVariant[];
 }
 
 export interface MenuCategory {
@@ -40,6 +48,7 @@ export interface OrderItemPart {
 export interface OrderItem {
   id: string;
   name: string;
+  variantName?: string;
   price: number;
   quantity: number;
   note?: string;
@@ -66,6 +75,7 @@ export interface BillRound {
   items: {
     itemId: string;
     name: string;
+    variantName?: string;
     price: number;
     quantity: number;
     note?: string;
@@ -106,6 +116,7 @@ export interface TableActiveItem {
   partId: string;
   orderNumber: number;
   name: string;
+  variantName?: string;
   price: number;
   note?: string;
   status: string;
@@ -137,6 +148,8 @@ export interface StaffTable {
 
 export interface CartItem {
   menuItemId: string;
+  variantId?: string;
+  variantName?: string;
   name: string;
   price: number;
   quantity: number;

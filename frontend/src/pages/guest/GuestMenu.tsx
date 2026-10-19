@@ -10,6 +10,7 @@ export const GuestMenu: React.FC = () => {
   const layout = theme.layout || tenant?.activeTemplateId || 'classic';
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
   const [quantity, setQuantity] = useState<number>(1);
   const [note, setNote] = useState<string>('');
 
@@ -28,14 +29,16 @@ export const GuestMenu: React.FC = () => {
   const handleOpenCustomize = (item: MenuItem) => {
     if (!item.is_available || !session || isSessionClosed) return;
     setActiveItem(item);
+    setSelectedVariant(null);
     setQuantity(1);
     setNote('');
   };
 
   const handleConfirmAdd = () => {
     if (activeItem) {
-      addToCart(activeItem, quantity, note.trim() || undefined);
+      addToCart(activeItem, quantity, note.trim() || undefined, selectedVariant || undefined);
       setActiveItem(null);
+      setSelectedVariant(null);
     }
   };
 
@@ -119,9 +122,16 @@ export const GuestMenu: React.FC = () => {
                 <p className="text-xs text-slate-500 line-clamp-2 mt-1">{item.description}</p>
               )}
               <div className="flex items-center justify-between mt-2.5">
-                <span className="text-base font-bold text-orange-600">
-                  {Number(item.price).toLocaleString('vi-VN')}đ
-                </span>
+                <div>
+                  <span className="text-base font-bold text-orange-600">
+                    {Number(item.price).toLocaleString('vi-VN')}đ
+                  </span>
+                  {item.variants && item.variants.length > 0 && (
+                    <span className="block text-[10px] text-orange-700 font-semibold mt-0.5">
+                      {item.variants.length} tùy chọn
+                    </span>
+                  )}
+                </div>
 
                 {item.is_available && session && !isSessionClosed && (
                   <button
@@ -145,71 +155,126 @@ export const GuestMenu: React.FC = () => {
       </div>
 
       {/* Customize Item Bottom Sheet */}
-      {activeItem && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 shadow-2xl border-t border-slate-100 animate-slide-up">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-lg font-bold text-slate-900">{activeItem.name}</h3>
-              <button
-                onClick={() => setActiveItem(null)}
-                className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="py-4">
-              <div className="text-xl font-bold text-orange-600 mb-4">
-                {Number(activeItem.price).toLocaleString('vi-VN')}đ
+      {activeItem && (() => {
+        const currentPrice = Number(activeItem.price) + (selectedVariant ? Number(selectedVariant.price_adjustment || 0) : 0);
+        return (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 shadow-2xl border-t border-slate-100 animate-slide-up">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{activeItem.name}</h3>
+                  {selectedVariant && (
+                    <span className="inline-block mt-0.5 text-xs text-orange-600 font-semibold">
+                      Biến thể đã chọn: {selectedVariant.name}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setActiveItem(null); setSelectedVariant(null); }}
+                  className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Quantity */}
-              <div className="flex items-center justify-between py-2 border-y border-slate-100">
-                <span className="font-medium text-slate-700">Số lượng</span>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    disabled={quantity <= 1}
-                    className="w-11 h-11 rounded-full border border-slate-200 flex items-center justify-center text-slate-600 disabled:opacity-40"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <span className="font-bold text-lg w-8 text-center">{quantity}</span>
-                  <button
-                    onClick={() => setQuantity(quantity + 1)}
-                    className="w-11 h-11 rounded-full bg-orange-600 text-white flex items-center justify-center shadow-sm"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+              <div className="py-4">
+                <div className="text-xl font-bold text-orange-600 mb-4">
+                  {currentPrice.toLocaleString('vi-VN')}đ
+                </div>
+
+                {/* Variants Selector */}
+                {activeItem.variants && activeItem.variants.length > 0 && (
+                  <div className="mb-4">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      Tùy chọn biến thể (chọn 1)
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedVariant(null)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                          selectedVariant === null
+                            ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span>Mặc định</span>
+                        <span className={selectedVariant === null ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                          (+0đ)
+                        </span>
+                      </button>
+                      {activeItem.variants.map((v, idx) => {
+                        const isSelected = selectedVariant?.id === v.id || (!selectedVariant?.id && selectedVariant?.name === v.name);
+                        return (
+                          <button
+                            key={v.id || idx}
+                            type="button"
+                            onClick={() => setSelectedVariant(v)}
+                            className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                              isSelected
+                                ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span>{v.name}</span>
+                            <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                              {Number(v.price_adjustment) > 0 ? `+${Number(v.price_adjustment).toLocaleString('vi-VN')}đ` : '+0đ'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Quantity */}
+                <div className="flex items-center justify-between py-2 border-y border-slate-100">
+                  <span className="font-medium text-slate-700">Số lượng</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                      disabled={quantity <= 1}
+                      className="w-11 h-11 rounded-full border border-slate-200 flex items-center justify-center text-slate-600 disabled:opacity-40"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <span className="font-bold text-lg w-8 text-center">{quantity}</span>
+                    <button
+                      onClick={() => setQuantity(quantity + 1)}
+                      className="w-11 h-11 rounded-full bg-orange-600 text-white flex items-center justify-center shadow-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Special Note */}
+                <div className="mt-4">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Ghi chú cho bếp (tuỳ chọn)
+                  </label>
+                  <input
+                    type="text"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Ví dụ: Ít cay, không hành, nhiều nước dùng..."
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                    maxLength={150}
+                  />
                 </div>
               </div>
 
-              {/* Special Note */}
-              <div className="mt-4">
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                  Ghi chú cho bếp (tuỳ chọn)
-                </label>
-                <input
-                  type="text"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Ví dụ: Ít cay, không hành, nhiều nước dùng..."
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                  maxLength={150}
-                />
-              </div>
+              <button
+                onClick={handleConfirmAdd}
+                className="w-full min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white font-bold rounded-xl py-3 px-4 shadow-md flex items-center justify-between transition mt-2 cursor-pointer"
+              >
+                <span>Thêm vào đơn</span>
+                <span>{(currentPrice * quantity).toLocaleString('vi-VN')}đ</span>
+              </button>
             </div>
-
-            <button
-              onClick={handleConfirmAdd}
-              className="w-full min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white font-bold rounded-xl py-3 px-4 shadow-md flex items-center justify-between transition mt-2"
-            >
-              <span>Thêm vào đơn</span>
-              <span>{(Number(activeItem.price) * quantity).toLocaleString('vi-VN')}đ</span>
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

@@ -79,7 +79,22 @@ export class GuestService {
                 mi.description,
                 mi.price,
                 mi.image_url,
-                mi.is_available
+                mi.is_available,
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', miv.id,
+                                'name', miv.name,
+                                'price_adjustment', miv.price_adjustment,
+                                'is_available', miv.is_available
+                            ) ORDER BY miv.price_adjustment ASC, miv.name ASC
+                        )
+                        FROM menu_item_variants miv
+                        WHERE miv.menu_item_id = mi.id AND miv.tenant_id = $1 AND miv.is_available = true
+                    ),
+                    '[]'::json
+                ) as variants
             FROM menu_items mi
             WHERE mi.tenant_id = $1
             ORDER BY mi.is_available DESC, mi.name ASC
@@ -307,16 +322,17 @@ export class GuestService {
                 const orderItemRes = await client.query(`
                     INSERT INTO order_items (
                         tenant_id, order_id, menu_item_id,
-                        snapshot_name, snapshot_price,
+                        snapshot_name, snapshot_variant_name, snapshot_price,
                         quantity, note, discount_amount, applied_promotion_id, final_price
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                    RETURNING id, snapshot_name, snapshot_price, quantity, note, discount_amount, final_price
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    RETURNING id, snapshot_name, snapshot_variant_name, snapshot_price, quantity, note, discount_amount, final_price
                 `, [
                     tenantId,
                     order.id,
                     item.menuItemId,
                     item.name,
+                    item.variantName || null,
                     item.basePrice,
                     item.quantity,
                     item.note || null,
@@ -336,6 +352,7 @@ export class GuestService {
                 createdItems.push({
                     id: orderItem.id,
                     name: orderItem.snapshot_name,
+                    variantName: orderItem.snapshot_variant_name || undefined,
                     price: parseInt(orderItem.snapshot_price, 10),
                     quantity: orderItem.quantity,
                     discountAmount: parseInt(orderItem.discount_amount || '0', 10),
@@ -426,6 +443,7 @@ export class GuestService {
                 SELECT
                     oi.id,
                     oi.snapshot_name,
+                    oi.snapshot_variant_name,
                     oi.snapshot_price,
                     oi.snapshot_category_name,
                     oi.quantity,
@@ -471,6 +489,7 @@ export class GuestService {
                     return {
                         id: item.id,
                         name: item.snapshot_name,
+                        variantName: item.snapshot_variant_name || undefined,
                         price: Number(item.snapshot_price),
                         quantity: item.quantity,
                         note: item.note,
@@ -512,6 +531,7 @@ export class GuestService {
                 o.order_number,
                 oi.id as item_id,
                 oi.snapshot_name,
+                oi.snapshot_variant_name,
                 oi.snapshot_price,
                 oi.quantity as original_quantity,
                 oi.discount_amount,
@@ -569,6 +589,7 @@ export class GuestService {
             roundSummaries[roundNum].items.push({
                 itemId: row.item_id,
                 name: row.snapshot_name,
+                variantName: row.snapshot_variant_name || undefined,
                 price,
                 quantity: qty,
                 note: row.note,

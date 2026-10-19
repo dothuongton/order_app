@@ -80,9 +80,14 @@ export const GuestOrders: React.FC = () => {
               {order.items.map((item) => (
                 <div key={item.id} className="p-2.5 flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-slate-900 text-sm">{item.quantity}x</span>
                       <h4 className="font-medium text-slate-900 text-sm truncate">{item.name}</h4>
+                      {item.variantName && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 bg-orange-100 text-orange-700 rounded-md shrink-0">
+                          {item.variantName}
+                        </span>
+                      )}
                     </div>
 
                     {item.note && (

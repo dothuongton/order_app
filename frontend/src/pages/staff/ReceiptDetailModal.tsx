@@ -133,6 +133,9 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                     <div className="flex justify-between items-baseline text-slate-800">
                       <span className="flex-1 font-sans font-semibold text-[11px] pr-1">
                         {item.name}
+                        {item.variantName && (
+                          <span className="ml-1 text-[10px] text-orange-700 font-bold">({item.variantName})</span>
+                        )}
                       </span>
                       <span className="w-10 text-center font-bold">{item.quantity}</span>
                       <span className="w-16 text-right text-slate-500">

@@ -384,11 +384,16 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                           {round.items.map((item, idx) => (
                             <div key={idx} className="space-y-1 bg-slate-50/70 p-2 rounded-xl">
                               <div className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2 min-w-0">
+                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
                                   <span className="font-bold text-slate-700 shrink-0">{item.quantity}x</span>
                                   <span className={`truncate ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900 font-semibold'}`}>
                                     {item.name}
                                   </span>
+                                  {item.variantName && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded shrink-0">
+                                      {item.variantName}
+                                    </span>
+                                  )}
                                   {item.status === 'CANCELLED' && (
                                     <span className="text-[10px] text-rose-600 font-bold shrink-0">(Đã hủy)</span>
                                   )}

@@ -2,12 +2,15 @@ import { PoolClient } from 'pg';
 
 export interface OrderItemInput {
     menuItemId: string;
+    variantId?: string;
     quantity: number;
     note?: string;
 }
 
 export interface CalculatedOrderItem {
     menuItemId: string;
+    variantId?: string;
+    variantName?: string;
     name: string;
     basePrice: number;
     quantity: number;
@@ -64,10 +67,31 @@ export class PricingService {
             });
         }
 
+        // Fetch variants if requested
+        const variantIds = items.map(i => i.variantId).filter(Boolean) as string[];
+        const dbVariantMap = new Map<string, { id: string; name: string; priceAdjustment: number; isAvailable: boolean }>();
+        if (variantIds.length > 0) {
+            const varRes = await client.query(`
+                SELECT id, menu_item_id, name, price_adjustment, is_available
+                FROM menu_item_variants
+                WHERE tenant_id = $1 AND id = ANY($2::uuid[])
+            `, [tenantId, variantIds]);
+            for (const v of varRes.rows) {
+                dbVariantMap.set(v.id, {
+                    id: v.id,
+                    name: v.name,
+                    priceAdjustment: parseInt(v.price_adjustment, 10) || 0,
+                    isAvailable: v.is_available
+                });
+            }
+        }
+
         // Validate all items exist and are available
         let rawSubtotal = 0;
         const lineItems: {
             menuItemId: string;
+            variantId?: string;
+            variantName?: string;
             name: string;
             basePrice: number;
             quantity: number;
@@ -87,12 +111,27 @@ export class PricingService {
                 throw new Error(`Số lượng món "${dbItem.name}" phải lớn hơn 0`);
             }
 
-            const lineSub = dbItem.price * item.quantity;
+            let itemPrice = dbItem.price;
+            let variantName: string | undefined = undefined;
+            if (item.variantId) {
+                const dbVariant = dbVariantMap.get(item.variantId);
+                if (dbVariant) {
+                    if (!dbVariant.isAvailable) {
+                        throw { status: 409, code: 'VARIANT_UNAVAILABLE', message: `Tùy chọn "${dbVariant.name}" của món "${dbItem.name}" hiện đã hết hàng` };
+                    }
+                    itemPrice = Math.max(0, itemPrice + dbVariant.priceAdjustment);
+                    variantName = dbVariant.name;
+                }
+            }
+
+            const lineSub = itemPrice * item.quantity;
             rawSubtotal += lineSub;
             lineItems.push({
                 menuItemId: item.menuItemId,
+                variantId: item.variantId,
+                variantName,
                 name: dbItem.name,
-                basePrice: dbItem.price,
+                basePrice: itemPrice,
                 quantity: item.quantity,
                 lineSubtotal: lineSub,
                 note: item.note
@@ -166,6 +205,8 @@ export class PricingService {
 
             return {
                 menuItemId: li.menuItemId,
+                variantId: li.variantId,
+                variantName: li.variantName,
                 name: li.name,
                 basePrice: li.basePrice,
                 quantity: li.quantity,

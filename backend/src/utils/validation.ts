@@ -10,7 +10,10 @@ export function validate<T extends z.ZodTypeAny>(schema: T, value: unknown): z.i
 export const orderInputSchema = z.object({
     idempotencyKey: z.string().trim().min(1).max(128),
     items: z.array(z.object({
-        menuItemId: z.string().uuid(), quantity: z.number().int().min(1).max(999), note: z.string().max(1000).optional()
+        menuItemId: z.string().uuid(),
+        variantId: z.string().uuid().optional(),
+        quantity: z.number().int().min(1).max(999),
+        note: z.string().max(1000).optional()
     })).min(1).max(100)
 });
 export function requestedQuantity(value: unknown, available: number): number {
