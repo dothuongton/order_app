@@ -18,7 +18,8 @@ export const config = {
     frontendUrl: process.env.FRONTEND_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5173',
     corsOrigins: process.env.CORS_ORIGINS || '',
     guestCookieSecret: process.env.GUEST_COOKIE_SECRET || randomBytes(48).toString('hex'),
-    vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
-    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
-    vapidSubject: process.env.VAPID_SUBJECT || 'mailto:contact@phoco.vn'
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY || 'BEPhX5L2zv2-_kKi0gRTZVrBSug3n3VgukEeh306KXlyigTTfepaGyaPNgYfFcsnGcgRCltyaKak4OKoH1Aqdg8',
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '-WvfchB2Y7C_HM1-9_Ym1gXJEBqfy0zeZr5da3PVDiY',
+    vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@qrorder.vn'
 };
+

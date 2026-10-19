@@ -57,10 +57,10 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl border border-slate-100 max-h-[88dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+        {/* Sticky Header */}
+        <div className="p-4 sm:p-5 pb-3 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
               <BellRing className="w-5 h-5" />
@@ -72,19 +72,22 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 transition min-h-[36px] min-w-[36px] flex items-center justify-center"
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm"
+            title="Đóng"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Global Error Banner */}
-        {(errorMessage || actionError) && (
-          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-            <span>{errorMessage || actionError}</span>
-          </div>
-        )}
+        {/* Scrollable Body */}
+        <div className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-4">
+          {/* Global Error Banner */}
+          {(errorMessage || actionError) && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+              <span>{errorMessage || actionError}</span>
+            </div>
+          )}
 
         {/* Status Card */}
         <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2">
@@ -279,6 +282,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
         <p className="text-[10px] text-slate-400 text-center leading-normal pt-1 border-t border-slate-100">
           * Âm thanh thông báo khi khóa máy do cài đặt Thông báo của iOS quyết định. Khi ứng dụng đang mở, chuông và giọng nói tiếng Việt vẫn hoạt động bình thường.
         </p>
+        </div>
       </div>
     </div>
   );

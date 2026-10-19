@@ -115,10 +115,10 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
 
   const aspectClass =
     aspectRatio === 'square'
-      ? 'aspect-square max-w-[140px]'
+      ? 'w-24 h-24 aspect-square max-w-[100px] max-h-[100px]'
       : aspectRatio === 'banner'
-      ? 'aspect-21/9 w-full'
-      : 'aspect-16/9 w-full';
+      ? 'w-full max-h-36 sm:max-h-40 aspect-[21/9]'
+      : 'w-full max-h-36 sm:max-h-40 aspect-[16/9]';
 
   return (
     <div className="space-y-1.5">
@@ -140,11 +140,11 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
       <div className="space-y-2">
         {value ? (
           <div className="bg-slate-50 rounded-2xl p-2.5 border border-slate-200 flex flex-col sm:flex-row items-center gap-3">
-            <div className={`${aspectClass} rounded-xl bg-slate-200 overflow-hidden relative border border-slate-200 shrink-0`}>
+            <div className={`${aspectClass} rounded-xl bg-slate-200 overflow-hidden relative border border-slate-200 shrink-0 flex items-center justify-center`}>
               <img
                 src={value}
                 alt={label}
-                className="w-full h-full object-cover"
+                className="w-full h-full max-h-36 sm:max-h-40 object-cover rounded-xl"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}

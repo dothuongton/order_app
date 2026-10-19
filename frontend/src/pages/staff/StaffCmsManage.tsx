@@ -792,16 +792,25 @@ export const StaffCmsManage: React.FC = () => {
 
             {/* BANNER EDIT MODAL */}
             {showBannerModal && editingBanner && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-                    <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-5 space-y-3.5 shadow-2xl">
-                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                            <h3 className="font-extrabold text-slate-900 text-sm">
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+                    <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full shadow-2xl max-h-[88dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+                        {/* Sticky Header */}
+                        <div className="p-4 sm:p-5 pb-3 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
+                            <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
                                 {editingBanner.id ? 'Sửa Banner' : 'Thêm Banner Mới'}
                             </h3>
-                            <button onClick={() => setShowBannerModal(false)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
+                            <button
+                                type="button"
+                                onClick={() => setShowBannerModal(false)}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm"
+                                title="Đóng"
+                            >
+                                ✕
+                            </button>
                         </div>
 
-                        <form onSubmit={handleSaveBanner} className="space-y-3 text-xs">
+                        {/* Scrollable Form Body */}
+                        <form onSubmit={handleSaveBanner} className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-3.5 text-xs">
                             <div>
                                 <label className="block text-slate-700 font-semibold mb-1">Tiêu Đề Banner *</label>
                                 <input
@@ -876,16 +885,25 @@ export const StaffCmsManage: React.FC = () => {
 
             {/* PROMOTION EDIT MODAL */}
             {showPromoModal && editingPromo && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-                    <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-5 space-y-3.5 shadow-2xl">
-                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                            <h3 className="font-extrabold text-slate-900 text-sm">
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+                    <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full shadow-2xl max-h-[88dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+                        {/* Sticky Header */}
+                        <div className="p-4 sm:p-5 pb-3 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
+                            <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
                                 {editingPromo.id ? 'Sửa Chương Trình Khuyến Mãi' : 'Tạo Khuyến Mãi Mới'}
                             </h3>
-                            <button onClick={() => setShowPromoModal(false)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
+                            <button
+                                type="button"
+                                onClick={() => setShowPromoModal(false)}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm"
+                                title="Đóng"
+                            >
+                                ✕
+                            </button>
                         </div>
 
-                        <form onSubmit={handleSavePromo} className="space-y-3 text-xs">
+                        {/* Scrollable Form Body */}
+                        <form onSubmit={handleSavePromo} className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-3.5 text-xs">
                             <div className="grid grid-cols-3 gap-2">
                                 <div>
                                     <label className="block text-slate-700 font-semibold mb-1">Mã Code (Tùy chọn)</label>
