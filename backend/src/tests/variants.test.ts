@@ -198,4 +198,119 @@ describe('Product Variants Management and Ordering (Max 3 Variants)', () => {
         expect(item.variants[0].name).toBe('Size Khổng Lồ');
         expect(Number(item.variants[0].price_adjustment)).toBe(15000);
     });
+
+    it('6. Rejects creating a product with more than 3 variant groups', async () => {
+        const res = await fetch(`${baseUrl}/api/v1/staff/menu/items`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${managerToken}`
+            },
+            body: JSON.stringify({
+                name: 'Cà Phê 4 Tầng Biến Thể',
+                category_id: categoryId,
+                price: 25000,
+                variant_groups: [
+                    { name: 'Kích cỡ', options: [{ name: 'Size S', price_adjustment: 0 }] },
+                    { name: 'Độ ngọt', options: [{ name: 'Ít ngọt', price_adjustment: 0 }] },
+                    { name: 'Lượng đá', options: [{ name: 'Không đá', price_adjustment: 0 }] },
+                    { name: 'Loại sữa', options: [{ name: 'Sữa tươi', price_adjustment: 5000 }] }
+                ]
+            })
+        });
+
+        const data: any = await res.json();
+        expect(res.status).toBe(400);
+        expect(data.message).toContain('tối đa 3 dạng biến thể');
+    });
+
+    it('7. Successfully creates and retrieves a product with multi-group variants', async () => {
+        const res = await fetch(`${baseUrl}/api/v1/staff/menu/items`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${managerToken}`
+            },
+            body: JSON.stringify({
+                name: 'Trà Sữa Oolong Nướng',
+                category_id: categoryId,
+                price: 40000,
+                variant_groups: [
+                    {
+                        name: 'Kích cỡ',
+                        options: [
+                            { name: 'Size M', price_adjustment: 0 },
+                            { name: 'Size L', price_adjustment: 6000 }
+                        ]
+                    },
+                    {
+                        name: 'Lượng đường',
+                        options: [
+                            { name: '100% đường', price_adjustment: 0 },
+                            { name: '50% đường', price_adjustment: 0 },
+                            { name: 'Không đường', price_adjustment: 0 }
+                        ]
+                    },
+                    {
+                        name: 'Topping',
+                        options: [
+                            { name: 'Không topping', price_adjustment: 0 },
+                            { name: 'Thạch trân châu', price_adjustment: 7000 }
+                        ]
+                    }
+                ]
+            })
+        });
+
+        expect(res.status).toBe(201);
+        const data: any = await res.json();
+        const oolongId = data.item.id;
+
+        // Fetch staff menu items
+        const getRes = await fetch(`${baseUrl}/api/v1/staff/menu/items`, {
+            headers: { 'Authorization': `Bearer ${managerToken}` }
+        });
+        const getData: any = await getRes.json();
+        const oolongItem = getData.items.find((i: any) => i.id === oolongId);
+        expect(oolongItem).toBeDefined();
+        expect(oolongItem.variant_groups).toBeDefined();
+        expect(oolongItem.variant_groups.length).toBe(3);
+        expect(oolongItem.variant_groups[0].name).toBe('Kích cỡ');
+        expect(oolongItem.variant_groups[0].options.length).toBe(2);
+        expect(oolongItem.variant_groups[1].name).toBe('Lượng đường');
+        expect(oolongItem.variant_groups[1].options.length).toBe(3);
+        expect(oolongItem.variant_groups[2].name).toBe('Topping');
+        expect(oolongItem.variant_groups[2].options.length).toBe(2);
+
+        // Fetch public table menu
+        const publicMenuRes = await fetch(`${baseUrl}/api/v1/public/tables/qr-phoco-a01/menu`);
+        const publicMenuData: any = await publicMenuRes.json();
+        const publicOolong = publicMenuData.menuItems.find((i: any) => i.id === oolongId);
+        expect(publicOolong).toBeDefined();
+        expect(publicOolong.variant_groups.length).toBe(3);
+
+        // Place order with multiple variant IDs
+        const sizeL = oolongItem.variant_groups[0].options.find((o: any) => o.name === 'Size L')!;
+        const toppingPearl = oolongItem.variant_groups[2].options.find((o: any) => o.name === 'Thạch trân châu')!;
+
+        const joinRes = await GuestService.joinSession('qr-phoco-a01');
+        const sessionId = joinRes.sessionId;
+        const orderRes = await GuestService.createOrder(tenantId, sessionId, tableA01Id, {
+            idempotencyKey: 'multi-group-order-1',
+            items: [
+                {
+                    menuItemId: oolongId,
+                    variantIds: [sizeL.id, toppingPearl.id],
+                    quantity: 1,
+                    note: 'Ít đá'
+                }
+            ]
+        });
+
+        expect(orderRes.items.length).toBe(1);
+        expect(orderRes.items[0].variantName).toContain('Size L');
+        expect(orderRes.items[0].variantName).toContain('Thạch trân châu');
+        // Base 40.000 + 6.000 (Size L) + 7.000 (Topping) = 53.000đ
+        expect(orderRes.items[0].price).toBe(53000);
+    });
 });

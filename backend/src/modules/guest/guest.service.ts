@@ -85,10 +85,11 @@ export class GuestService {
                         SELECT json_agg(
                             json_build_object(
                                 'id', miv.id,
+                                'group_name', COALESCE(miv.group_name, 'Biến thể'),
                                 'name', miv.name,
                                 'price_adjustment', miv.price_adjustment,
                                 'is_available', miv.is_available
-                            ) ORDER BY miv.price_adjustment ASC, miv.name ASC
+                            ) ORDER BY miv.group_name ASC, miv.price_adjustment ASC, miv.name ASC
                         )
                         FROM menu_item_variants miv
                         WHERE miv.menu_item_id = mi.id AND miv.tenant_id = $1 AND miv.is_available = true
@@ -147,7 +148,33 @@ export class GuestService {
                 openedAt: activeSession.opened_at
             } : null,
             categories: catRes.rows,
-            menuItems: itemsRes.rows,
+            menuItems: itemsRes.rows.map(item => {
+                const rawVariants = (item.variants || []).map((v: any) => ({
+                    ...v,
+                    group_name: v.group_name || 'Biến thể',
+                    price_adjustment: parseInt(v.price_adjustment, 10) || 0
+                }));
+                const groupsMap = new Map<string, any[]>();
+                for (const v of rawVariants) {
+                    if (!groupsMap.has(v.group_name)) groupsMap.set(v.group_name, []);
+                    groupsMap.get(v.group_name)!.push({
+                        id: v.id,
+                        name: v.name,
+                        price_adjustment: v.price_adjustment,
+                        is_available: v.is_available
+                    });
+                }
+                const variant_groups = Array.from(groupsMap.entries()).map(([name, options]) => ({
+                    name,
+                    options
+                }));
+                return {
+                    ...item,
+                    price: parseInt(item.price, 10),
+                    variants: rawVariants,
+                    variant_groups
+                };
+            }),
             banners: bannersRes.rows,
             promotions: promosRes.rows
         };

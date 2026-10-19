@@ -20,9 +20,9 @@ interface GuestContextType {
   promotions: any[];
   loadTableMenu: (qrId: string) => Promise<void>;
   joinSession: (qrId: string) => Promise<void>;
-  addToCart: (item: MenuItem, quantity?: number, note?: string, variant?: { id: string; name: string; price_adjustment: number }) => void;
-  updateCartQuantity: (menuItemId: string, quantity: number, note?: string, variantId?: string) => void;
-  removeFromCart: (menuItemId: string, note?: string, variantId?: string) => void;
+  addToCart: (item: MenuItem, quantity?: number, note?: string, variant?: { id?: string; variantIds?: string[]; name: string; price_adjustment: number }) => void;
+  updateCartQuantity: (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string) => void;
+  removeFromCart: (menuItemId: string, note?: string, variantId?: string, variantName?: string) => void;
   clearCart: () => void;
   submitOrder: () => Promise<any>;
   requestAssistance: (note?: string) => Promise<any>;
@@ -210,14 +210,14 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     item: MenuItem,
     quantity: number = 1,
     note?: string,
-    variant?: { id: string; name: string; price_adjustment: number }
+    variant?: { id?: string; variantIds?: string[]; name: string; price_adjustment: number }
   ) => {
     setCart(prev => {
       const itemPrice = Math.max(0, Number(item.price) + (variant?.price_adjustment ? Number(variant.price_adjustment) : 0));
       const idx = prev.findIndex(c =>
         c.menuItemId === item.id &&
         (c.note || '') === (note || '') &&
-        (c.variantId || '') === (variant?.id || '')
+        (c.variantName || '') === (variant?.name || '')
       );
       if (idx > -1) {
         return prev.map((entry, index) => index === idx ? { ...entry, quantity: entry.quantity + quantity } : entry);
@@ -225,6 +225,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return [...prev, {
         menuItemId: item.id,
         variantId: variant?.id,
+        variantIds: variant?.variantIds,
         variantName: variant?.name,
         name: item.name,
         price: itemPrice,
@@ -234,25 +235,25 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  const updateCartQuantity = (menuItemId: string, quantity: number, note?: string, variantId?: string) => {
+  const updateCartQuantity = (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string) => {
     if (quantity <= 0) {
-      removeFromCart(menuItemId, note, variantId);
+      removeFromCart(menuItemId, note, variantId, variantName);
       return;
     }
     setCart(prev => prev.map(c =>
       c.menuItemId === menuItemId &&
       (c.note || '') === (note || '') &&
-      (c.variantId || '') === (variantId || '')
+      (variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || ''))
         ? { ...c, quantity }
         : c
     ));
   };
 
-  const removeFromCart = (menuItemId: string, note?: string, variantId?: string) => {
+  const removeFromCart = (menuItemId: string, note?: string, variantId?: string, variantName?: string) => {
     setCart(prev => prev.filter(c =>
       !(c.menuItemId === menuItemId &&
         (c.note || '') === (note || '') &&
-        (c.variantId || '') === (variantId || ''))
+        (variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || '')))
     ));
   };
 
@@ -266,7 +267,8 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       menuItemId: c.menuItemId,
       quantity: c.quantity,
       note: c.note,
-      variantId: c.variantId
+      variantId: c.variantId,
+      variantIds: c.variantIds
     })));
     if (pendingOrder.current?.payload !== payload) pendingOrder.current = { payload, key: crypto.randomUUID() };
     const idempotencyKey = pendingOrder.current.key;
@@ -282,7 +284,8 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             menuItemId: c.menuItemId,
             quantity: c.quantity,
             note: c.note,
-            variantId: c.variantId
+            variantId: c.variantId,
+            variantIds: c.variantIds
           }))
         })
       });

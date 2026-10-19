@@ -15,11 +15,20 @@ export interface Tenant {
   activePublishedVersion?: number;
 }
 
-export interface MenuItemVariant {
+export interface VariantOption {
   id?: string;
   name: string;
   price_adjustment: number;
   is_available?: boolean;
+}
+
+export interface VariantGroup {
+  name: string;
+  options: VariantOption[];
+}
+
+export interface MenuItemVariant extends VariantOption {
+  group_name?: string;
 }
 
 export interface MenuItem {
@@ -31,6 +40,7 @@ export interface MenuItem {
   image_url: string | null;
   is_available: boolean;
   variants?: MenuItemVariant[];
+  variant_groups?: VariantGroup[];
 }
 
 export interface MenuCategory {
@@ -149,6 +159,7 @@ export interface StaffTable {
 export interface CartItem {
   menuItemId: string;
   variantId?: string;
+  variantIds?: string[];
   variantName?: string;
   name: string;
   price: number;

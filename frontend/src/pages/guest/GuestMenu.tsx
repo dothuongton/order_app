@@ -11,6 +11,7 @@ export const GuestMenu: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
+  const [selectedGroupOptions, setSelectedGroupOptions] = useState<Record<string, any>>({});
   const [quantity, setQuantity] = useState<number>(1);
   const [note, setNote] = useState<string>('');
 
@@ -30,15 +31,38 @@ export const GuestMenu: React.FC = () => {
     if (!item.is_available || !session || isSessionClosed) return;
     setActiveItem(item);
     setSelectedVariant(null);
+    const initialGroups: Record<string, any> = {};
+    if (item.variant_groups && item.variant_groups.length > 0) {
+      item.variant_groups.forEach(g => {
+        if (g.options && g.options.length > 0) {
+          initialGroups[g.name] = g.options[0];
+        }
+      });
+    }
+    setSelectedGroupOptions(initialGroups);
     setQuantity(1);
     setNote('');
   };
 
   const handleConfirmAdd = () => {
     if (activeItem) {
-      addToCart(activeItem, quantity, note.trim() || undefined, selectedVariant || undefined);
+      if (activeItem.variant_groups && activeItem.variant_groups.length > 0) {
+        const selectedList = Object.values(selectedGroupOptions).filter(Boolean);
+        const variantName = selectedList.map(o => o.name).join(', ');
+        const priceAdj = selectedList.reduce((sum, o) => sum + (Number(o.price_adjustment) || 0), 0);
+        const variantIds = selectedList.map(o => o.id).filter(Boolean);
+        addToCart(activeItem, quantity, note.trim() || undefined, {
+          id: variantIds[0],
+          variantIds,
+          name: variantName,
+          price_adjustment: priceAdj
+        });
+      } else {
+        addToCart(activeItem, quantity, note.trim() || undefined, selectedVariant || undefined);
+      }
       setActiveItem(null);
       setSelectedVariant(null);
+      setSelectedGroupOptions({});
     }
   };
 
@@ -126,9 +150,11 @@ export const GuestMenu: React.FC = () => {
                   <span className="text-base font-bold text-orange-600">
                     {Number(item.price).toLocaleString('vi-VN')}đ
                   </span>
-                  {item.variants && item.variants.length > 0 && (
+                  {((item.variant_groups && item.variant_groups.length > 0) || (item.variants && item.variants.length > 0)) && (
                     <span className="block text-[10px] text-orange-700 font-semibold mt-0.5">
-                      {item.variants.length} tùy chọn
+                      {item.variant_groups && item.variant_groups.length > 0
+                        ? `${item.variant_groups.length} nhóm tùy chọn`
+                        : `${item.variants!.length} tùy chọn`}
                     </span>
                   )}
                 </div>
@@ -156,21 +182,33 @@ export const GuestMenu: React.FC = () => {
 
       {/* Customize Item Bottom Sheet */}
       {activeItem && (() => {
-        const currentPrice = Number(activeItem.price) + (selectedVariant ? Number(selectedVariant.price_adjustment || 0) : 0);
+        const hasVariantGroups = !!(activeItem.variant_groups && activeItem.variant_groups.length > 0);
+        const selectedList = Object.values(selectedGroupOptions).filter(Boolean);
+        const groupAdj = selectedList.reduce((sum, o) => sum + (Number(o.price_adjustment) || 0), 0);
+        const currentPrice = Number(activeItem.price) + (hasVariantGroups ? groupAdj : (selectedVariant ? Number(selectedVariant.price_adjustment || 0) : 0));
+
         return (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
-            <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 shadow-2xl border-t border-slate-100 animate-slide-up">
+            <div className="bg-white w-full max-w-lg rounded-t-3xl p-5 shadow-2xl border-t border-slate-100 animate-slide-up max-h-[85vh] overflow-y-auto">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">{activeItem.name}</h3>
-                  {selectedVariant && (
-                    <span className="inline-block mt-0.5 text-xs text-orange-600 font-semibold">
-                      Biến thể đã chọn: {selectedVariant.name}
-                    </span>
+                  {hasVariantGroups ? (
+                    selectedList.length > 0 && (
+                      <span className="inline-block mt-0.5 text-xs text-orange-600 font-semibold">
+                        Đã chọn: {selectedList.map(o => o.name).join(' • ')}
+                      </span>
+                    )
+                  ) : (
+                    selectedVariant && (
+                      <span className="inline-block mt-0.5 text-xs text-orange-600 font-semibold">
+                        Biến thể đã chọn: {selectedVariant.name}
+                      </span>
+                    )
                   )}
                 </div>
                 <button
-                  onClick={() => { setActiveItem(null); setSelectedVariant(null); }}
+                  onClick={() => { setActiveItem(null); setSelectedVariant(null); setSelectedGroupOptions({}); }}
                   className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400"
                 >
                   <X className="w-5 h-5" />
@@ -182,49 +220,88 @@ export const GuestMenu: React.FC = () => {
                   {currentPrice.toLocaleString('vi-VN')}đ
                 </div>
 
-                {/* Variants Selector */}
-                {activeItem.variants && activeItem.variants.length > 0 && (
-                  <div className="mb-4">
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                      Tùy chọn biến thể (chọn 1)
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedVariant(null)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
-                          selectedVariant === null
-                            ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        <span>Mặc định</span>
-                        <span className={selectedVariant === null ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
-                          (+0đ)
-                        </span>
-                      </button>
-                      {activeItem.variants.map((v, idx) => {
-                        const isSelected = selectedVariant?.id === v.id || (!selectedVariant?.id && selectedVariant?.name === v.name);
-                        return (
-                          <button
-                            key={v.id || idx}
-                            type="button"
-                            onClick={() => setSelectedVariant(v)}
-                            className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
-                              isSelected
-                                ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
-                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                            }`}
-                          >
-                            <span>{v.name}</span>
-                            <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
-                              {Number(v.price_adjustment) > 0 ? `+${Number(v.price_adjustment).toLocaleString('vi-VN')}đ` : '+0đ'}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                {/* Multi-Group Variants Selector */}
+                {hasVariantGroups ? (
+                  <div className="space-y-4 mb-4">
+                    {activeItem.variant_groups!.map((group, gIdx) => (
+                      <div key={group.name || gIdx} className="bg-slate-50/70 p-3 rounded-2xl border border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                            {group.name}
+                          </label>
+                          <span className="text-[11px] text-slate-400 font-medium">Chọn 1</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {group.options.map((opt, optIdx) => {
+                            const isSelected = selectedGroupOptions[group.name]?.id === opt.id ||
+                              (!opt.id && selectedGroupOptions[group.name]?.name === opt.name);
+                            return (
+                              <button
+                                key={opt.id || optIdx}
+                                type="button"
+                                onClick={() => setSelectedGroupOptions(prev => ({ ...prev, [group.name]: opt }))}
+                                className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                <span>{opt.name}</span>
+                                <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                                  {Number(opt.price_adjustment) > 0 ? `+${Number(opt.price_adjustment).toLocaleString('vi-VN')}đ` : '+0đ'}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                ) : (
+                  /* Legacy Flat Variants Selector */
+                  activeItem.variants && activeItem.variants.length > 0 && (
+                    <div className="mb-4">
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                        Tùy chọn biến thể (chọn 1)
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedVariant(null)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                            selectedVariant === null
+                              ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span>Mặc định</span>
+                          <span className={selectedVariant === null ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                            (+0đ)
+                          </span>
+                        </button>
+                        {activeItem.variants.map((v, idx) => {
+                          const isSelected = selectedVariant?.id === v.id || (!selectedVariant?.id && selectedVariant?.name === v.name);
+                          return (
+                            <button
+                              key={v.id || idx}
+                              type="button"
+                              onClick={() => setSelectedVariant(v)}
+                              className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                                isSelected
+                                  ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              <span>{v.name}</span>
+                              <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                                {Number(v.price_adjustment) > 0 ? `+${Number(v.price_adjustment).toLocaleString('vi-VN')}đ` : '+0đ'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )
                 )}
 
                 {/* Quantity */}

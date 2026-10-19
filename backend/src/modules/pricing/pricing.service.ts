@@ -68,14 +68,23 @@ export class PricingService {
         }
 
         // Fetch variants if requested
-        const variantIds = items.map(i => i.variantId).filter(Boolean) as string[];
+        const allVariantIds: string[] = [];
+        for (const i of items) {
+            if (i.variantId) allVariantIds.push(i.variantId);
+            if (Array.isArray((i as any).variantIds)) {
+                for (const vid of (i as any).variantIds) {
+                    if (vid) allVariantIds.push(vid);
+                }
+            }
+        }
+        const uniqueRequestedVariantIds = Array.from(new Set(allVariantIds));
         const dbVariantMap = new Map<string, { id: string; name: string; priceAdjustment: number; isAvailable: boolean }>();
-        if (variantIds.length > 0) {
+        if (uniqueRequestedVariantIds.length > 0) {
             const varRes = await client.query(`
                 SELECT id, menu_item_id, name, price_adjustment, is_available
                 FROM menu_item_variants
                 WHERE tenant_id = $1 AND id = ANY($2::uuid[])
-            `, [tenantId, variantIds]);
+            `, [tenantId, uniqueRequestedVariantIds]);
             for (const v of varRes.rows) {
                 dbVariantMap.set(v.id, {
                     id: v.id,
@@ -112,23 +121,30 @@ export class PricingService {
             }
 
             let itemPrice = dbItem.price;
-            let variantName: string | undefined = undefined;
-            if (item.variantId) {
-                const dbVariant = dbVariantMap.get(item.variantId);
+            const itemVids = [
+                ...(item.variantId ? [item.variantId] : []),
+                ...(Array.isArray((item as any).variantIds) ? (item as any).variantIds : [])
+            ];
+            const uniqueItemVids = Array.from(new Set(itemVids.filter(Boolean)));
+            const variantNames: string[] = [];
+
+            for (const vid of uniqueItemVids) {
+                const dbVariant = dbVariantMap.get(vid);
                 if (dbVariant) {
                     if (!dbVariant.isAvailable) {
                         throw { status: 409, code: 'VARIANT_UNAVAILABLE', message: `Tùy chọn "${dbVariant.name}" của món "${dbItem.name}" hiện đã hết hàng` };
                     }
                     itemPrice = Math.max(0, itemPrice + dbVariant.priceAdjustment);
-                    variantName = dbVariant.name;
+                    variantNames.push(dbVariant.name);
                 }
             }
 
+            const variantName = variantNames.length > 0 ? variantNames.join(', ') : undefined;
             const lineSub = itemPrice * item.quantity;
             rawSubtotal += lineSub;
             lineItems.push({
                 menuItemId: item.menuItemId,
-                variantId: item.variantId,
+                variantId: item.variantId || uniqueItemVids[0],
                 variantName,
                 name: dbItem.name,
                 basePrice: itemPrice,

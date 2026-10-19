@@ -4,14 +4,19 @@ import { useAuth } from '../../context/AuthContext.js';
 import { ImageUploadField } from '../../components/ImageUploadField.js';
 import {
   Search, Check, AlertCircle, Plus, Edit3, Trash2, X,
-  Utensils, Image as ImageIcon, Loader2
+  Utensils, Image as ImageIcon, Loader2, GripVertical, HelpCircle
 } from 'lucide-react';
 
-export interface MenuItemVariantData {
+export interface MenuItemVariantOptionData {
   id?: string;
   name: string;
   price_adjustment: number;
   is_available?: boolean;
+}
+
+export interface MenuItemVariantGroupData {
+  name: string;
+  options: MenuItemVariantOptionData[];
 }
 
 interface MenuItemData {
@@ -23,7 +28,8 @@ interface MenuItemData {
   description?: string;
   image_url?: string;
   is_available: boolean;
-  variants?: MenuItemVariantData[];
+  variants?: MenuItemVariantOptionData[];
+  variant_groups?: MenuItemVariantGroupData[];
 }
 
 interface MenuCategory {
@@ -31,6 +37,15 @@ interface MenuCategory {
   name: string;
   sort_order: number;
 }
+
+const SUGGESTED_GROUP_NAMES = [
+  'Kích cỡ',
+  'Lượng đường',
+  'Lượng đá',
+  'Mức cay',
+  'Topping',
+  'Hương vị'
+];
 
 export const StaffMenuManage: React.FC = () => {
   const { hasPermission } = useAuth();
@@ -107,7 +122,7 @@ export const StaffMenuManage: React.FC = () => {
       description: '',
       image_url: '',
       is_available: true,
-      variants: []
+      variant_groups: []
     });
     setShowItemModal(true);
   };
@@ -117,40 +132,102 @@ export const StaffMenuManage: React.FC = () => {
       alert('Bạn không có quyền quản lý thực đơn');
       return;
     }
+    let initialGroups: MenuItemVariantGroupData[] = [];
+    if (item.variant_groups && item.variant_groups.length > 0) {
+      initialGroups = item.variant_groups.map(g => ({
+        name: g.name,
+        options: (g.options || []).map(o => ({ ...o }))
+      }));
+    } else if (item.variants && item.variants.length > 0) {
+      const map = new Map<string, MenuItemVariantOptionData[]>();
+      for (const v of item.variants) {
+        const gName = (v as any).group_name || 'Biến thể';
+        if (!map.has(gName)) map.set(gName, []);
+        map.get(gName)!.push({ ...v });
+      }
+      initialGroups = Array.from(map.entries()).map(([name, options]) => ({
+        name,
+        options
+      }));
+    }
+
     setEditingItem({
       ...item,
-      variants: (item.variants || []).map(v => ({ ...v }))
+      variant_groups: initialGroups
     });
     setShowItemModal(true);
   };
 
-  const handleAddVariant = () => {
+  const handleAddGroup = () => {
     if (!editingItem) return;
-    const currentVariants = editingItem.variants || [];
-    if (currentVariants.length >= 3) {
+    const current = editingItem.variant_groups || [];
+    if (current.length >= 3) {
       alert('Một sản phẩm chỉ có tối đa 3 dạng biến thể');
       return;
     }
+    const usedNames = current.map(g => g.name);
+    const nextName = SUGGESTED_GROUP_NAMES.find(n => !usedNames.includes(n)) || `Biến thể ${current.length + 1}`;
     setEditingItem({
       ...editingItem,
-      variants: [
-        ...currentVariants,
-        { name: '', price_adjustment: 0, is_available: true }
+      variant_groups: [
+        ...current,
+        {
+          name: nextName,
+          options: [{ name: '', price_adjustment: 0, is_available: true }]
+        }
       ]
     });
   };
 
-  const handleUpdateVariant = (index: number, field: string, value: any) => {
+  const handleRemoveGroup = (gIdx: number) => {
     if (!editingItem) return;
-    const currentVariants = [...(editingItem.variants || [])];
-    currentVariants[index] = { ...currentVariants[index], [field]: value };
-    setEditingItem({ ...editingItem, variants: currentVariants });
+    const current = (editingItem.variant_groups || []).filter((_, i) => i !== gIdx);
+    setEditingItem({ ...editingItem, variant_groups: current });
   };
 
-  const handleRemoveVariant = (index: number) => {
+  const handleUpdateGroupName = (gIdx: number, name: string) => {
     if (!editingItem) return;
-    const currentVariants = (editingItem.variants || []).filter((_, i) => i !== index);
-    setEditingItem({ ...editingItem, variants: currentVariants });
+    const current = [...(editingItem.variant_groups || [])];
+    current[gIdx] = { ...current[gIdx], name };
+    setEditingItem({ ...editingItem, variant_groups: current });
+  };
+
+  const handleAddOption = (gIdx: number) => {
+    if (!editingItem) return;
+    const current = [...(editingItem.variant_groups || [])];
+    const group = current[gIdx];
+    if (!group) return;
+    current[gIdx] = {
+      ...group,
+      options: [
+        ...group.options,
+        { name: '', price_adjustment: 0, is_available: true }
+      ]
+    };
+    setEditingItem({ ...editingItem, variant_groups: current });
+  };
+
+  const handleUpdateOption = (gIdx: number, oIdx: number, field: string, value: any) => {
+    if (!editingItem) return;
+    const current = [...(editingItem.variant_groups || [])];
+    const group = current[gIdx];
+    if (!group) return;
+    const options = [...group.options];
+    options[oIdx] = { ...options[oIdx], [field]: value };
+    current[gIdx] = { ...group, options };
+    setEditingItem({ ...editingItem, variant_groups: current });
+  };
+
+  const handleRemoveOption = (gIdx: number, oIdx: number) => {
+    if (!editingItem) return;
+    const current = [...(editingItem.variant_groups || [])];
+    const group = current[gIdx];
+    if (!group) return;
+    current[gIdx] = {
+      ...group,
+      options: group.options.filter((_, i) => i !== oIdx)
+    };
+    setEditingItem({ ...editingItem, variant_groups: current });
   };
 
   const handleSaveItem = async (e: React.FormEvent) => {
@@ -170,17 +247,22 @@ export const StaffMenuManage: React.FC = () => {
       return;
     }
 
-    // Filter valid variants: only those with non-empty names
-    const filteredVariants = (editingItem.variants || [])
-      .filter(v => v.name.trim().length > 0)
-      .map(v => ({
-        id: v.id,
-        name: v.name.trim(),
-        price_adjustment: Math.max(0, parseInt(String(v.price_adjustment), 10) || 0),
-        is_available: v.is_available !== false
-      }));
+    // Filter and sanitize variant groups:
+    const filteredGroups = (editingItem.variant_groups || [])
+      .map(g => ({
+        name: g.name.trim(),
+        options: (g.options || [])
+          .filter(o => o.name.trim().length > 0)
+          .map(o => ({
+            id: o.id,
+            name: o.name.trim(),
+            price_adjustment: Math.max(0, parseInt(String(o.price_adjustment), 10) || 0),
+            is_available: o.is_available !== false
+          }))
+      }))
+      .filter(g => g.name.length > 0 && g.options.length > 0);
 
-    if (filteredVariants.length > 3) {
+    if (filteredGroups.length > 3) {
       alert('Một sản phẩm chỉ có tối đa 3 dạng biến thể');
       return;
     }
@@ -198,7 +280,7 @@ export const StaffMenuManage: React.FC = () => {
             description: editingItem.description?.trim() || null,
             image_url: editingItem.image_url?.trim() || null,
             is_available: editingItem.is_available,
-            variants: filteredVariants
+            variant_groups: filteredGroups
           })
         });
         showNotification(`Đã cập nhật món "${res?.item?.name || editingItem.name}"`);
@@ -213,7 +295,7 @@ export const StaffMenuManage: React.FC = () => {
             description: editingItem.description?.trim() || null,
             image_url: editingItem.image_url?.trim() || null,
             is_available: editingItem.is_available,
-            variants: filteredVariants
+            variant_groups: filteredGroups
           })
         });
         showNotification(`Đã thêm món "${res?.item?.name || editingItem.name}" thành công`);
@@ -393,7 +475,18 @@ export const StaffMenuManage: React.FC = () => {
                       {item.description}
                     </p>
                   )}
-                  {item.variants && item.variants.length > 0 && (
+                  {item.variant_groups && item.variant_groups.length > 0 ? (
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                      {item.variant_groups.map((g, idx) => (
+                        <span
+                          key={idx}
+                          className="text-[10px] font-medium bg-orange-50/80 text-orange-800 px-2 py-0.5 rounded-md border border-orange-200/60"
+                        >
+                          <strong className="text-orange-950 font-bold">{g.name}:</strong> {g.options.map(o => o.name).join(', ')}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (item.variants && item.variants.length > 0 && (
                     <div className="flex items-center gap-1 flex-wrap mt-1.5">
                       {item.variants.map((v, idx) => (
                         <span
@@ -404,7 +497,7 @@ export const StaffMenuManage: React.FC = () => {
                         </span>
                       ))}
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
 
@@ -544,72 +637,186 @@ export const StaffMenuManage: React.FC = () => {
                 helperText="Chụp hoặc tải ảnh món ăn từ máy (tự nén nhẹ ~150KB) hoặc nhập liên kết ảnh"
               />
 
-              {/* Product Variants (Max 3) */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2.5">
+              {/* Product Variant Groups (Max 3 Groups) */}
+              <div className="space-y-3.5 pt-1">
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="block text-slate-800 font-bold text-xs">
-                      Biến thể món ăn <span className="text-slate-400 font-normal">({(editingItem.variants || []).length}/3)</span>
+                    <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                      <span>Dạng biến thể món ăn</span>
+                      <span className="text-orange-700 bg-orange-100 font-extrabold px-1.5 py-0.5 rounded text-[10px]">
+                        {(editingItem.variant_groups || []).length}/3 dạng
+                      </span>
                     </label>
-                    <p className="text-[11px] text-slate-500">
-                      Tối đa 3 biến thể (VD: Size L, Không đường, Có đường...)
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Tối đa 3 dạng biến thể (vd: Kích cỡ, Lượng đường, Lượng đá...). Mỗi dạng có nhiều tùy chọn.
                     </p>
                   </div>
-                  {(editingItem.variants || []).length < 3 && (
+                  {(editingItem.variant_groups || []).length < 3 && (
                     <button
                       type="button"
-                      onClick={handleAddVariant}
-                      className="px-2.5 py-1 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold text-xs rounded-lg transition flex items-center gap-1 cursor-pointer"
+                      onClick={handleAddGroup}
+                      className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl transition flex items-center gap-1 shadow-xs cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Thêm</span>
+                      <span>Thêm biến thể</span>
                     </button>
                   )}
                 </div>
 
-                {(editingItem.variants || []).length === 0 ? (
-                  <p className="text-[11px] text-slate-400 italic">
-                    Chưa có biến thể nào. Món sẽ phục vụ theo định lượng / công thức gốc.
-                  </p>
+                {(editingItem.variant_groups || []).length === 0 ? (
+                  <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-4 text-center">
+                    <p className="text-xs text-slate-600 font-medium">Chưa có dạng biến thể nào</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Món sẽ phục vụ theo định lượng & công thức gốc duy nhất</p>
+                    <button
+                      type="button"
+                      onClick={handleAddGroup}
+                      className="mt-2 text-xs font-bold text-orange-600 hover:text-orange-700 inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Thêm dạng biến thể (vd: Kích cỡ, Đường, Đá)</span>
+                    </button>
+                  </div>
                 ) : (
-                  <div className="space-y-2">
-                    {editingItem.variants!.map((variant, idx) => (
-                      <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200">
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            placeholder="Tên biến thể (vd: Size L, Ít đường)"
-                            value={variant.name}
-                            onChange={(e) => handleUpdateVariant(idx, 'name', e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:border-orange-500"
-                          />
+                  <div className="space-y-3.5">
+                    {editingItem.variant_groups!.map((group, gIdx) => (
+                      <div key={gIdx} className="bg-slate-50 rounded-2xl border border-slate-200/90 p-3.5 space-y-3 shadow-xs">
+                        {/* Group Header */}
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                          <div className="flex items-center gap-2 text-slate-700 font-bold text-xs">
+                            <GripVertical className="w-4 h-4 text-slate-400" />
+                            <span>Biến thể</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveGroup(gIdx)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                            title="Xóa dạng biến thể này"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        <div className="w-28 shrink-0">
-                          <div className="relative">
-                            <input
-                              type="number"
-                              min={0}
-                              step={1000}
-                              placeholder="+0đ"
-                              value={variant.price_adjustment}
-                              onChange={(e) => handleUpdateVariant(idx, 'price_adjustment', Math.max(0, parseInt(e.target.value) || 0))}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2 pr-6 py-1.5 text-xs text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500"
-                            />
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
-                              đ
+
+                        {/* Tên biến thể */}
+                        <div>
+                          <div className="flex items-center gap-1 mb-1">
+                            <label className="text-slate-800 font-bold text-xs">
+                              <span className="text-rose-500 mr-0.5">*</span>Tên biến thể
+                            </label>
+                            <span title="Tên thuộc tính như Kích cỡ, Lượng đường, Topping..." className="text-slate-400 cursor-help">
+                              <HelpCircle className="w-3 h-3" />
                             </span>
                           </div>
+
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={group.name}
+                                onChange={(e) => handleUpdateGroupName(gIdx, e.target.value)}
+                                placeholder="Chọn hoặc nhập biến thể"
+                                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold focus:outline-none focus:border-orange-500"
+                              />
+                            </div>
+                            <select
+                              value={SUGGESTED_GROUP_NAMES.includes(group.name) ? group.name : ''}
+                              onChange={(e) => {
+                                if (e.target.value) handleUpdateGroupName(gIdx, e.target.value);
+                              }}
+                              className="w-32 bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-600 font-medium focus:outline-none focus:border-orange-500"
+                            >
+                              <option value="">Gợi ý mẫu...</option>
+                              {SUGGESTED_GROUP_NAMES.map((name) => (
+                                <option key={name} value={name}>{name}</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveVariant(idx)}
-                          className="w-7 h-7 rounded-lg text-rose-500 hover:bg-rose-50 flex items-center justify-center shrink-0 cursor-pointer"
-                          title="Xóa biến thể"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+
+                        {/* Tùy chọn */}
+                        <div>
+                          <label className="block text-slate-800 font-bold text-xs mb-1.5">
+                            <span className="text-rose-500 mr-0.5">*</span>Tùy chọn
+                          </label>
+
+                          <div className="space-y-2">
+                            {group.options.map((option, oIdx) => (
+                              <div key={oIdx} className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200">
+                                <GripVertical className="w-4 h-4 text-slate-300 shrink-0" />
+                                <div className="flex-1 relative">
+                                  <input
+                                    type="text"
+                                    value={option.name}
+                                    maxLength={50}
+                                    onChange={(e) => handleUpdateOption(gIdx, oIdx, 'name', e.target.value)}
+                                    placeholder="Nhập một tùy chọn (vd: Size M, 50% đường)"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2.5 pr-12 py-1.5 text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:border-orange-500"
+                                  />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
+                                    {option.name.length}/50
+                                  </span>
+                                </div>
+
+                                <div className="w-28 shrink-0">
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step={1000}
+                                      placeholder="+0đ"
+                                      value={option.price_adjustment}
+                                      onChange={(e) => handleUpdateOption(gIdx, oIdx, 'price_adjustment', Math.max(0, parseInt(e.target.value) || 0))}
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2 pr-6 py-1.5 text-xs text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500"
+                                    />
+                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
+                                      đ
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {group.options.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveOption(gIdx, oIdx)}
+                                    className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center shrink-0 cursor-pointer"
+                                    title="Xóa tùy chọn này"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+
+                            <button
+                              type="button"
+                              onClick={() => handleAddOption(gIdx)}
+                              className="text-xs font-bold text-orange-600 hover:text-orange-700 inline-flex items-center gap-1 py-1 px-1 cursor-pointer transition"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Thêm lựa chọn</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Danh sách biến thể (Summary table) */}
+                {(editingItem.variant_groups || []).some(g => g.options.some(o => o.name.trim().length > 0)) && (
+                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                    <h5 className="font-bold text-slate-800 text-xs">Danh sách biến thể</h5>
+                    <div className="space-y-2">
+                      {editingItem.variant_groups!.filter(g => g.name.trim().length > 0).map((g, gIdx) => (
+                        <div key={gIdx} className="bg-white p-2.5 rounded-xl border border-slate-200/80 text-xs">
+                          <span className="font-bold text-slate-900 mr-2">{g.name}:</span>
+                          <span className="text-slate-600">
+                            {g.options.filter(o => o.name.trim().length > 0).map(o => (
+                              `${o.name} (${Number(o.price_adjustment) > 0 ? `+${Number(o.price_adjustment).toLocaleString('vi-VN')}đ` : '+0đ'})`
+                            )).join('  •  ') || 'Chưa có tùy chọn'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

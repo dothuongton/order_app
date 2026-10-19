@@ -306,10 +306,11 @@ staffRouter.get('/menu/items', async (req: Request, res: Response) => {
                         SELECT json_agg(
                             json_build_object(
                                 'id', miv.id,
+                                'group_name', COALESCE(miv.group_name, 'Biến thể'),
                                 'name', miv.name,
                                 'price_adjustment', miv.price_adjustment,
                                 'is_available', miv.is_available
-                            ) ORDER BY miv.price_adjustment ASC, miv.name ASC
+                            ) ORDER BY miv.group_name ASC, miv.price_adjustment ASC, miv.name ASC
                         )
                         FROM menu_item_variants miv
                         WHERE miv.menu_item_id = mi.id AND miv.tenant_id = $1
@@ -322,10 +323,33 @@ staffRouter.get('/menu/items', async (req: Request, res: Response) => {
             ORDER BY mc.sort_order ASC, mi.name ASC
         `, [staff.tenantId]);
         return res.json({
-            items: items.rows.map(r => ({
-                ...r,
-                price: parseInt(r.price, 10)
-            }))
+            items: items.rows.map(r => {
+                const rawVariants = (r.variants || []).map((v: any) => ({
+                    ...v,
+                    group_name: v.group_name || 'Biến thể',
+                    price_adjustment: parseInt(v.price_adjustment, 10) || 0
+                }));
+                const groupsMap = new Map<string, any[]>();
+                for (const v of rawVariants) {
+                    if (!groupsMap.has(v.group_name)) groupsMap.set(v.group_name, []);
+                    groupsMap.get(v.group_name)!.push({
+                        id: v.id,
+                        name: v.name,
+                        price_adjustment: v.price_adjustment,
+                        is_available: v.is_available
+                    });
+                }
+                const variant_groups = Array.from(groupsMap.entries()).map(([name, options]) => ({
+                    name,
+                    options
+                }));
+                return {
+                    ...r,
+                    price: parseInt(r.price, 10),
+                    variants: rawVariants,
+                    variant_groups
+                };
+            })
         });
     } catch (err: any) {
         return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
@@ -356,15 +380,20 @@ staffRouter.put('/menu/items/:id/toggle-available', requirePermission('menu.mana
     }
 });
 
-// 13. Create Menu Item (Supports up to 3 variants)
+// 13. Create Menu Item (Supports up to 3 variant groups)
 staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;
-        const variantInputSchema = z.object({
+        const variantOptionSchema = z.object({
             id: z.string().uuid().optional().nullable().or(z.literal('')),
-            name: z.string().trim().min(1, 'Tên biến thể không được để trống').max(255),
+            name: z.string().trim().min(1, 'Tên tùy chọn không được để trống').max(255),
             price_adjustment: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0),
             is_available: z.boolean().optional().default(true)
+        });
+
+        const variantGroupSchema = z.object({
+            name: z.string().trim().min(1, 'Tên dạng biến thể không được để trống').max(100),
+            options: z.array(variantOptionSchema).min(1, 'Mỗi biến thể cần có ít nhất 1 tùy chọn')
         });
 
         const schema = z.object({
@@ -374,7 +403,8 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
             description: z.string().max(2000).optional().nullable(),
             image_url: z.string().max(5000000).optional().nullable().or(z.literal('')),
             is_available: z.boolean().optional().default(true),
-            variants: z.array(variantInputSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
+            variant_groups: z.array(variantGroupSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional(),
+            variants: z.array(variantOptionSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
         });
 
         const parsed = schema.safeParse(req.body);
@@ -382,7 +412,7 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
             return res.status(400).json({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message || 'Dữ liệu không hợp lệ' });
         }
 
-        const { name, category_id, price, description, image_url, is_available, variants } = parsed.data;
+        const { name, category_id, price, description, image_url, is_available, variant_groups, variants } = parsed.data;
 
         // Verify category belongs to tenant
         const catRes = await query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
@@ -398,31 +428,59 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
 
         const createdItem = insertRes.rows[0];
 
-        // Insert variants if provided (up to 3)
-        if (variants && variants.length > 0) {
+        // Insert variants
+        if (variant_groups && variant_groups.length > 0) {
+            for (const grp of variant_groups) {
+                for (const opt of grp.options) {
+                    await query(`
+                        INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                    `, [staff.tenantId, createdItem.id, grp.name, opt.name, opt.price_adjustment || 0, opt.is_available ?? true]);
+                }
+            }
+        } else if (variants && variants.length > 0) {
             for (const v of variants) {
                 await query(`
-                    INSERT INTO menu_item_variants (tenant_id, menu_item_id, name, price_adjustment, is_available)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [staff.tenantId, createdItem.id, v.name, v.price_adjustment || 0, v.is_available ?? true]);
+                    INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [staff.tenantId, createdItem.id, (v as any).group_name || 'Biến thể', v.name, v.price_adjustment || 0, v.is_available ?? true]);
             }
         }
 
         const variantsRes = await query(`
-            SELECT id, name, price_adjustment, is_available
+            SELECT id, group_name, name, price_adjustment, is_available
             FROM menu_item_variants
             WHERE menu_item_id = $1 AND tenant_id = $2
-            ORDER BY price_adjustment ASC, name ASC
+            ORDER BY group_name ASC, price_adjustment ASC, name ASC
         `, [createdItem.id, staff.tenantId]);
+
+        const rawVariants = variantsRes.rows.map(r => ({
+            ...r,
+            group_name: r.group_name || 'Biến thể',
+            price_adjustment: parseInt(r.price_adjustment, 10)
+        }));
+
+        const groupsMap = new Map<string, any[]>();
+        for (const v of rawVariants) {
+            if (!groupsMap.has(v.group_name)) groupsMap.set(v.group_name, []);
+            groupsMap.get(v.group_name)!.push({
+                id: v.id,
+                name: v.name,
+                price_adjustment: v.price_adjustment,
+                is_available: v.is_available
+            });
+        }
+        const createdVariantGroups = Array.from(groupsMap.entries()).map(([name, options]) => ({
+            name,
+            options
+        }));
 
         return res.status(201).json({
             item: {
                 ...createdItem,
                 price: parseInt(createdItem.price, 10),
-                variants: variantsRes.rows.map(r => ({
-                    ...r,
-                    price_adjustment: parseInt(r.price_adjustment, 10)
-                }))
+                variants: rawVariants,
+                variant_groups: createdVariantGroups
             },
             message: 'Thêm món mới thành công'
         });
@@ -432,17 +490,22 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
     }
 });
 
-// 14. Update Menu Item (Supports up to 3 variants)
+// 14. Update Menu Item (Supports up to 3 variant groups)
 staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;
         const itemId = req.params.id;
 
-        const variantInputSchema = z.object({
+        const variantOptionSchema = z.object({
             id: z.string().uuid().optional().nullable().or(z.literal('')),
-            name: z.string().trim().min(1, 'Tên biến thể không được để trống').max(255),
+            name: z.string().trim().min(1, 'Tên tùy chọn không được để trống').max(255),
             price_adjustment: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0),
             is_available: z.boolean().optional().default(true)
+        });
+
+        const variantGroupSchema = z.object({
+            name: z.string().trim().min(1, 'Tên dạng biến thể không được để trống').max(100),
+            options: z.array(variantOptionSchema).min(1, 'Mỗi biến thể cần có ít nhất 1 tùy chọn')
         });
 
         const schema = z.object({
@@ -452,7 +515,8 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             description: z.string().max(2000).optional().nullable(),
             image_url: z.string().max(5000000).optional().nullable().or(z.literal('')),
             is_available: z.boolean().optional(),
-            variants: z.array(variantInputSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
+            variant_groups: z.array(variantGroupSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional(),
+            variants: z.array(variantOptionSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
         });
 
         const parsed = schema.safeParse(req.body);
@@ -466,7 +530,7 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             return res.status(404).json({ error: 'NOT_FOUND', message: 'Không tìm thấy món ăn' });
         }
 
-        const { name, category_id, price, description, image_url, is_available, variants } = parsed.data;
+        const { name, category_id, price, description, image_url, is_available, variant_groups, variants } = parsed.data;
 
         if (category_id) {
             const catRes = await query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
@@ -503,33 +567,62 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             return res.status(404).json({ error: 'NOT_FOUND', message: 'Không tìm thấy món ăn' });
         }
 
-        // If variants provided, replace existing variants (up to 3)
-        if (variants !== undefined) {
+        // If variant_groups provided, replace existing variants
+        if (variant_groups !== undefined) {
+            await query('DELETE FROM menu_item_variants WHERE menu_item_id = $1 AND tenant_id = $2', [itemId, staff.tenantId]);
+            for (const grp of variant_groups) {
+                for (const opt of grp.options) {
+                    await query(`
+                        INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                    `, [staff.tenantId, itemId, grp.name, opt.name, opt.price_adjustment || 0, opt.is_available ?? true]);
+                }
+            }
+        } else if (variants !== undefined) {
             await query('DELETE FROM menu_item_variants WHERE menu_item_id = $1 AND tenant_id = $2', [itemId, staff.tenantId]);
             for (const v of variants) {
                 await query(`
-                    INSERT INTO menu_item_variants (tenant_id, menu_item_id, name, price_adjustment, is_available)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [staff.tenantId, itemId, v.name, v.price_adjustment || 0, v.is_available ?? true]);
+                    INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [staff.tenantId, itemId, (v as any).group_name || 'Biến thể', v.name, v.price_adjustment || 0, v.is_available ?? true]);
             }
         }
 
         const updatedItem = updateRes.rows[0];
         const variantsRes = await query(`
-            SELECT id, name, price_adjustment, is_available
+            SELECT id, group_name, name, price_adjustment, is_available
             FROM menu_item_variants
             WHERE menu_item_id = $1 AND tenant_id = $2
-            ORDER BY price_adjustment ASC, name ASC
+            ORDER BY group_name ASC, price_adjustment ASC, name ASC
         `, [itemId, staff.tenantId]);
+
+        const rawVariants = variantsRes.rows.map(r => ({
+            ...r,
+            group_name: r.group_name || 'Biến thể',
+            price_adjustment: parseInt(r.price_adjustment, 10)
+        }));
+
+        const groupsMap = new Map<string, any[]>();
+        for (const v of rawVariants) {
+            if (!groupsMap.has(v.group_name)) groupsMap.set(v.group_name, []);
+            groupsMap.get(v.group_name)!.push({
+                id: v.id,
+                name: v.name,
+                price_adjustment: v.price_adjustment,
+                is_available: v.is_available
+            });
+        }
+        const updatedVariantGroups = Array.from(groupsMap.entries()).map(([name, options]) => ({
+            name,
+            options
+        }));
 
         return res.json({
             item: {
                 ...updatedItem,
                 price: parseInt(updatedItem.price, 10),
-                variants: variantsRes.rows.map(r => ({
-                    ...r,
-                    price_adjustment: parseInt(r.price_adjustment, 10)
-                }))
+                variants: rawVariants,
+                variant_groups: updatedVariantGroups
             },
             message: 'Cập nhật món thành công'
         });

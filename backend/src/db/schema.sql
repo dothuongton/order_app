@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS menu_item_variants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     menu_item_id UUID NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    group_name VARCHAR(100) DEFAULT 'Biến thể',
     name VARCHAR(255) NOT NULL,
     price_adjustment BIGINT NOT NULL DEFAULT 0,
     is_available BOOLEAN NOT NULL DEFAULT TRUE
