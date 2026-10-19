@@ -4,7 +4,7 @@ import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
   X, Check, CheckCheck, Ban, CreditCard, Sparkles, AlertTriangle, AlertCircle,
-  Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed
+  Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed, Plus, Store
 } from 'lucide-react';
 
 interface TableDetailModalProps {
@@ -204,6 +204,21 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       onClose();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi đánh dấu sẵn sàng');
+    }
+  };
+
+  // Open session from modal when table is empty
+  const handleOpenFromModal = async () => {
+    if (!table) return;
+    setIsLoading(true);
+    setActionError(null);
+    try {
+      await request(`/staff/tables/${table.table_id}/open`, { method: 'POST' });
+      onRefresh();
+      onClose();
+    } catch (err: any) {
+      setActionError(err.message || 'Lỗi mở phiên bàn');
+      setIsLoading(false);
     }
   };
 
@@ -457,8 +472,23 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
             )}
             </>
           ) : (
-            <div className="text-center py-12 text-slate-400">
-              <p>Bàn hiện tại chưa mở phiên</p>
+            <div className="text-center py-10 text-slate-500 space-y-4">
+              <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200">
+                <Store className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-extrabold text-slate-800 text-base">Bàn {table.table_number} đang trống</h4>
+                <p className="text-xs text-slate-400">Sẵn sàng để mở phiên đón khách gọi món</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenFromModal}
+                disabled={!hasPermission('session.open') || isLoading}
+                className="py-3 px-6 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-extrabold text-xs rounded-2xl shadow-md transition inline-flex items-center gap-2 min-h-[46px]"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{isLoading ? 'Đang mở bàn...' : 'Mở bàn đón khách ngay'}</span>
+              </button>
             </div>
           )}
         </div>

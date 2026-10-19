@@ -35,6 +35,7 @@ export const StaffDashboard: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'reports' | 'menu' | 'cms'>('tables');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'served'>('all');
+  const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'serving' | 'checkout' | 'zero' | 'empty'>('all');
   const [tableSearch, setTableSearch] = useState<string>('');
   const [tables, setTables] = useState<StaffTable[]>([]);
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
@@ -153,9 +154,10 @@ export const StaffDashboard: React.FC = () => {
   const handleQuickOpenSession = async (tableId: string) => {
     try {
       await request(`/staff/tables/${tableId}/open`, { method: 'POST' });
+      showToast({ title: 'Đã mở bàn thành công', type: 'success', duration: 2500 });
       fetchDashboard();
     } catch (err: any) {
-      alert(err.message || 'Lỗi mở phiên');
+      showToast({ title: err.message || 'Lỗi mở phiên bàn', type: 'error' });
     }
   };
 
@@ -284,16 +286,34 @@ export const StaffDashboard: React.FC = () => {
     return tables.filter(t => !t.active_session_id).length;
   }, [tables]);
 
-  // Keep ALL tables visible on screen at all times without hiding any
+  // Filter tables by text search and status filter
   const filteredTables = useMemo(() => {
     return tables.filter((table) => {
+      // 1. Text Search Filter
       if (tableSearch.trim()) {
         const q = tableSearch.trim().toLowerCase();
         if (!table.table_number.toLowerCase().includes(q)) return false;
       }
+
+      // 2. Status Tab Filter
+      if (tableStatusFilter === 'serving') {
+        const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
+        return table.active_session_id && totalItems > 0;
+      }
+      if (tableStatusFilter === 'checkout') {
+        return table.hasCheckout;
+      }
+      if (tableStatusFilter === 'zero') {
+        const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
+        return table.active_session_id && totalItems === 0;
+      }
+      if (tableStatusFilter === 'empty') {
+        return !table.active_session_id;
+      }
+
       return true;
     });
-  }, [tables, tableSearch]);
+  }, [tables, tableSearch, tableStatusFilter]);
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col max-w-lg mx-auto shadow-2xl pb-[calc(6rem+env(safe-area-inset-bottom))]">
@@ -474,46 +494,111 @@ export const StaffDashboard: React.FC = () => {
                 )}
               </div>
 
-              {/* Live Status Indicators (All tables always visible simultaneously) */}
+              {/* Interactive Status Filter Buttons */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] font-bold no-scrollbar">
-                <div className="px-3 py-1.5 rounded-xl bg-slate-900 text-white shadow-xs flex items-center gap-1.5 whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => setTableStatusFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    tableStatusFilter === 'all'
+                      ? 'bg-slate-900 text-white shadow-xs ring-2 ring-slate-900/30'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title="Hiển thị tất cả bàn"
+                >
                   <span>Tất cả bàn</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700 text-slate-200">
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    tableStatusFilter === 'all'
+                      ? 'bg-slate-700 text-slate-200'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}>
                     {tables.length}
                   </span>
-                </div>
+                </button>
 
-                <div className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-900 border border-blue-200 flex items-center gap-1.5 whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => setTableStatusFilter(tableStatusFilter === 'serving' ? 'all' : 'serving')}
+                  className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    tableStatusFilter === 'serving'
+                      ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-500/30'
+                      : 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100/70'
+                  }`}
+                  title="Lọc các bàn đang có khách gọi món"
+                >
                   <span>Đang dùng</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-600 text-white font-bold">
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    tableStatusFilter === 'serving'
+                      ? 'bg-blue-800 text-white'
+                      : 'bg-blue-600 text-white'
+                  }`}>
                     {countServing}
                   </span>
-                </div>
+                </button>
 
                 {countCheckout > 0 && (
-                  <div className="px-3 py-1.5 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1.5 whitespace-nowrap animate-pulse">
+                  <button
+                    type="button"
+                    onClick={() => setTableStatusFilter(tableStatusFilter === 'checkout' ? 'all' : 'checkout')}
+                    className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                      tableStatusFilter === 'checkout'
+                        ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-500/30'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200/80 animate-pulse'
+                    }`}
+                    title="Lọc các bàn đang xin thanh toán"
+                  >
                     <span>Cần bill</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-600 text-white font-black">
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                      tableStatusFilter === 'checkout'
+                        ? 'bg-amber-800 text-white'
+                        : 'bg-amber-600 text-white'
+                    }`}>
                       {countCheckout}
                     </span>
-                  </div>
+                  </button>
                 )}
 
                 {countZero > 0 && (
-                  <div className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1.5 whitespace-nowrap">
+                  <button
+                    type="button"
+                    onClick={() => setTableStatusFilter(tableStatusFilter === 'zero' ? 'all' : 'zero')}
+                    className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                      tableStatusFilter === 'zero'
+                        ? 'bg-rose-600 text-white shadow-xs ring-2 ring-rose-500/30'
+                        : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100/70'
+                    }`}
+                    title="Lọc các bàn mở nhầm chưa có món"
+                  >
                     <span>Bàn 0đ</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-600 text-white font-black">
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                      tableStatusFilter === 'zero'
+                        ? 'bg-rose-800 text-white'
+                        : 'bg-rose-600 text-white'
+                    }`}>
                       {countZero}
                     </span>
-                  </div>
+                  </button>
                 )}
 
-                <div className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 flex items-center gap-1.5 whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => setTableStatusFilter(tableStatusFilter === 'empty' ? 'all' : 'empty')}
+                  className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    tableStatusFilter === 'empty'
+                      ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/30'
+                      : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100/70'
+                  }`}
+                  title="Lọc các bàn trống sẵn sàng đón khách"
+                >
                   <span>Bàn trống</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-600 text-white font-bold">
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    tableStatusFilter === 'empty'
+                      ? 'bg-emerald-800 text-white'
+                      : 'bg-emerald-600 text-white'
+                  }`}>
                     {countEmpty}
                   </span>
-                </div>
+                </button>
               </div>
             </div>
 
@@ -526,6 +611,13 @@ export const StaffDashboard: React.FC = () => {
                   <p className="text-xs text-slate-400">
                     {tableSearch ? `Không có bàn nào khớp với "${tableSearch}"` : 'Không có bàn nào thuộc bộ lọc này'}
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => { setTableSearch(''); setTableStatusFilter('all'); }}
+                    className="mt-2 px-3 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold rounded-xl text-xs transition inline-flex items-center gap-1"
+                  >
+                    Xem lại tất cả bàn
+                  </button>
                 </div>
               ) : (
                 filteredTables.map((table) => {
