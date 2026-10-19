@@ -332,9 +332,12 @@ export const StaffDashboard: React.FC = () => {
     return tables.filter(t => !t.active_session_id).length;
   }, [tables]);
 
-  // Filter tables by text search and status filter
+  // Filter and sort tables:
+  // - Tables with active invoice / session / orders are placed ABOVE empty tables
+  // - Within active tables: checkout request first, then more items first
+  // - Within empty tables (or if all empty): sorted in natural order (A01, A02, B01, AKA Vip...)
   const filteredTables = useMemo(() => {
-    return tables.filter((table) => {
+    const list = tables.filter((table) => {
       // 1. Text Search Filter
       if (tableSearch.trim()) {
         const q = tableSearch.trim().toLowerCase();
@@ -358,6 +361,28 @@ export const StaffDashboard: React.FC = () => {
       }
 
       return true;
+    });
+
+    return list.sort((a, b) => {
+      const aHasSession = Boolean(a.active_session_id);
+      const bHasSession = Boolean(b.active_session_id);
+
+      // Active table with bill/session displayed on top of empty table
+      if (aHasSession && !bHasSession) return -1;
+      if (!aHasSession && bHasSession) return 1;
+
+      // When both are active: checkout request first
+      if (aHasSession && bHasSession) {
+        if (a.hasCheckout && !b.hasCheckout) return -1;
+        if (!a.hasCheckout && b.hasCheckout) return 1;
+
+        const aTotal = (a.counts?.pending || 0) + (a.counts?.accepted || 0) + (a.counts?.served || 0);
+        const bTotal = (b.counts?.pending || 0) + (b.counts?.accepted || 0) + (b.counts?.served || 0);
+        if (aTotal !== bTotal) return bTotal - aTotal;
+      }
+
+      // Natural alphanumeric order (A01, A02, B01, AKA Vip...)
+      return a.table_number.localeCompare(b.table_number, 'vi', { numeric: true, sensitivity: 'base' });
     });
   }, [tables, tableSearch, tableStatusFilter]);
 
