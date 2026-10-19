@@ -180,6 +180,15 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
                 Mở ứng dụng từ <strong>icon ngoài Màn hình chính</strong> và nhấn <strong>Bật thông báo</strong>.
               </li>
             </ol>
+
+            <button
+              onClick={handleSubscribe}
+              disabled={isLoading}
+              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-3"
+            >
+              <Bell className="w-4 h-4" />
+              <span>{isLoading ? 'Đang kích hoạt...' : '👉 Nhấn để Bật quyền thông báo ngay'}</span>
+            </button>
           </div>
         ) : state === 'denied' ? (
           /* Case 2: Permission denied in iOS / browser */

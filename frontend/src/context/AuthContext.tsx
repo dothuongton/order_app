@@ -51,8 +51,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
           setCurrentTenant({
             id: res.user.tenantId,
-            name: '',
-            slug: '',
+            name: res.user.tenantName || 'Quán của bạn',
+            slug: res.user.tenantSlug || '',
             role: res.user.role,
             permissions: res.user.permissions || []
           });

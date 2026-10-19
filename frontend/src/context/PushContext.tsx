@@ -69,28 +69,30 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
       (navigator as any).standalone === true;
 
-    // On iOS Safari normal browser tab, Web Push is NOT supported until added to Home Screen
-    if (isIos && !isStandalone) {
+    // 2. Check current Notification permission if available
+    if (hasNotification) {
+      const perm = Notification.permission;
+      if (perm === 'denied') {
+        setState('denied');
+        setIsSubscribed(false);
+        return;
+      }
+    }
+
+    // On iOS Safari normal browser tab without Notification API, Web Push requires Home Screen
+    if (isIos && !isStandalone && !hasNotification) {
       setState('ios_need_install');
       setIsSubscribed(false);
       return;
     }
 
-    if (!hasSW || !hasPush || !hasNotification) {
+    if (!hasSW || !hasPush) {
       setState('unsupported');
       setIsSubscribed(false);
       return;
     }
 
-    // 2. Check current Notification permission
-    const perm = Notification.permission;
-    if (perm === 'denied') {
-      setState('denied');
-      setIsSubscribed(false);
-      return;
-    }
-
-    if (perm === 'default') {
+    if (hasNotification && Notification.permission === 'default') {
       setState('default');
       setIsSubscribed(false);
       return;
@@ -98,7 +100,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 3. Permission is 'granted', check active subscription in ServiceWorker
     try {
-      const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+      const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         const sub = await reg.pushManager.getSubscription();
         if (sub) {
@@ -107,9 +109,8 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
       }
-      // Granted but no active local subscription
       setIsSubscribed(false);
-      setState('default');
+      setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
     } catch {
       setState('default');
       setIsSubscribed(false);
@@ -133,18 +134,16 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Apple và iOS yêu cầu kết nối bảo mật HTTPS (hoặc qua domain có SSL) để cho phép nhận thông báo khi khóa màn hình');
       }
 
-      // Re-verify iOS standalone check
       const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
         (navigator as any).standalone === true;
 
-      if (isIos && !isStandalone) {
-        setState('ios_need_install');
-        throw new Error('Cần thêm ứng dụng vào Màn hình chính (Home Screen) trên iPhone trước khi bật thông báo');
-      }
-
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        if (isIos && !isStandalone) {
+          setState('ios_need_install');
+          throw new Error('Apple yêu cầu bạn bấm "Chia sẻ ⎋" -> "Thêm vào Màn hình chính" để nhận chuông thông báo khi khóa máy trên iPhone');
+        }
         setState('unsupported');
         throw new Error('Thiết bị hoặc trình duyệt không hỗ trợ Web Push');
       }
@@ -213,7 +212,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+        const reg = await navigator.serviceWorker.getRegistration();
         if (reg) {
           const sub = await reg.pushManager.getSubscription();
           if (sub) {

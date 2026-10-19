@@ -7,6 +7,8 @@ import { guestRouter } from './modules/guest/guest.routes.js';
 import { staffRouter } from './modules/staff/staff.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { pushRouter } from './modules/push/push.routes.js';
+import { adminRouter } from './modules/admin/admin.routes.js';
+import { cmsRouter } from './modules/cms/cms.routes.js';
 
 export const app = express();
 
@@ -16,7 +18,7 @@ app.use(cors({
         callback(null, true);
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-guest-token', 'x-idempotency-key']
 }));
 
@@ -28,8 +30,18 @@ app.get('/health', (req: Request, res: Response) => {
     return res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+// Disable caching for all API endpoints to guarantee instant realtime sync on mobile
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+});
+
 // Mount Routes
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/admin', adminRouter);
+app.use('/api/v1/cms', cmsRouter);
 app.use('/api/v1', guestRouter);
 app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/staff/reports', reportsRouter);

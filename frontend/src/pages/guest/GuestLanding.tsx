@@ -71,6 +71,19 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     );
   }
 
+  if (tenant?.status === 'suspended') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
+        <div className="bg-white rounded-3xl p-6 text-center max-w-sm shadow-xl border border-slate-100">
+          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+          <h2 className="text-lg font-bold text-slate-900">{tenant.name}</h2>
+          <p className="text-sm font-semibold text-amber-600 mt-1">Cửa hàng tạm ngưng phục vụ</p>
+          <p className="text-xs text-slate-500 mt-2 mb-4">Hệ thống gọi món trực tuyến của quán đang tạm dừng hoạt động theo chính sách quản trị. Quý khách vui lòng liên hệ nhân viên tại quầy.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
       {/* Top Bar / Restaurant & Table Info */}

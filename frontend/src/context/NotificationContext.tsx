@@ -251,6 +251,102 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, []);
 
+  // Synthesis helper: play harmonic bell note
+  const playHarmonicNote = useCallback((
+    ctx: AudioContext,
+    freq: number,
+    startTime: number,
+    duration: number,
+    gainLevel: number
+  ) => {
+    try {
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(freq, startTime);
+
+      gain1.gain.setValueAtTime(gainLevel, startTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+
+      osc1.start(startTime);
+      osc1.stop(startTime + duration);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(freq * 2, startTime);
+
+      gain2.gain.setValueAtTime(gainLevel * 0.25, startTime);
+      gain2.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.7);
+
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+
+      osc2.start(startTime);
+      osc2.stop(startTime + duration * 0.7);
+    } catch {}
+  }, []);
+
+  // Pure chime tone helpers (Dual HTML5 Audio + WebAudio harmonic notes)
+  const playOrderSoundTone = useCallback(() => {
+    // 1. Play pre-loaded HTML5 Audio element
+    if (orderAudioRef.current) {
+      try {
+        orderAudioRef.current.currentTime = 0;
+        const p = orderAudioRef.current.play();
+        if (p) p.catch(() => {});
+      } catch {}
+    }
+
+    // 2. Play WebAudio harmonic synthesizer
+    try {
+      const ctx = getOrCreateAudioContext();
+      if (!ctx) return;
+      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
+        ctx.resume().catch(() => {});
+      }
+
+      const now = ctx.currentTime;
+      playHarmonicNote(ctx, 523.25, now, 0.45, 0.55);
+      playHarmonicNote(ctx, 659.25, now + 0.15, 0.45, 0.55);
+      playHarmonicNote(ctx, 783.99, now + 0.30, 0.65, 0.60);
+
+      playHarmonicNote(ctx, 523.25, now + 0.65, 0.45, 0.55);
+      playHarmonicNote(ctx, 659.25, now + 0.80, 0.45, 0.55);
+      playHarmonicNote(ctx, 1046.50, now + 0.95, 0.80, 0.65);
+    } catch {}
+  }, [playHarmonicNote]);
+
+  const playAlertSoundTone = useCallback(() => {
+    // 1. Play pre-loaded HTML5 Audio element
+    if (alertAudioRef.current) {
+      try {
+        alertAudioRef.current.currentTime = 0;
+        const p = alertAudioRef.current.play();
+        if (p) p.catch(() => {});
+      } catch {}
+    }
+
+    // 2. Play WebAudio harmonic synthesizer
+    try {
+      const ctx = getOrCreateAudioContext();
+      if (!ctx) return;
+      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
+        ctx.resume().catch(() => {});
+      }
+
+      const now = ctx.currentTime;
+      playHarmonicNote(ctx, 880.00, now, 0.35, 0.65);
+      playHarmonicNote(ctx, 587.33, now + 0.20, 0.60, 0.60);
+
+      playHarmonicNote(ctx, 880.00, now + 0.60, 0.35, 0.65);
+      playHarmonicNote(ctx, 587.33, now + 0.80, 0.70, 0.60);
+    } catch {}
+  }, [playHarmonicNote]);
+
   // Sound Mode Management
   const setSoundMode = useCallback((mode: SoundMode) => {
     unlockAudio();
@@ -281,7 +377,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         duration: 2500
       });
     }
-  }, [unlockAudio, speakVietnamese]);
+  }, [unlockAudio, speakVietnamese, playAlertSoundTone]);
 
   const cycleSoundMode = useCallback(() => {
     if (soundMode === 'voice') {
@@ -341,100 +437,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       timeoutsRef.current.set(id, timer);
     }
   }, [removeToast]);
-
-  // Synthesis helper: play harmonic bell note
-  const playHarmonicNote = (
-    ctx: AudioContext,
-    freq: number,
-    startTime: number,
-    duration: number,
-    gainLevel: number
-  ) => {
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(freq, startTime);
-
-    gain1.gain.setValueAtTime(gainLevel, startTime);
-    gain1.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-
-    osc1.start(startTime);
-    osc1.stop(startTime + duration);
-
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(freq * 2, startTime);
-
-    gain2.gain.setValueAtTime(gainLevel * 0.25, startTime);
-    gain2.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.7);
-
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-
-    osc2.start(startTime);
-    osc2.stop(startTime + duration * 0.7);
-  };
-
-  // Pure chime tone helpers (Dual HTML5 Audio + WebAudio harmonic notes)
-  const playOrderSoundTone = () => {
-    // 1. Play pre-loaded HTML5 Audio element (works even when WebAudio suspended)
-    if (orderAudioRef.current) {
-      try {
-        orderAudioRef.current.currentTime = 0;
-        const p = orderAudioRef.current.play();
-        if (p) p.catch(() => {});
-      } catch {}
-    }
-
-    // 2. Play WebAudio harmonic synthesizer
-    try {
-      const ctx = getOrCreateAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
-        ctx.resume().catch(() => {});
-      }
-
-      const now = ctx.currentTime;
-      playHarmonicNote(ctx, 523.25, now, 0.45, 0.55);
-      playHarmonicNote(ctx, 659.25, now + 0.15, 0.45, 0.55);
-      playHarmonicNote(ctx, 783.99, now + 0.30, 0.65, 0.60);
-
-      playHarmonicNote(ctx, 523.25, now + 0.65, 0.45, 0.55);
-      playHarmonicNote(ctx, 659.25, now + 0.80, 0.45, 0.55);
-      playHarmonicNote(ctx, 1046.50, now + 0.95, 0.80, 0.65);
-    } catch {}
-  };
-
-  const playAlertSoundTone = () => {
-    // 1. Play pre-loaded HTML5 Audio element
-    if (alertAudioRef.current) {
-      try {
-        alertAudioRef.current.currentTime = 0;
-        const p = alertAudioRef.current.play();
-        if (p) p.catch(() => {});
-      } catch {}
-    }
-
-    // 2. Play WebAudio harmonic synthesizer
-    try {
-      const ctx = getOrCreateAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
-        ctx.resume().catch(() => {});
-      }
-
-      const now = ctx.currentTime;
-      playHarmonicNote(ctx, 880.00, now, 0.35, 0.65);
-      playHarmonicNote(ctx, 587.33, now + 0.20, 0.60, 0.60);
-
-      playHarmonicNote(ctx, 880.00, now + 0.60, 0.35, 0.65);
-      playHarmonicNote(ctx, 587.33, now + 0.80, 0.70, 0.60);
-    } catch {}
-  };
 
   // 1. New Order Notification (Voice or Chime)
   const playOrderSound = useCallback((tableName?: string) => {

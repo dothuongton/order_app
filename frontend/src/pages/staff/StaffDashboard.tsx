@@ -7,13 +7,14 @@ import { TableDetailModal } from './TableDetailModal.js';
 import { QRModal } from '../../components/QRModal.js';
 import { StaffReports } from './StaffReports.js';
 import { StaffMenuManage } from './StaffMenuManage.js';
+import { StaffCmsManage } from './StaffCmsManage.js';
 import { usePush } from '../../context/PushContext.js';
 import { PushSettingsModal } from './PushSettingsModal.js';
 import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
-  Smartphone, BellRing, Search, ShieldAlert
+  Smartphone, BellRing, Search, ShieldAlert, Palette
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -32,10 +33,9 @@ export const StaffDashboard: React.FC = () => {
     unlockAudio
   } = useNotification();
 
-  const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'reports' | 'menu'>('tables');
+  const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'reports' | 'menu' | 'cms'>('tables');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'served'>('all');
   const [tableSearch, setTableSearch] = useState<string>('');
-  const [tableFilter, setTableFilter] = useState<'all' | 'serving' | 'checkout' | 'zero' | 'empty'>('all');
   const [tables, setTables] = useState<StaffTable[]>([]);
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
   const [selectedTable, setSelectedTable] = useState<StaffTable | null>(null);
@@ -375,23 +375,16 @@ export const StaffDashboard: React.FC = () => {
     return tables.filter(t => !t.active_session_id).length;
   }, [tables]);
 
+  // Keep ALL tables visible on screen at all times without hiding any
   const filteredTables = useMemo(() => {
     return tables.filter((table) => {
       if (tableSearch.trim()) {
         const q = tableSearch.trim().toLowerCase();
         if (!table.table_number.toLowerCase().includes(q)) return false;
       }
-      const isServing = !!table.active_session_id;
-      const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
-      const isZeroOrder = isServing && totalItems === 0;
-
-      if (tableFilter === 'serving') return isServing && totalItems > 0;
-      if (tableFilter === 'checkout') return table.hasCheckout;
-      if (tableFilter === 'zero') return isZeroOrder;
-      if (tableFilter === 'empty') return !isServing;
       return true;
     });
-  }, [tables, tableSearch, tableFilter]);
+  }, [tables, tableSearch]);
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col max-w-lg mx-auto shadow-2xl pb-[calc(6rem+env(safe-area-inset-bottom))]">
@@ -586,81 +579,46 @@ export const StaffDashboard: React.FC = () => {
                 )}
               </div>
 
-              {/* Filter Segmented Control */}
+              {/* Live Status Indicators (All tables always visible simultaneously) */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] font-bold no-scrollbar">
-                <button
-                  onClick={() => setTableFilter('all')}
-                  className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition flex items-center gap-1.5 ${
-                    tableFilter === 'all'
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200/80'
-                  }`}
-                >
-                  <span>Tất cả</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${tableFilter === 'all' ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-600'}`}>
+                <div className="px-3 py-1.5 rounded-xl bg-slate-900 text-white shadow-xs flex items-center gap-1.5 whitespace-nowrap">
+                  <span>Tất cả bàn</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700 text-slate-200">
                     {tables.length}
                   </span>
-                </button>
+                </div>
 
-                <button
-                  onClick={() => setTableFilter('serving')}
-                  className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition flex items-center gap-1.5 ${
-                    tableFilter === 'serving'
-                      ? 'bg-blue-600 text-white shadow-xs font-black'
-                      : 'bg-white text-slate-600 hover:bg-blue-50 border border-slate-200/80'
-                  }`}
-                >
+                <div className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-900 border border-blue-200 flex items-center gap-1.5 whitespace-nowrap">
                   <span>Đang dùng</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${tableFilter === 'serving' ? 'bg-blue-800 text-white' : 'bg-blue-100 text-blue-900 font-bold'}`}>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-600 text-white font-bold">
                     {countServing}
                   </span>
-                </button>
+                </div>
 
                 {countCheckout > 0 && (
-                  <button
-                    onClick={() => setTableFilter('checkout')}
-                    className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition flex items-center gap-1.5 animate-pulse ${
-                      tableFilter === 'checkout'
-                        ? 'bg-amber-500 text-white shadow-xs font-black'
-                        : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300'
-                    }`}
-                  >
+                  <div className="px-3 py-1.5 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1.5 whitespace-nowrap animate-pulse">
                     <span>Cần bill</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-700 text-white font-black">
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-600 text-white font-black">
                       {countCheckout}
                     </span>
-                  </button>
+                  </div>
                 )}
 
                 {countZero > 0 && (
-                  <button
-                    onClick={() => setTableFilter('zero')}
-                    className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition flex items-center gap-1.5 ${
-                      tableFilter === 'zero'
-                        ? 'bg-rose-600 text-white shadow-xs font-black'
-                        : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-300'
-                    }`}
-                  >
+                  <div className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1.5 whitespace-nowrap">
                     <span>Bàn 0đ</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-700 text-white font-black">
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-600 text-white font-black">
                       {countZero}
                     </span>
-                  </button>
+                  </div>
                 )}
 
-                <button
-                  onClick={() => setTableFilter('empty')}
-                  className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition flex items-center gap-1.5 ${
-                    tableFilter === 'empty'
-                      ? 'bg-emerald-600 text-white shadow-xs font-black'
-                      : 'bg-white text-slate-600 hover:bg-emerald-50 border border-slate-200/80'
-                  }`}
-                >
+                <div className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 flex items-center gap-1.5 whitespace-nowrap">
                   <span>Bàn trống</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${tableFilter === 'empty' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 text-emerald-900'}`}>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-600 text-white font-bold">
                     {countEmpty}
                   </span>
-                </button>
+                </div>
               </div>
             </div>
 
@@ -1273,6 +1231,9 @@ export const StaffDashboard: React.FC = () => {
 
         {/* TAB 5: Menu Management */}
         {activeTab === 'menu' && <StaffMenuManage />}
+
+        {/* TAB 6: Multi-Tenant CMS Management */}
+        {activeTab === 'cms' && <StaffCmsManage />}
       </main>
 
       {/* Staff Bottom Navigation */}
@@ -1284,7 +1245,7 @@ export const StaffDashboard: React.FC = () => {
           }`}
         >
           <LayoutGrid className="w-5 h-5" />
-          <span className="text-[11px] mt-1">Bàn</span>
+          <span className="text-[10px] mt-1">Bàn</span>
         </button>
 
         <button
@@ -1294,9 +1255,9 @@ export const StaffDashboard: React.FC = () => {
           }`}
         >
           <UtensilsCrossed className="w-5 h-5" />
-          <span className="text-[11px] mt-1">Đơn món</span>
+          <span className="text-[10px] mt-1">Đơn món</span>
           {pendingOrdersCount > 0 && (
-            <span className="absolute top-1.5 right-6 px-1.5 py-0.2 bg-orange-600 text-white rounded-full text-[9px] font-black">
+            <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-orange-600 text-white rounded-full text-[9px] font-black">
               {pendingOrdersCount}
             </span>
           )}
@@ -1309,9 +1270,9 @@ export const StaffDashboard: React.FC = () => {
           }`}
         >
           <Bell className="w-5 h-5" />
-          <span className="text-[11px] mt-1">Hỗ trợ</span>
+          <span className="text-[10px] mt-1">Hỗ trợ</span>
           {openRequests.length > 0 && (
-            <span className="absolute top-1.5 right-6 w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <span className="absolute top-1.5 right-4 w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
           )}
         </button>
 
@@ -1322,7 +1283,7 @@ export const StaffDashboard: React.FC = () => {
           }`}
         >
           <BarChart2 className="w-5 h-5" />
-          <span className="text-[11px] mt-1">Báo cáo</span>
+          <span className="text-[10px] mt-1">Báo cáo</span>
         </button>
 
         <button
@@ -1332,7 +1293,17 @@ export const StaffDashboard: React.FC = () => {
           }`}
         >
           <Store className="w-5 h-5" />
-          <span className="text-[11px] mt-1">Menu</span>
+          <span className="text-[10px] mt-1">Món</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('cms')}
+          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
+            activeTab === 'cms' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+          }`}
+        >
+          <Palette className="w-5 h-5" />
+          <span className="text-[10px] mt-1">CMS</span>
         </button>
       </nav>
 

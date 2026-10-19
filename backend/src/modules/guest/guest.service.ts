@@ -3,6 +3,7 @@ import { generateRandomToken, hashToken } from '../../utils/crypto.js';
 import { checkIdempotency, recordIdempotency } from '../../utils/idempotency.js';
 import { broadcastToStaff, broadcastToSession } from '../../realtime/socket.js';
 import { PushService } from '../push/push.service.js';
+import { PricingService } from '../pricing/pricing.service.js';
 
 export interface CreateOrderItemInput {
     menuItemId: string;
@@ -27,7 +28,17 @@ export class GuestService {
                 te.id as tenant_id,
                 te.name as tenant_name,
                 te.slug as tenant_slug,
-                te.currency
+                te.currency,
+                te.status as tenant_status,
+                te.description as tenant_description,
+                te.logo_url as tenant_logo_url,
+                te.cover_url as tenant_cover_url,
+                te.phone as tenant_phone,
+                te.address as tenant_address,
+                te.opening_hours as tenant_opening_hours,
+                te.active_template_id,
+                te.active_theme_config,
+                te.active_published_version
             FROM tables t
             JOIN tenants te ON te.id = t.tenant_id
             WHERE t.public_qr_id = $1
@@ -70,12 +81,39 @@ export class GuestService {
             ORDER BY mi.is_available DESC, mi.name ASC
         `, [table.tenant_id]);
 
+        // Fetch active banners for this shop
+        const bannersRes = await query(`
+            SELECT id, title, description, image_url, cta_link, sort_order
+            FROM banners
+            WHERE tenant_id = $1 AND is_active = true
+            ORDER BY sort_order ASC, created_at DESC
+        `, [table.tenant_id]);
+
+        // Fetch active promotions for this shop
+        const promosRes = await query(`
+            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount
+            FROM promotions
+            WHERE tenant_id = $1 AND is_active = true
+              AND NOW() >= start_time AND (end_time IS NULL OR NOW() <= end_time)
+            ORDER BY priority DESC, created_at DESC
+        `, [table.tenant_id]);
+
         return {
             tenant: {
                 id: table.tenant_id,
                 name: table.tenant_name,
                 slug: table.tenant_slug,
-                currency: table.currency
+                currency: table.currency,
+                status: table.tenant_status || 'active',
+                description: table.tenant_description,
+                logoUrl: table.tenant_logo_url,
+                coverUrl: table.tenant_cover_url,
+                phone: table.tenant_phone,
+                address: table.tenant_address,
+                openingHours: table.tenant_opening_hours,
+                activeTemplateId: table.active_template_id || 'classic',
+                activeThemeConfig: table.active_theme_config || {},
+                activePublishedVersion: table.active_published_version || 1
             },
             table: {
                 id: table.table_id,
@@ -89,7 +127,9 @@ export class GuestService {
                 openedAt: activeSession.opened_at
             } : null,
             categories: catRes.rows,
-            menuItems: itemsRes.rows
+            menuItems: itemsRes.rows,
+            banners: bannersRes.rows,
+            promotions: promosRes.rows
         };
     }
 
@@ -102,8 +142,10 @@ export class GuestService {
                 t.table_number,
                 t.is_enabled,
                 ts.id as session_id,
-                ts.status as session_status
+                ts.status as session_status,
+                te.status as tenant_status
             FROM tables t
+            JOIN tenants te ON te.id = t.tenant_id
             LEFT JOIN table_sessions ts ON ts.table_id = t.id AND ts.status = 'OPEN'
             WHERE t.public_qr_id = $1
         `, [publicQrId]);
@@ -113,6 +155,14 @@ export class GuestService {
         }
 
         const row = tableRes.rows[0];
+        if (row.tenant_status === 'suspended') {
+            throw {
+                status: 403,
+                code: 'SHOP_SUSPENDED',
+                message: 'Quán ăn hiện đang tạm ngừng hoạt động. Vui lòng liên hệ nhân viên.'
+            };
+        }
+
         if (!row.is_enabled) {
             throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn này hiện đang tạm ngừng sử dụng' };
         }
@@ -188,42 +238,18 @@ export class GuestService {
                 throw { status: 400, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc, không thể gọi thêm món' };
             }
 
-            // Validate all menu items and check availability
-            const itemIds = input.items.map(i => i.menuItemId);
-            const menuRes = await client.query(`
-                SELECT mi.id, mi.name, mi.price, mi.is_available, c.name as category_name
-                FROM menu_items mi
-                LEFT JOIN menu_categories c ON c.id = mi.category_id
-                WHERE mi.id = ANY($1::uuid[]) AND mi.tenant_id = $2
-            `, [itemIds, tenantId]);
-
-            const itemMap = new Map<string, any>();
-            menuRes.rows.forEach(r => itemMap.set(r.id, r));
-
-            for (const itemInput of input.items) {
-                const menuItem = itemMap.get(itemInput.menuItemId);
-                if (!menuItem) {
-                    throw {
-                        status: 400,
-                        code: 'ITEM_NOT_FOUND',
-                        message: `Món không tồn tại trong thực đơn quán`
-                    };
-                }
-                if (!menuItem.is_available) {
-                    throw {
-                        status: 400,
-                        code: 'ITEM_UNAVAILABLE',
-                        message: `Món "${menuItem.name}" hiện đã hết, vui lòng chọn món khác`
-                    };
-                }
-                if (itemInput.quantity <= 0) {
-                    throw {
-                        status: 400,
-                        code: 'INVALID_QUANTITY',
-                        message: 'Số lượng món phải lớn hơn 0'
-                    };
-                }
+            // Check if shop is suspended
+            const tenantStatusRes = await client.query('SELECT status FROM tenants WHERE id = $1', [tenantId]);
+            if (tenantStatusRes.rows.length === 0 || tenantStatusRes.rows[0].status === 'suspended') {
+                throw {
+                    status: 403,
+                    code: 'SHOP_SUSPENDED',
+                    message: 'Quán ăn hiện đang tạm ngừng nhận đơn. Vui lòng liên hệ nhân viên.'
+                };
             }
+
+            // Calculate pricing and promotions server-side using PricingService
+            const pricing = await PricingService.calculateOrderPricing(client, tenantId, input.items);
 
             // Determine next order_number
             const countRes = await client.query(`
@@ -236,34 +262,55 @@ export class GuestService {
 
             // Insert into orders
             const orderRes = await client.query(`
-                INSERT INTO orders (tenant_id, session_id, order_number, idempotency_key, source)
-                VALUES ($1, $2, $3, $4, 'GUEST_WEB')
+                INSERT INTO orders (tenant_id, session_id, order_number, idempotency_key, source, applied_promotion_id, discount_total)
+                VALUES ($1, $2, $3, $4, 'GUEST_WEB', $5, $6)
                 RETURNING id, order_number, created_at
-            `, [tenantId, sessionId, nextOrderNumber, input.idempotencyKey]);
+            `, [
+                tenantId,
+                sessionId,
+                nextOrderNumber,
+                input.idempotencyKey,
+                pricing.appliedPromotion ? pricing.appliedPromotion.id : null,
+                pricing.discountTotal
+            ]);
 
             const order = orderRes.rows[0];
+
+            // If a promotion was applied, atomically record redemption
+            if (pricing.appliedPromotion) {
+                await PricingService.recordPromotionRedemption(
+                    client,
+                    tenantId,
+                    pricing.appliedPromotion.id,
+                    order.id,
+                    sessionId,
+                    pricing.discountTotal
+                );
+            }
+
             const createdItems = [];
 
             // Insert order_items and initial order_item_parts
-            for (const itemInput of input.items) {
-                const menuItem = itemMap.get(itemInput.menuItemId);
+            for (const item of pricing.items) {
                 const orderItemRes = await client.query(`
                     INSERT INTO order_items (
                         tenant_id, order_id, menu_item_id, 
-                        snapshot_name, snapshot_price, snapshot_category_name, 
-                        quantity, note
+                        snapshot_name, snapshot_price, 
+                        quantity, note, discount_amount, applied_promotion_id, final_price
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                    RETURNING id, snapshot_name, snapshot_price, quantity, note
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    RETURNING id, snapshot_name, snapshot_price, quantity, note, discount_amount, final_price
                 `, [
                     tenantId,
                     order.id,
-                    menuItem.id,
-                    menuItem.name,
-                    menuItem.price,
-                    menuItem.category_name,
-                    itemInput.quantity,
-                    itemInput.note || null
+                    item.menuItemId,
+                    item.name,
+                    item.basePrice,
+                    item.quantity,
+                    item.note || null,
+                    item.discountAmount,
+                    item.appliedPromotionId,
+                    item.finalPrice
                 ]);
 
                 const orderItem = orderItemRes.rows[0];
@@ -277,8 +324,10 @@ export class GuestService {
                 createdItems.push({
                     id: orderItem.id,
                     name: orderItem.snapshot_name,
-                    price: orderItem.snapshot_price,
+                    price: parseInt(orderItem.snapshot_price, 10),
                     quantity: orderItem.quantity,
+                    discountAmount: parseInt(orderItem.discount_amount || '0', 10),
+                    finalPrice: parseInt(orderItem.final_price || '0', 10),
                     status: 'PENDING',
                     note: orderItem.note
                 });
@@ -296,6 +345,10 @@ export class GuestService {
                 orderNumber: order.order_number,
                 createdAt: order.created_at,
                 items: createdItems,
+                subtotal: pricing.subtotal,
+                discountTotal: pricing.discountTotal,
+                finalTotal: pricing.finalTotal,
+                appliedPromotion: pricing.appliedPromotion,
                 message: 'Đã gửi yêu cầu gọi món thành công, chờ nhân viên tiếp nhận'
             };
 

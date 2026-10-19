@@ -11,9 +11,18 @@ export class ApiError extends Error {
 
 export async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const apiBase = (import.meta as any).env?.VITE_API_URL || '';
-  const url = endpoint.startsWith('http') ? endpoint : `${apiBase}/api/v1${endpoint}`;
+  const isGet = !options.method || options.method.toUpperCase() === 'GET';
+  let fullUrl = endpoint.startsWith('http') ? endpoint : `${apiBase}/api/v1${endpoint}`;
+  if (isGet) {
+    const separator = fullUrl.includes('?') ? '&' : '?';
+    fullUrl = `${fullUrl}${separator}_t=${Date.now()}`;
+  }
 
   const headers = new Headers(options.headers || {});
+  headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  headers.set('Pragma', 'no-cache');
+  headers.set('Expires', '0');
+
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
@@ -35,9 +44,10 @@ export async function request<T = any>(endpoint: string, options: RequestInit = 
     headers.set('x-tenant-id', activeTenantId);
   }
 
-  const response = await fetch(url, {
+  const response = await fetch(fullUrl, {
     ...options,
     headers,
+    cache: 'no-store',
     credentials: 'include'
   });
 

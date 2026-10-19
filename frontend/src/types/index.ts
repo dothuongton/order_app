@@ -3,6 +3,16 @@ export interface Tenant {
   name: string;
   slug: string;
   currency: string;
+  status?: string;
+  description?: string;
+  logoUrl?: string;
+  coverUrl?: string;
+  phone?: string;
+  address?: string;
+  openingHours?: string;
+  activeTemplateId?: string;
+  activeThemeConfig?: any;
+  activePublishedVersion?: number;
 }
 
 export interface MenuItem {

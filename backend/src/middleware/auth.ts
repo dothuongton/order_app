@@ -9,8 +9,18 @@ export interface StaffUser {
     email: string;
     fullName: string;
     tenantId: string;
+    tenantName?: string;
+    tenantSlug?: string;
     role: string;
     permissions: string[];
+    isPlatformAdmin?: boolean;
+}
+
+export interface SuperAdminUser {
+    id: string;
+    email: string;
+    fullName: string;
+    isPlatformAdmin: boolean;
 }
 
 export interface GuestContext {
@@ -25,6 +35,7 @@ declare global {
     namespace Express {
         interface Request {
             staff?: StaffUser;
+            superAdmin?: SuperAdminUser;
             guest?: GuestContext;
             requestId?: string;
         }
@@ -52,9 +63,11 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
         const resMem = await query(`
             SELECT 
                 u.id, u.email, u.full_name, u.is_platform_admin,
-                m.tenant_id, m.role, m.permissions, m.is_active
+                m.tenant_id, m.role, m.permissions, m.is_active,
+                t.name as tenant_name, t.slug as tenant_slug
             FROM users u
             JOIN memberships m ON m.user_id = u.id
+            LEFT JOIN tenants t ON t.id = m.tenant_id
             WHERE u.id = $1 AND m.tenant_id = $2 AND m.is_active = true
         `, [userId, tenantId]);
 
@@ -71,6 +84,8 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             email: row.email,
             fullName: row.full_name,
             tenantId: row.tenant_id,
+            tenantName: row.tenant_name,
+            tenantSlug: row.tenant_slug,
             role: row.role,
             permissions: row.permissions || []
         };
@@ -172,3 +187,69 @@ export async function authenticateGuest(req: Request, res: Response, next: NextF
         });
     }
 }
+
+/**
+ * Super Admin Authentication Middleware (requires is_platform_admin = true)
+ */
+export async function authenticateSuperAdmin(req: Request, res: Response, next: NextFunction) {
+    try {
+        const authHeader = req.headers.authorization;
+        const cookieToken = req.cookies?.admin_token;
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : cookieToken;
+
+        if (!token) {
+            return res.status(401).json({
+                error: 'UNAUTHORIZED',
+                message: 'Yêu cầu đăng nhập tài khoản quản trị hệ thống (Super Admin)'
+            });
+        }
+
+        const decoded = jwt.verify(token, config.jwtSecret) as any;
+        const userId = decoded.userId;
+
+        const resUser = await query(`
+            SELECT id, email, full_name, is_platform_admin
+            FROM users
+            WHERE id = $1
+        `, [userId]);
+
+        if (resUser.rows.length === 0 || !resUser.rows[0].is_platform_admin) {
+            return res.status(403).json({
+                error: 'FORBIDDEN',
+                message: 'Chỉ Super Admin hệ thống mới có quyền truy cập khu vực này'
+            });
+        }
+
+        const row = resUser.rows[0];
+        req.superAdmin = {
+            id: row.id,
+            email: row.email,
+            fullName: row.full_name,
+            isPlatformAdmin: true
+        };
+
+        next();
+    } catch (err) {
+        return res.status(401).json({
+            error: 'INVALID_TOKEN',
+            message: 'Phiên đăng nhập Super Admin không hợp lệ hoặc đã hết hạn'
+        });
+    }
+}
+
+/**
+ * Require Shop Owner or Manager role for CMS modifications
+ */
+export function requireShopAdmin(req: Request, res: Response, next: NextFunction) {
+    if (!req.staff) {
+        return res.status(401).json({ error: 'UNAUTHORIZED' });
+    }
+    if (['owner', 'manager'].includes(req.staff.role) || req.staff.isPlatformAdmin) {
+        return next();
+    }
+    return res.status(403).json({
+        error: 'PERMISSION_DENIED',
+        message: 'Chỉ Chủ quán (Owner) hoặc Quản lý (Manager) mới có quyền truy cập CMS này'
+    });
+}
+

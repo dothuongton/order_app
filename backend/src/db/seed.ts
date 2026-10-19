@@ -161,8 +161,59 @@ export async function seed(force: boolean = false) {
             RETURNING id, name, price;
         `, [phoCoId, catSnacks, catDrinks, catToppings]);
 
+        // 7. Super Admin User
+        const superAdminHash = await bcrypt.hash('admin123', 10);
+        await client.query(`
+            INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
+            VALUES ('99999999-9999-9999-9999-999999999999', 'superadmin@qrorder.vn', $1, 'Hệ Thống Super Admin', '0999999999', true)
+            ON CONFLICT (email) DO UPDATE SET is_platform_admin = true;
+        `, [superAdminHash]);
+
+        // 8. Banners for Pho Co
+        await client.query(`
+            INSERT INTO banners (tenant_id, title, description, image_url, cta_link, sort_order, is_active)
+            VALUES
+                ($1, 'Đại Tiệc Ăn Vặt Giảm 20%', 'Thưởng thức bánh tráng nướng & nem chua rán giòn rụm', 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=800&auto=format&fit=crop', '#category-snacks', 1, true),
+                ($1, 'Trà Sữa Phố Cổ Tươi Mát', 'Trà sữa trân châu đường đen & trà đào cam sả thanh nhiệt', 'https://images.unsplash.com/photo-1558857563-b371033873b8?w=800&auto=format&fit=crop', '#category-drinks', 2, true)
+            ON CONFLICT DO NOTHING;
+        `, [phoCoId]);
+
+        // 9. Promotions for Pho Co
+        await client.query(`
+            INSERT INTO promotions (tenant_id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, max_redemptions, priority, is_active)
+            VALUES
+                ($1, 'GIAM10', 'Giảm 10% Cho Đơn Từ 50K', 'Áp dụng cho mọi món ăn vặt & trà sữa', 'PERCENT', 10, 50000, 20000, 100, 1, true),
+                ($1, 'TIEC20K', 'Giảm Ngay 20.000đ Đơn Từ 100K', 'Ưu đãi đặc biệt cho nhóm đông người', 'FIXED_AMOUNT', 20000, 100000, NULL, 50, 2, true)
+            ON CONFLICT DO NOTHING;
+        `, [phoCoId]);
+
+        // 10. CMS Draft and Published Version 1 for Pho Co
+        const initialThemeConfig = {
+            primaryColor: '#ea580c',
+            fontFamily: 'Inter',
+            layout: 'classic',
+            showBanner: true,
+            showPromotions: true,
+            blockOrder: ['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer']
+        };
+
+        await client.query(`
+            INSERT INTO cms_drafts (tenant_id, template_id, theme_config, content_config, version)
+            VALUES ($1, 'classic', $2, '{"bannerIds":[]}'::jsonb, 1)
+            ON CONFLICT (tenant_id) DO UPDATE SET
+                theme_config = EXCLUDED.theme_config,
+                updated_at = NOW();
+        `, [phoCoId, JSON.stringify(initialThemeConfig)]);
+
+        await client.query(`
+            INSERT INTO cms_published_versions (tenant_id, version, template_id, theme_config, content_config, changelog)
+            VALUES ($1, 1, 'classic', $2, '{"bannerIds":[]}'::jsonb, 'Khởi tạo giao diện mặc định v1.0')
+            ON CONFLICT (tenant_id, version) DO NOTHING;
+        `, [phoCoId, JSON.stringify(initialThemeConfig)]);
+
         console.log(`✅ Seeded ${tablesRes.rows.length} tables and ${itemsRes.rows.length} snack menu items for ${phoCoId}`);
         console.log(`💡 Demo Credentials:`);
+        console.log(`   - Super Admin: superadmin@qrorder.vn / admin123`);
         console.log(`   - Quản lý / Manager: admin@phoco.vn / 123456`);
         console.log(`   - Phục vụ / Waiter: phucvu@phoco.vn / 123456`);
         console.log(`   - Thu ngân / Cashier: thungan@phoco.vn / 123456`);

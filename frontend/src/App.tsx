@@ -6,7 +6,9 @@ import { NotificationProvider } from './context/NotificationContext.js';
 import { GuestLanding } from './pages/guest/GuestLanding.js';
 import { StaffLogin } from './pages/staff/StaffLogin.js';
 import { StaffDashboard } from './pages/staff/StaffDashboard.js';
-import { Store, QrCode, Shield, ArrowRight } from 'lucide-react';
+import { AdminLogin } from './pages/admin/AdminLogin.js';
+import { AdminDashboard } from './pages/admin/AdminDashboard.js';
+import { Store, QrCode, Shield, ArrowRight, ShieldCheck } from 'lucide-react';
 
 function StaffApp() {
   const { user, isLoading } = useAuth();
@@ -20,6 +22,35 @@ function StaffApp() {
   }
 
   return user ? <StaffDashboard /> : <StaffLogin />;
+}
+
+function AdminApp() {
+  const [adminUser, setAdminUser] = useState<any>(() => {
+    try {
+      const stored = localStorage.getItem('admin_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleLoginSuccess = (user: any, token: string) => {
+    localStorage.setItem('admin_token', token);
+    localStorage.setItem('admin_user', JSON.stringify(user));
+    setAdminUser(user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_user');
+    setAdminUser(null);
+  };
+
+  if (!adminUser) {
+    return <AdminLogin onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  return <AdminDashboard user={adminUser} onLogout={handleLogout} />;
 }
 
 export function App() {
@@ -57,7 +88,16 @@ export function App() {
     );
   }
 
-  // 3. Root Portal Landing
+  // 3. Super Admin Portal: /admin
+  if (currentPath === '/admin' || currentPath.startsWith('/admin/')) {
+    return (
+      <NotificationProvider>
+        <AdminApp />
+      </NotificationProvider>
+    );
+  }
+
+  // 4. Root Portal Landing
   return (
     <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-slate-850 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
@@ -66,10 +106,26 @@ export function App() {
             <Store className="w-8 h-8" />
           </div>
           <h1 className="text-2xl font-black tracking-tight">QR Ordering PWA v1.2</h1>
-          <p className="text-xs text-slate-400">Hệ thống gọi món tại bàn đa quán (Multi-tenant) theo đặc tả v1.2</p>
+          <p className="text-xs text-slate-400">Hệ thống gọi món tại bàn đa quán & Multi-Tenant CMS</p>
         </div>
 
         <div className="space-y-3">
+          <a
+            href="/admin"
+            className="block p-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition shadow-md group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="w-5 h-5 text-indigo-200" />
+                <div>
+                  <div className="text-sm font-extrabold">Cổng Super Admin</div>
+                  <div className="text-[11px] text-indigo-100 font-normal">Quản lý quán, templates, khóa/kích hoạt</div>
+                </div>
+              </div>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+            </div>
+          </a>
+
           <a
             href="/staff"
             className="block p-4 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-bold transition shadow-md group"
@@ -78,8 +134,8 @@ export function App() {
               <div className="flex items-center gap-3">
                 <Shield className="w-5 h-5 text-orange-200" />
                 <div>
-                  <div className="text-sm font-extrabold">Cổng Nhân Viên & Quản Lý</div>
-                  <div className="text-[11px] text-orange-100 font-normal">Mở bàn, tiếp nhận món, xác nhận thanh toán</div>
+                  <div className="text-sm font-extrabold">Cổng Nhân Viên & Quản Lý Quán</div>
+                  <div className="text-[11px] text-orange-100 font-normal">Mở bàn, tiếp nhận món, CMS quán & thanh toán</div>
                 </div>
               </div>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />

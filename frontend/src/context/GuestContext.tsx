@@ -16,6 +16,8 @@ interface GuestContextType {
   isLoading: boolean;
   isSessionClosed: boolean;
   activeServiceRequests: any[];
+  banners: any[];
+  promotions: any[];
   loadTableMenu: (qrId: string) => Promise<void>;
   joinSession: (qrId: string) => Promise<void>;
   addToCart: (item: MenuItem, quantity?: number, note?: string) => void;
@@ -44,6 +46,8 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSessionClosed, setIsSessionClosed] = useState<boolean>(false);
   const [activeServiceRequests, setActiveServiceRequests] = useState<any[]>([]);
+  const [banners, setBanners] = useState<any[]>([]);
+  const [promotions, setPromotions] = useState<any[]>([]);
 
   // Load menu by QR id
   const loadTableMenu = useCallback(async (qrId: string) => {
@@ -56,6 +60,8 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setSession(data.session);
       setCategories(data.categories || []);
       setMenuItems(data.menuItems || []);
+      setBanners(data.banners || []);
+      setPromotions(data.promotions || []);
 
       if (data.session) {
         setIsSessionClosed(false);
@@ -301,6 +307,8 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       isLoading,
       isSessionClosed,
       activeServiceRequests,
+      banners,
+      promotions,
       loadTableMenu,
       joinSession,
       addToCart,

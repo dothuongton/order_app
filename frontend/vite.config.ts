@@ -14,7 +14,8 @@ export default defineConfig({
       },
       '/socket.io': {
         target: 'http://localhost:4000',
-        ws: true
+        ws: true,
+        changeOrigin: true
       }
     }
   }

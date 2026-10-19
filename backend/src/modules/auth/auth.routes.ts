@@ -47,19 +47,20 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             WHERE m.user_id = $1 AND m.is_active = true
         `, [user.id]);
 
-        if (memRes.rows.length === 0) {
+        if (memRes.rows.length === 0 && !user.is_platform_admin) {
             return res.status(403).json({
                 error: 'NO_MEMBERSHIP',
                 message: 'Tài khoản chưa được gán vào quán nào'
             });
         }
 
-        const defaultTenant = memRes.rows[0];
+        const defaultTenant = memRes.rows[0] || null;
         const token = jwt.sign(
             {
                 userId: user.id,
-                tenantId: defaultTenant.tenant_id,
-                role: defaultTenant.role
+                tenantId: defaultTenant?.tenant_id || null,
+                role: defaultTenant?.role || (user.is_platform_admin ? 'super_admin' : 'staff'),
+                isPlatformAdmin: user.is_platform_admin
             },
             config.jwtSecret,
             { expiresIn: '7d' }
@@ -72,21 +73,31 @@ authRouter.post('/login', async (req: Request, res: Response) => {
             maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
+        if (user.is_platform_admin) {
+            res.cookie('admin_token', token, {
+                httpOnly: true,
+                secure: config.nodeEnv === 'production',
+                sameSite: 'lax',
+                maxAge: 7 * 24 * 60 * 60 * 1000
+            });
+        }
+
         return res.json({
             token,
             user: {
                 id: user.id,
                 email: user.email,
                 fullName: user.full_name,
-                phone: user.phone
+                phone: user.phone,
+                isPlatformAdmin: user.is_platform_admin
             },
-            currentTenant: {
+            currentTenant: defaultTenant ? {
                 id: defaultTenant.tenant_id,
                 name: defaultTenant.tenant_name,
                 slug: defaultTenant.tenant_slug,
                 role: defaultTenant.role,
                 permissions: defaultTenant.permissions
-            },
+            } : null,
             memberships: memRes.rows
         });
     } catch (err: any) {
