@@ -163,7 +163,7 @@ export class PricingService {
             FROM promotions
             WHERE tenant_id = $1 
               AND is_active = true
-              AND NOW() >= start_time
+              AND (start_time IS NULL OR NOW() >= start_time)
               AND (end_time IS NULL OR NOW() <= end_time)
               AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
             ORDER BY priority DESC, created_at ASC

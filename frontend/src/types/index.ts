@@ -61,6 +61,8 @@ export interface OrderItem {
   variantName?: string;
   price: number;
   quantity: number;
+  discountAmount?: number;
+  finalPrice?: number;
   note?: string;
   status: 'PENDING' | 'ACCEPTED' | 'SERVED' | 'CANCELLED';
   pendingQty: number;
@@ -70,23 +72,39 @@ export interface OrderItem {
   parts: OrderItemPart[];
 }
 
+export interface AppliedPromotion {
+  id: string;
+  title: string;
+  code?: string | null;
+  discountType: string;
+  discountValue: number;
+  discountTotal?: number;
+}
+
 export interface Order {
   id: string;
   orderNumber: number;
   source: string;
   createdAt: string;
+  discountTotal?: number;
+  appliedPromotion?: AppliedPromotion | null;
   items: OrderItem[];
 }
 
 export interface BillRound {
   orderNumber: number;
+  rawSubtotal?: number;
+  discountTotal?: number;
   acceptedOrServedSubtotal: number;
   pendingSubtotal: number;
+  appliedPromotion?: AppliedPromotion | null;
   items: {
     itemId: string;
     name: string;
     variantName?: string;
     price: number;
+    rawPrice?: number;
+    discountAmount?: number;
     quantity: number;
     note?: string;
     status: string;
@@ -99,11 +117,14 @@ export interface BillSummary {
   sessionId: string;
   sessionStatus: 'OPEN' | 'CLOSED';
   settlementVersion: number;
+  rawBillTotal?: number;
+  totalDiscount?: number;
   validBillTotal: number;
   servedTotal: number;
   pendingTotal: number;
   unresolvedCount: number;
   rounds: BillRound[];
+  appliedPromotions?: AppliedPromotion[];
   canConfirmPayment: boolean;
 }
 

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useGuest } from '../../context/GuestContext.js';
 import { MenuItem } from '../../types/index.js';
 import { BannerDisplay } from '../../components/BannerDisplay.js';
-import { Plus, Minus, X, AlertCircle } from 'lucide-react';
+import { Plus, Minus, X, AlertCircle, Tag, Sparkles } from 'lucide-react';
 
 export const GuestMenu: React.FC = () => {
   const { categories, menuItems, addToCart, session, isSessionClosed, tenant, banners, promotions } = useGuest();
@@ -94,13 +94,45 @@ export const GuestMenu: React.FC = () => {
       )}
       {theme.showPromotions !== false && promotions.length > 0 && (
         <section aria-label="Khuyến mãi đang áp dụng" className="px-4 pt-3 space-y-2">
-          {promotions.map(promotion => (
-            <div key={promotion.id} className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-xs text-orange-800">
-              <strong>{promotion.title}</strong>
-              {promotion.description && <p className="mt-1">{promotion.description}</p>}
-              <p className="mt-1">Ưu đãi tốt nhất được tính khi gửi đơn. Hóa đơn chỉ tính số món được phục vụ.</p>
-            </div>
-          ))}
+          {promotions.map(promotion => {
+            const discType = promotion.discountType || promotion.discount_type;
+            const discVal = Number(promotion.discountValue || promotion.discount_value || 0);
+            const minOrder = Number(promotion.minOrderAmount || promotion.min_order_amount || 0);
+            const maxDisc = promotion.maxDiscountAmount || promotion.max_discount_amount;
+
+            return (
+              <div key={promotion.id} className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200/80 rounded-2xl p-3.5 text-xs text-orange-950 shadow-xs space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 font-bold text-sm text-orange-900">
+                    <Tag className="w-4 h-4 text-orange-600 shrink-0" />
+                    <span>{promotion.title}</span>
+                  </div>
+                  {promotion.code && (
+                    <span className="font-mono text-[11px] font-extrabold px-2 py-0.5 bg-orange-200/80 text-orange-900 rounded-md shrink-0">
+                      {promotion.code}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap text-[11px] font-semibold text-orange-800">
+                  <span className="bg-white/80 px-2 py-0.5 rounded-md border border-orange-200/60">
+                    {discType === 'PERCENT'
+                      ? `Giảm ${discVal}%${maxDisc ? ` (tối đa ${Number(maxDisc).toLocaleString('vi-VN')}đ)` : ''}`
+                      : `Giảm ${discVal.toLocaleString('vi-VN')}đ`}
+                  </span>
+                  {minOrder > 0 && (
+                    <span className="bg-white/80 px-2 py-0.5 rounded-md border border-orange-200/60">
+                      Đơn từ {minOrder.toLocaleString('vi-VN')}đ
+                    </span>
+                  )}
+                </div>
+
+                {promotion.description && (
+                  <p className="text-[11px] text-orange-800/80 leading-relaxed">{promotion.description}</p>
+                )}
+              </div>
+            );
+          })}
         </section>
       )}
       {/* Category Tabs */}

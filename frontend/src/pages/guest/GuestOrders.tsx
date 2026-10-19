@@ -69,7 +69,14 @@ export const GuestOrders: React.FC = () => {
           <div key={order.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
             {/* Round Header */}
             <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-800 text-sm">Lần {order.orderNumber}</span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-800 text-sm">Lần {order.orderNumber}</span>
+                {order.appliedPromotion && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                    🎁 {order.appliedPromotion.title}
+                  </span>
+                )}
+              </div>
               <span className="text-slate-400">
                 {new Date(order.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
               </span>
@@ -105,18 +112,39 @@ export const GuestOrders: React.FC = () => {
                   </div>
 
                   <div className="text-right flex-shrink-0">
-                    <span className="font-semibold text-sm text-slate-900">
-                      {(item.price * (item.quantity - item.cancelledQty)).toLocaleString('vi-VN')}đ
-                    </span>
-                    {item.cancelledQty > 0 && (
-                      <div className="text-[11px] text-slate-400 line-through">
-                        {(item.price * item.quantity).toLocaleString('vi-VN')}đ
-                      </div>
+                    {item.discountAmount && item.discountAmount > 0 ? (
+                      <>
+                        <span className="font-bold text-sm text-emerald-600 block">
+                          {(item.finalPrice !== undefined ? item.finalPrice : Math.max(0, item.price * (item.quantity - item.cancelledQty) - item.discountAmount)).toLocaleString('vi-VN')}đ
+                        </span>
+                        <div className="text-[11px] text-slate-400 line-through">
+                          {(item.price * item.quantity).toLocaleString('vi-VN')}đ
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-sm text-slate-900">
+                          {(item.price * (item.quantity - item.cancelledQty)).toLocaleString('vi-VN')}đ
+                        </span>
+                        {item.cancelledQty > 0 && (
+                          <div className="text-[11px] text-slate-400 line-through">
+                            {(item.price * item.quantity).toLocaleString('vi-VN')}đ
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* Round discount footer if discount > 0 */}
+            {order.discountTotal && order.discountTotal > 0 && (
+              <div className="bg-emerald-50/60 px-4 py-2 border-t border-emerald-100 flex items-center justify-between text-xs">
+                <span className="text-emerald-800 font-medium">Giảm giá ưu đãi lần này:</span>
+                <span className="font-extrabold text-emerald-700">-{order.discountTotal.toLocaleString('vi-VN')}đ</span>
+              </div>
+            )}
           </div>
         ))
       )}

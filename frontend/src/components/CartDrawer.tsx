@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGuest } from '../context/GuestContext.js';
-import { ShoppingBag, X, Plus, Minus, Trash2, Send, AlertTriangle } from 'lucide-react';
+import { ShoppingBag, X, Plus, Minus, Trash2, Send, AlertTriangle, Tag, Sparkles } from 'lucide-react';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -8,13 +8,56 @@ interface CartDrawerProps {
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
-  const { cart, updateCartQuantity, removeFromCart, clearCart, submitOrder, table } = useGuest();
+  const { cart, updateCartQuantity, removeFromCart, clearCart, submitOrder, table, promotions } = useGuest();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const currentRoundSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  // Evaluate single best-deal promotion matching backend pricing rules
+  let bestPromo: any = null;
+  let bestDiscount = 0;
+
+  for (const promo of (promotions || [])) {
+    const minOrder = Number(promo.minOrderAmount || promo.min_order_amount || 0);
+    if (currentRoundSubtotal < minOrder) continue;
+
+    const discValue = Number(promo.discountValue || promo.discount_value || 0);
+    const discType = promo.discountType || promo.discount_type;
+    const maxDiscount = promo.maxDiscountAmount || promo.max_discount_amount;
+
+    let calculated = 0;
+    if (discType === 'PERCENT') {
+      calculated = Math.floor((currentRoundSubtotal * discValue) / 100);
+      if (maxDiscount) {
+        calculated = Math.min(calculated, Number(maxDiscount));
+      }
+    } else if (discType === 'FIXED_AMOUNT') {
+      calculated = Math.min(discValue, currentRoundSubtotal);
+    }
+
+    calculated = Math.max(0, Math.min(calculated, currentRoundSubtotal));
+
+    if (
+      calculated > bestDiscount ||
+      (calculated === bestDiscount && calculated > 0 && Number(promo.priority || 0) > Number(bestPromo?.priority || 0))
+    ) {
+      bestDiscount = calculated;
+      bestPromo = promo;
+    }
+  }
+
+  const finalRoundTotal = Math.max(0, currentRoundSubtotal - bestDiscount);
+
+  // Threshold nudge for the closest upcoming promo
+  const upcomingPromo = (promotions || [])
+    .filter(p => Number(p.minOrderAmount || p.min_order_amount || 0) > currentRoundSubtotal)
+    .sort((a, b) => Number(a.minOrderAmount || a.min_order_amount || 0) - Number(b.minOrderAmount || b.min_order_amount || 0))[0];
+  const amountNeededForPromo = upcomingPromo
+    ? Number(upcomingPromo.minOrderAmount || upcomingPromo.min_order_amount || 0) - currentRoundSubtotal
+    : 0;
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
@@ -58,6 +101,28 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
             Đây là tổng dự kiến của <strong>lần gọi này</strong>. Các món đã gọi trước đó được lưu và hiển thị trong mục <strong>Tổng bill</strong>.
           </span>
         </div>
+
+        {/* Promotion banner / Threshold nudge */}
+        {cart.length > 0 && bestPromo && (
+          <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-100 flex items-center justify-between text-xs text-emerald-800">
+            <div className="flex items-center gap-1.5 font-bold">
+              <Tag className="w-4 h-4 text-emerald-600" />
+              <span>{bestPromo.title}</span>
+            </div>
+            <span className="font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+              -{bestDiscount.toLocaleString('vi-VN')}đ
+            </span>
+          </div>
+        )}
+
+        {cart.length > 0 && !bestPromo && upcomingPromo && amountNeededForPromo > 0 && (
+          <div className="bg-orange-50 px-4 py-2 border-b border-orange-100 flex items-center gap-2 text-xs text-orange-800">
+            <Sparkles className="w-4 h-4 text-orange-600 shrink-0" />
+            <span>
+              Thêm <strong>{amountNeededForPromo.toLocaleString('vi-VN')}đ</strong> để nhận ưu đãi <strong>"{upcomingPromo.title}"</strong>!
+            </span>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="m-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-medium">
@@ -120,9 +185,31 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
         {/* Footer */}
         {cart.length > 0 && (
           <div className="p-4 border-t border-slate-100 bg-white space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500 font-medium">Tiền lần gọi mới này:</span>
-              <span className="text-lg font-bold text-slate-900">{currentRoundSubtotal.toLocaleString('vi-VN')}đ</span>
+            <div className="space-y-1.5">
+              {bestDiscount > 0 ? (
+                <>
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Tạm tính đợt này:</span>
+                    <span>{currentRoundSubtotal.toLocaleString('vi-VN')}đ</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-emerald-700 font-bold">
+                    <span className="flex items-center gap-1">
+                      <Tag className="w-3.5 h-3.5" />
+                      {bestPromo?.title || 'Khuyến mãi'}:
+                    </span>
+                    <span>-{bestDiscount.toLocaleString('vi-VN')}đ</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm pt-1 border-t border-slate-100">
+                    <span className="font-bold text-slate-800">Tiền lần gọi mới này:</span>
+                    <span className="text-lg font-black text-orange-600">{finalRoundTotal.toLocaleString('vi-VN')}đ</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500 font-medium">Tiền lần gọi mới này:</span>
+                  <span className="text-lg font-bold text-slate-900">{currentRoundSubtotal.toLocaleString('vi-VN')}đ</span>
+                </div>
+              )}
             </div>
 
             <button

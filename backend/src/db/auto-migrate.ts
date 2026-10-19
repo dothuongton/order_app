@@ -47,7 +47,7 @@ export async function ensureSchemaOnBoot() {
             CREATE INDEX IF NOT EXISTS idx_banners_tenant_active ON banners(tenant_id, is_active, sort_order);
         `);
 
-        // 4. promotions table
+        // 4. promotions and promotion_redemptions tables
         await client.query(`
             CREATE TABLE IF NOT EXISTS promotions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -56,11 +56,11 @@ export async function ensureSchemaOnBoot() {
                 title VARCHAR(255) NOT NULL,
                 description TEXT,
                 discount_type VARCHAR(32) NOT NULL DEFAULT 'PERCENT',
-                discount_value INT NOT NULL,
-                min_order_amount INT NOT NULL DEFAULT 0,
-                max_discount_amount INT,
+                discount_value BIGINT NOT NULL,
+                min_order_amount BIGINT NOT NULL DEFAULT 0,
+                max_discount_amount BIGINT,
                 max_redemptions INT,
-                times_redeemed INT NOT NULL DEFAULT 0,
+                current_redemptions INT NOT NULL DEFAULT 0,
                 priority INT NOT NULL DEFAULT 0,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 start_time TIMESTAMPTZ DEFAULT NOW(),
@@ -68,6 +68,32 @@ export async function ensureSchemaOnBoot() {
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS current_redemptions INT NOT NULL DEFAULT 0;
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS min_order_amount BIGINT NOT NULL DEFAULT 0;
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS max_discount_amount BIGINT;
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS max_redemptions INT;
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0;
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ DEFAULT NOW();
+            ALTER TABLE promotions ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ DEFAULT NULL;
+            CREATE INDEX IF NOT EXISTS idx_promotions_tenant_active ON promotions(tenant_id, is_active);
+
+            CREATE TABLE IF NOT EXISTS promotion_redemptions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+                order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+                session_id UUID NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
+                discount_amount BIGINT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS applied_promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL;
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_total BIGINT NOT NULL DEFAULT 0;
+
+            ALTER TABLE order_items ADD COLUMN IF NOT EXISTS applied_promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL;
+            ALTER TABLE order_items ADD COLUMN IF NOT EXISTS discount_amount BIGINT NOT NULL DEFAULT 0;
+            ALTER TABLE order_items ADD COLUMN IF NOT EXISTS final_price BIGINT NOT NULL DEFAULT 0;
         `);
 
         // 5. cms_drafts and cms_published_versions tables

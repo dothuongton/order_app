@@ -376,7 +376,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     {billSummary.rounds?.map((round) => (
                       <div key={round.orderNumber} className="p-3.5 space-y-2">
                         <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-                          <span>Lần gọi {round.orderNumber}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span>Lần gọi {round.orderNumber}</span>
+                            {round.appliedPromotion && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                🎁 {round.appliedPromotion.title}
+                              </span>
+                            )}
+                          </div>
                           <span className="text-slate-900">{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
                         </div>
 
@@ -407,9 +414,16 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                     <span className="text-[10px] text-emerald-700 bg-emerald-100/90 px-1.5 py-0.5 rounded-md font-extrabold shrink-0">Đã phục vụ</span>
                                   )}
                                 </div>
-                                <span className={`font-bold shrink-0 ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                                  {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
-                                </span>
+                                <div className="text-right shrink-0">
+                                  <span className={`font-bold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                                    {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
+                                  </span>
+                                  {item.status !== 'CANCELLED' && item.rawPrice && item.rawPrice > item.subtotal && (
+                                    <span className="block text-[10px] text-slate-400 line-through">
+                                      {item.rawPrice.toLocaleString('vi-VN')}đ
+                                    </span>
+                                  )}
+                                </div>
                               </div>
 
                               {/* Item actions: quick accept / serve / cancel */}
@@ -459,6 +473,29 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     <div className="p-3 bg-amber-50/80 flex items-center justify-between text-xs border-t border-amber-100">
                       <span className="text-amber-800 font-medium">Chờ tiếp nhận (chưa tính vào tổng bill):</span>
                       <span className="font-bold text-amber-900">{billSummary.pendingTotal.toLocaleString('vi-VN')}đ</span>
+                    </div>
+                  )}
+
+                  {/* Promo discount breakdown */}
+                  {billSummary.totalDiscount && billSummary.totalDiscount > 0 && (
+                    <div className="p-3 bg-emerald-50/70 border-t border-emerald-100 space-y-1 text-xs">
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span>Tạm tính (chưa giảm):</span>
+                        <span className="font-semibold">{((billSummary.rawBillTotal || (billSummary.validBillTotal + billSummary.totalDiscount))).toLocaleString('vi-VN')}đ</span>
+                      </div>
+                      <div className="flex items-center justify-between text-emerald-700 font-bold">
+                        <span className="flex items-center gap-1">🎁 Khuyến mãi giảm giá:</span>
+                        <span>-{billSummary.totalDiscount.toLocaleString('vi-VN')}đ</span>
+                      </div>
+                      {billSummary.appliedPromotions && billSummary.appliedPromotions.length > 0 && (
+                        <div className="pt-0.5 flex flex-wrap gap-1">
+                          {billSummary.appliedPromotions.map((p: any) => (
+                            <span key={p.id} className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                              {p.title}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -664,14 +701,15 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 <div className="flex justify-between">
                   <span className="text-slate-500">Số tiền xác nhận đã thu:</span>
                   <span className="font-extrabold text-sm text-orange-600">
-                    {Math.max(
-                      (billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0),
-                      (billSummary.rounds || []).reduce((acc: number, round: any) => {
-                        return acc + (round.items || []).filter((i: any) => i.status !== 'CANCELLED').reduce((s: number, item: any) => s + (item.subtotal || item.price * item.quantity), 0);
-                      }, 0)
-                    ).toLocaleString('vi-VN')}đ
+                    {((billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0)).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
+                {billSummary.totalDiscount && billSummary.totalDiscount > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Đã trừ khuyến mãi:</span>
+                    <span>-{billSummary.totalDiscount.toLocaleString('vi-VN')}đ</span>
+                  </div>
+                )}
               </div>
 
               <p className="text-xs text-slate-500">

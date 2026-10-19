@@ -112,10 +112,12 @@ export class GuestService {
 
         // Fetch active promotions for this shop
         const promosRes = await query(`
-            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount
+            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority
             FROM promotions
             WHERE tenant_id = $1 AND is_active = true
-              AND NOW() >= start_time AND (end_time IS NULL OR NOW() <= end_time)
+              AND (start_time IS NULL OR NOW() >= start_time)
+              AND (end_time IS NULL OR NOW() <= end_time)
+              AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
             ORDER BY priority DESC, created_at DESC
         `, [table.tenant_id]);
 
@@ -176,7 +178,21 @@ export class GuestService {
                 };
             }),
             banners: bannersRes.rows,
-            promotions: promosRes.rows
+            promotions: promosRes.rows.map(p => ({
+                id: p.id,
+                code: p.code,
+                title: p.title,
+                description: p.description,
+                discountType: p.discount_type,
+                discount_type: p.discount_type,
+                discountValue: parseInt(p.discount_value, 10),
+                discount_value: parseInt(p.discount_value, 10),
+                minOrderAmount: parseInt(p.min_order_amount || '0', 10),
+                min_order_amount: parseInt(p.min_order_amount || '0', 10),
+                maxDiscountAmount: p.max_discount_amount ? parseInt(p.max_discount_amount, 10) : undefined,
+                max_discount_amount: p.max_discount_amount ? parseInt(p.max_discount_amount, 10) : undefined,
+                priority: parseInt(p.priority || '0', 10)
+            }))
         };
     }
 
@@ -457,10 +473,12 @@ export class GuestService {
     // 4. Get all orders of current session
     static async getSessionOrders(tenantId: string, sessionId: string) {
         const ordersRes = await query(`
-            SELECT id, order_number, source, created_at
-            FROM orders
-            WHERE session_id = $1 AND tenant_id = $2
-            ORDER BY order_number ASC
+            SELECT o.id, o.order_number, o.source, o.created_at, o.applied_promotion_id, o.discount_total,
+                   p.title as promo_title, p.code as promo_code, p.discount_type as promo_type, p.discount_value as promo_value
+            FROM orders o
+            LEFT JOIN promotions p ON p.id = o.applied_promotion_id
+            WHERE o.session_id = $1 AND o.tenant_id = $2
+            ORDER BY o.order_number ASC
         `, [sessionId, tenantId]);
 
         const orders = [];
@@ -474,6 +492,9 @@ export class GuestService {
                     oi.snapshot_price,
                     oi.snapshot_category_name,
                     oi.quantity,
+                    oi.discount_amount,
+                    oi.final_price,
+                    oi.applied_promotion_id,
                     oi.note,
                     COALESCE(
                         json_agg(
@@ -496,6 +517,15 @@ export class GuestService {
                 orderNumber: o.order_number,
                 source: o.source,
                 createdAt: o.created_at,
+                discountTotal: Number(o.discount_total || 0),
+                appliedPromotion: o.applied_promotion_id ? {
+                    id: o.applied_promotion_id,
+                    title: o.promo_title,
+                    code: o.promo_code,
+                    discountType: o.promo_type,
+                    discountValue: Number(o.promo_value || 0),
+                    discountTotal: Number(o.discount_total || 0)
+                } : null,
                 items: itemsRes.rows.map(item => {
                     const parts = item.parts || [];
                     const pendingQty = parts.filter((p: any) => p.status === 'PENDING').reduce((acc: number, p: any) => acc + p.quantity, 0);
@@ -519,6 +549,8 @@ export class GuestService {
                         variantName: item.snapshot_variant_name || undefined,
                         price: Number(item.snapshot_price),
                         quantity: item.quantity,
+                        discountAmount: Number(item.discount_amount || 0),
+                        finalPrice: Number(item.final_price || (item.snapshot_price * item.quantity)),
                         note: item.note,
                         status: overallStatus,
                         pendingQty,
@@ -556,6 +588,12 @@ export class GuestService {
         const partsRes = await query(`
             SELECT
                 o.order_number,
+                o.applied_promotion_id,
+                o.discount_total,
+                p.title as promo_title,
+                p.code as promo_code,
+                p.discount_type as promo_type,
+                p.discount_value as promo_value,
                 oi.id as item_id,
                 oi.snapshot_name,
                 oi.snapshot_variant_name,
@@ -567,6 +605,7 @@ export class GuestService {
                 oip.quantity,
                 oip.cancel_reason
             FROM orders o
+            LEFT JOIN promotions p ON p.id = o.applied_promotion_id
             JOIN order_items oi ON oi.order_id = o.id
             JOIN order_item_parts oip ON oip.order_item_id = oi.id
             WHERE o.session_id = $1 AND o.tenant_id = $2
@@ -574,12 +613,15 @@ export class GuestService {
                 CASE oip.status WHEN 'SERVED' THEN 1 WHEN 'ACCEPTED' THEN 2 WHEN 'PENDING' THEN 3 ELSE 4 END, oip.id
         `, [sessionId, tenantId]);
 
-        let confirmedOrAcceptedTotal = 0; // ACCEPTED + SERVED
-        let servedTotal = 0;              // Chỉ SERVED
-        let pendingTotal = 0;             // PENDING
+        let confirmedOrAcceptedTotal = 0; // ACCEPTED + SERVED (after discount)
+        let servedTotal = 0;              // Chỉ SERVED (after discount)
+        let pendingTotal = 0;             // PENDING (after discount)
+        let rawConfirmedTotal = 0;        // Undiscounted total of ACCEPTED + SERVED
+        let confirmedDiscountTotal = 0;   // Discount of ACCEPTED + SERVED
         let unresolvedCount = 0;          // Số lượng phần còn PENDING hoặc ACCEPTED
 
         const roundSummaries: Record<number, any> = {};
+        const appliedPromotionsMap = new Map<string, any>();
 
         const allocatedQuantities = new Map<string, number>();
         for (const row of partsRes.rows) {
@@ -587,30 +629,61 @@ export class GuestService {
             const qty = row.quantity;
             const preceding = allocatedQuantities.get(row.item_id) || 0;
             const subtotal = row.status === 'CANCELLED' ? 0 : partAmount(price, qty, row.original_quantity, Number(row.discount_amount || 0), preceding);
+            const rawItemAmount = row.status === 'CANCELLED' ? 0 : price * qty;
+            const itemDiscount = Math.max(0, rawItemAmount - subtotal);
             allocatedQuantities.set(row.item_id, preceding + qty);
             const roundNum = row.order_number;
 
             if (!roundSummaries[roundNum]) {
                 roundSummaries[roundNum] = {
                     orderNumber: roundNum,
+                    rawSubtotal: 0,
+                    discountTotal: 0,
                     acceptedOrServedSubtotal: 0,
                     pendingSubtotal: 0,
+                    appliedPromotion: row.applied_promotion_id ? {
+                        id: row.applied_promotion_id,
+                        title: row.promo_title,
+                        code: row.promo_code,
+                        discountType: row.promo_type,
+                        discountValue: Number(row.promo_value || 0)
+                    } : null,
                     items: []
                 };
+            }
+
+            if (row.applied_promotion_id && !appliedPromotionsMap.has(row.applied_promotion_id)) {
+                appliedPromotionsMap.set(row.applied_promotion_id, {
+                    id: row.applied_promotion_id,
+                    title: row.promo_title,
+                    code: row.promo_code,
+                    discountType: row.promo_type,
+                    discountValue: Number(row.promo_value || 0)
+                });
             }
 
             if (row.status === 'SERVED') {
                 servedTotal += subtotal;
                 confirmedOrAcceptedTotal += subtotal;
+                rawConfirmedTotal += rawItemAmount;
+                confirmedDiscountTotal += itemDiscount;
                 roundSummaries[roundNum].acceptedOrServedSubtotal += subtotal;
+                roundSummaries[roundNum].rawSubtotal += rawItemAmount;
+                roundSummaries[roundNum].discountTotal += itemDiscount;
             } else if (row.status === 'ACCEPTED') {
                 confirmedOrAcceptedTotal += subtotal;
+                rawConfirmedTotal += rawItemAmount;
+                confirmedDiscountTotal += itemDiscount;
                 unresolvedCount += qty;
                 roundSummaries[roundNum].acceptedOrServedSubtotal += subtotal;
+                roundSummaries[roundNum].rawSubtotal += rawItemAmount;
+                roundSummaries[roundNum].discountTotal += itemDiscount;
             } else if (row.status === 'PENDING') {
                 pendingTotal += subtotal;
                 unresolvedCount += qty;
                 roundSummaries[roundNum].pendingSubtotal += subtotal;
+                roundSummaries[roundNum].rawSubtotal += rawItemAmount;
+                roundSummaries[roundNum].discountTotal += itemDiscount;
             }
 
             roundSummaries[roundNum].items.push({
@@ -619,6 +692,8 @@ export class GuestService {
                 variantName: row.snapshot_variant_name || undefined,
                 price,
                 quantity: qty,
+                rawPrice: rawItemAmount,
+                discountAmount: itemDiscount,
                 note: row.note,
                 status: row.status,
                 cancelReason: row.cancel_reason,
@@ -630,11 +705,14 @@ export class GuestService {
             sessionId: session.id,
             sessionStatus: session.status,
             settlementVersion: session.settlement_version,
-            validBillTotal: confirmedOrAcceptedTotal, // Tổng các món đã tiếp nhận / đã phục vụ
+            rawBillTotal: rawConfirmedTotal,
+            totalDiscount: confirmedDiscountTotal,
+            validBillTotal: confirmedOrAcceptedTotal, // Tổng các món đã tiếp nhận / đã phục vụ sau giảm giá
             servedTotal,                             // Tổng các món đã phục vụ
             pendingTotal,                            // Phần đang chờ tiếp nhận
             unresolvedCount,                         // Còn món PENDING/ACCEPTED chưa giải quyết
             rounds: Object.values(roundSummaries),
+            appliedPromotions: Array.from(appliedPromotionsMap.values()),
             canConfirmPayment: unresolvedCount === 0 && session.status === 'OPEN'
         };
     }

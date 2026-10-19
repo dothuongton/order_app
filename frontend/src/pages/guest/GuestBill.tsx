@@ -131,7 +131,14 @@ export const GuestBill: React.FC = () => {
         {billSummary?.rounds?.map((round) => (
           <div key={round.orderNumber} className="p-4 space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-              <span>Lần {round.orderNumber}</span>
+              <div className="flex items-center gap-1.5">
+                <span>Lần {round.orderNumber}</span>
+                {round.appliedPromotion && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                    🎁 {round.appliedPromotion.title}
+                  </span>
+                )}
+              </div>
               <span>{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
             </div>
 
@@ -150,9 +157,16 @@ export const GuestBill: React.FC = () => {
                       <span className="text-[10px] text-rose-600">(Đã hủy)</span>
                     )}
                   </div>
-                  <span className={`font-semibold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                    {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
-                  </span>
+                  <div className="text-right">
+                    <span className={`font-semibold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                      {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
+                    </span>
+                    {item.status !== 'CANCELLED' && item.rawPrice && item.rawPrice > item.subtotal && (
+                      <span className="block text-[10px] text-slate-400 line-through">
+                        {item.rawPrice.toLocaleString('vi-VN')}đ
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -170,10 +184,35 @@ export const GuestBill: React.FC = () => {
           </div>
         )}
 
+        {/* Promotion and Bill Breakdown */}
+        {billSummary && (billSummary.totalDiscount || 0) > 0 && (
+          <div className="p-4 bg-emerald-50/60 space-y-1.5 border-t border-emerald-100 text-xs">
+            <div className="flex items-center justify-between text-slate-600">
+              <span>Tạm tính (chưa giảm giá):</span>
+              <span className="font-semibold">{((billSummary.rawBillTotal || (billSummary.validBillTotal + (billSummary.totalDiscount || 0)))).toLocaleString('vi-VN')}đ</span>
+            </div>
+            <div className="flex items-center justify-between text-emerald-700 font-bold">
+              <span className="flex items-center gap-1">
+                🎁 Khuyến mãi đã áp dụng:
+              </span>
+              <span>-{(billSummary.totalDiscount || 0).toLocaleString('vi-VN')}đ</span>
+            </div>
+            {billSummary.appliedPromotions && billSummary.appliedPromotions.length > 0 && (
+              <div className="pt-1 flex flex-wrap gap-1">
+                {billSummary.appliedPromotions.map((p: any) => (
+                  <span key={p.id} className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                    {p.title}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Grand Total */}
         <div className="p-4 bg-slate-50 flex items-center justify-between border-t-2 border-slate-200">
           <div>
-            <span className="text-xs text-slate-500 font-medium block">Tổng bill hiện tại</span>
+            <span className="text-xs font-bold text-slate-800 block">Tổng thanh toán</span>
             <span className="text-[11px] text-slate-400">(Chỉ tính các món đã tiếp nhận/phục vụ)</span>
           </div>
           <div className="text-right">
