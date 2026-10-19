@@ -106,6 +106,22 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (sub) {
           setIsSubscribed(true);
           setState('granted');
+          // Re-sync subscription with backend so PostgreSQL always has this device's endpoint
+          try {
+            const subJson = sub.toJSON();
+            if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
+              request('/staff/push/subscribe', {
+                method: 'POST',
+                body: JSON.stringify({
+                  endpoint: subJson.endpoint,
+                  keys: {
+                    p256dh: subJson.keys.p256dh,
+                    auth: subJson.keys.auth
+                  }
+                })
+              }).catch(() => {});
+            }
+          } catch {}
           return;
         }
       }

@@ -50,101 +50,15 @@ export const StaffDashboard: React.FC = () => {
   const [cancelReason, setCancelReason] = useState<string>('Hết nguyên liệu');
   const [markItemOutOfStock, setMarkItemOutOfStock] = useState<boolean>(true);
 
-  // Tracking refs to detect missed orders/requests while phone was asleep or locked
-  const knownPendingPartIdsRef = useRef<Set<string>>(new Set());
-  const knownRequestCountsRef = useRef<Map<string, number>>(new Map());
-  const isInitialLoadRef = useRef<boolean>(true);
-
   const fetchDashboard = useCallback(async () => {
     try {
       const data = await request<{ tables: StaffTable[]; openRequests: ServiceRequest[] }>('/staff/dashboard/snapshot');
-      const newTables = data.tables || [];
-      const newRequests = data.openRequests || [];
-
-      // If returning from background/screen-lock or on polling, detect new items
-      if (!isInitialLoadRef.current) {
-        // 1. Check for newly arrived pending items
-        const currentPendingIds = new Set<string>();
-        const newlyArrivedPendingTables = new Set<string>();
-
-        newTables.forEach(t => {
-          t.activeItems?.forEach(item => {
-            if (item.status === 'PENDING') {
-              currentPendingIds.add(item.partId);
-              if (!knownPendingPartIdsRef.current.has(item.partId)) {
-                newlyArrivedPendingTables.add(`Bàn ${t.table_number}`);
-              }
-            }
-          });
-        });
-
-        // 2. Check for newly arrived or repeated service requests
-        const newlyArrivedRequests: { table: string; type: 'CHECKOUT' | 'ASSISTANCE'; count: number }[] = [];
-        newRequests.forEach(req => {
-          const prevCount = knownRequestCountsRef.current.get(req.id);
-          const currCount = req.call_count || 1;
-          if (prevCount === undefined || currCount > prevCount) {
-            newlyArrivedRequests.push({
-              table: `Bàn ${req.table_number}`,
-              type: req.type as any,
-              count: currCount
-            });
-          }
-        });
-
-        // Trigger voice / chime alerts if new items arrived while phone was locked
-        if (newlyArrivedPendingTables.size > 0) {
-          const tablesStr = Array.from(newlyArrivedPendingTables).join(', ');
-          playOrderSound(tablesStr);
-          showToast({
-            title: `🔔 Đơn món mới (${tablesStr})`,
-            message: 'Khách vừa đặt món trong lúc bạn khóa máy hoặc chuyển ứng dụng',
-            type: 'info',
-            duration: 7000
-          });
-        }
-
-        if (newlyArrivedRequests.length > 0) {
-          const latestReq = newlyArrivedRequests[0];
-          playAlertSound(latestReq.table, latestReq.type);
-          showToast({
-            title: latestReq.type === 'CHECKOUT'
-              ? `💳 Yêu cầu thanh toán (${latestReq.table})`
-              : `🙋 Khách gọi phục vụ (${latestReq.table})`,
-            message: latestReq.count > 1 ? `Nhắc lần ${latestReq.count}` : 'Khách đang cần nhân viên hỗ trợ',
-            type: 'warning',
-            duration: 8000
-          });
-        }
-
-        // Update tracking state
-        knownPendingPartIdsRef.current = currentPendingIds;
-        const newMap = new Map<string, number>();
-        newRequests.forEach(req => newMap.set(req.id, req.call_count || 1));
-        knownRequestCountsRef.current = newMap;
-      } else {
-        // Initial snapshot seeding
-        const initPendingIds = new Set<string>();
-        newTables.forEach(t => {
-          t.activeItems?.forEach(item => {
-            if (item.status === 'PENDING') {
-              initPendingIds.add(item.partId);
-            }
-          });
-        });
-        knownPendingPartIdsRef.current = initPendingIds;
-        const initMap = new Map<string, number>();
-        newRequests.forEach(req => initMap.set(req.id, req.call_count || 1));
-        knownRequestCountsRef.current = initMap;
-        isInitialLoadRef.current = false;
-      }
-
-      setTables(newTables);
-      setOpenRequests(newRequests);
+      setTables(data.tables || []);
+      setOpenRequests(data.openRequests || []);
     } catch (err) {
       console.error('Failed to fetch dashboard', err);
     }
-  }, [playOrderSound, playAlertSound, showToast]);
+  }, []);
 
   useEffect(() => {
     fetchDashboard();

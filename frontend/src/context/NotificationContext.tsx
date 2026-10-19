@@ -404,7 +404,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     type?: 'info' | 'success' | 'warning' | 'error';
     duration?: number;
   }) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    // Clear all existing toast timers
+    timeoutsRef.current.forEach(timer => clearTimeout(timer));
+    timeoutsRef.current.clear();
+
+    const id = `toast-${Date.now()}`;
     const newToast: ToastNotification = {
       id,
       title,
@@ -414,7 +418,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       createdAt: Date.now()
     };
 
-    setToasts(prev => [newToast, ...prev].slice(0, 5));
+    // Exactly 1 toast on screen at a time - never stack duplicate banners
+    setToasts([newToast]);
 
     if (duration > 0) {
       const timer = setTimeout(() => {
