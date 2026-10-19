@@ -32,7 +32,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             body: JSON.stringify({ email: 'superadmin@qrorder.vn', password: 'admin123' })
         });
         expect(superRes.status).toBe(200);
-        const superData = await superRes.json();
+        const superData: any = await superRes.json();
         superAdminToken = superData.token;
 
         // 2. Shop A (Pho Co) Login
@@ -42,7 +42,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             body: JSON.stringify({ email: 'admin@phoco.vn', password: '123456' })
         });
         expect(shopARes.status).toBe(200);
-        const shopAData = await shopARes.json();
+        const shopAData: any = await shopARes.json();
         shopAAdminToken = shopAData.token;
         tenantAId = shopAData.currentTenant.id;
     });
@@ -63,7 +63,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
                 headers: { 'Authorization': `Bearer ${superAdminToken}` }
             });
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.totalShops).toBeGreaterThanOrEqual(1);
             expect(data.activeShops).toBeGreaterThanOrEqual(1);
         });
@@ -73,7 +73,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
                 headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
             });
             expect(res.status).toBe(403);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.error).toBe('FORBIDDEN');
         });
 
@@ -98,7 +98,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(201);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.shop.slug).toBe('matcha-kyoto');
             tenantBId = data.shop.id;
 
@@ -109,7 +109,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
                 body: JSON.stringify({ email: 'owner@kyoto.vn', password: 'password123' })
             });
             expect(loginRes.status).toBe(200);
-            const loginData = await loginRes.json();
+            const loginData: any = await loginRes.json();
             shopBAdminToken = loginData.token;
         });
 
@@ -131,7 +131,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(400);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.error).toBe('BAD_REQUEST');
         });
 
@@ -140,7 +140,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
                 headers: { 'Authorization': `Bearer ${superAdminToken}` }
             });
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(Array.isArray(data.templates)).toBe(true);
             expect(data.templates.length).toBeGreaterThanOrEqual(2);
         });
@@ -155,7 +155,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
                 headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
             });
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.draft).toBeDefined();
             expect(data.draft.templateId).toBe('classic');
         });
@@ -184,7 +184,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.draft.template_id).toBe('modern_grid');
         });
 
@@ -199,7 +199,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.publishedVersion).toBe(2);
             expect(data.templateId).toBe('modern_grid');
 
@@ -207,7 +207,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             const profileRes = await fetch(`${baseUrl}/api/v1/cms/profile`, {
                 headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
             });
-            const profileData = await profileRes.json();
+            const profileData: any = await profileRes.json();
             expect(profileData.profile.activePublishedVersion).toBe(2);
             expect(profileData.profile.activeTemplateId).toBe('modern_grid');
             expect(profileData.profile.activeThemeConfig.primaryColor).toBe('#059669');
@@ -224,7 +224,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.rolledBackTo).toBe(1);
             expect(data.templateId).toBe('classic');
 
@@ -232,7 +232,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             const profileRes = await fetch(`${baseUrl}/api/v1/cms/profile`, {
                 headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
             });
-            const profileData = await profileRes.json();
+            const profileData: any = await profileRes.json();
             expect(profileData.profile.activePublishedVersion).toBe(1);
             expect(profileData.profile.activeTemplateId).toBe('classic');
         });
@@ -258,7 +258,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
                 })
             });
             expect(res.status).toBe(201);
-            const data = await res.json();
+            const data: any = await res.json();
             shopABannerId = data.banner.id;
         });
 
@@ -273,7 +273,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(400); // Fails ownership check in query WHERE id = $1 AND tenant_id = $2
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.message).toContain('Không tìm thấy banner');
         });
 
@@ -284,7 +284,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(400);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.message).toContain('Không tìm thấy banner để xóa');
         });
     });
@@ -365,7 +365,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
                 body: JSON.stringify({})
             });
             expect(joinRes.status).toBe(200);
-            const joinData = await joinRes.json();
+            const joinData: any = await joinRes.json();
             const guestToken = joinData.token;
 
             // 3. Guest orders items: 4 x Nem chua rán (35k x 4 = 140,000đ)
@@ -388,7 +388,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(orderRes.status).toBe(201);
-            const orderData = await orderRes.json();
+            const orderData: any = await orderRes.json();
             expect(orderData.subtotal).toBe(140000);
             expect(orderData.discountTotal).toBe(20000); // 20k discount
             expect(orderData.finalTotal).toBe(120000);   // 140k - 20k = 120k
@@ -416,7 +416,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.shop.status).toBe('suspended');
         });
 
@@ -430,7 +430,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(403);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.error).toBe('SHOP_SUSPENDED');
         });
 
@@ -445,7 +445,7 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
 
             expect(res.status).toBe(200);
-            const data = await res.json();
+            const data: any = await res.json();
             expect(data.shop.status).toBe('active');
         });
     });
