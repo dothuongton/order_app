@@ -432,3 +432,17 @@ CREATE TABLE IF NOT EXISTS uploaded_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_uploaded_images_tenant ON uploaded_images(tenant_id);
+
+-- 10. Default Platform Super Admin User (superadmin@qrorder.vn / admin123)
+INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
+VALUES (
+    '99999999-9999-9999-9999-999999999999',
+    'superadmin@qrorder.vn',
+    '$2a$10$cweMWdM3s.7gdRP1Mi5ulexKStDHK0qpYvk7mVeVKtHZaf1vU3Hva',
+    'Hệ Thống Super Admin',
+    '0999999999',
+    true
+)
+ON CONFLICT (email) DO UPDATE SET
+    is_platform_admin = true,
+    password_hash = EXCLUDED.password_hash;
