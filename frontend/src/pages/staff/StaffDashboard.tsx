@@ -525,20 +525,6 @@ export const StaffDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Audio unlock prompt if needed by browser policy */}
-      {!isAudioUnlocked && (
-        <div
-          onClick={unlockAudio}
-          className="bg-orange-500 hover:bg-orange-600 text-slate-950 px-4 py-2 text-xs font-bold flex items-center justify-between cursor-pointer transition shadow-md"
-        >
-          <div className="flex items-center gap-2">
-            <Volume2 className="w-4 h-4 animate-bounce shrink-0" />
-            <span>Chạm vào đây để kích hoạt chuông âm thanh thông báo</span>
-          </div>
-          <span className="bg-slate-950 text-orange-400 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-black shrink-0">Bật</span>
-        </div>
-      )}
-
       {/* Main Container */}
       <main className="p-4 flex-1">
         {/* TAB 1: Tables Overview */}

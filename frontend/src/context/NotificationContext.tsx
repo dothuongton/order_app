@@ -71,7 +71,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   });
 
   const soundEnabled = soundMode !== 'off';
-  const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(false);
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(true);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const timeoutsRef = useRef<Map<string, any>>(new Map());
 
@@ -122,14 +122,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, []);
 
-  // Unlock audio context on user gesture (click or touch) with iOS silent buffer trick
+  // Unlock audio context silently on user gesture or wakeup with iOS silent buffer trick
   const unlockAudio = useCallback(() => {
+    setIsAudioUnlocked(true);
     const ctx = getOrCreateAudioContext();
     if (ctx) {
       if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
-        ctx.resume().then(() => setIsAudioUnlocked(true)).catch(() => {});
-      } else if (ctx.state === 'running') {
-        setIsAudioUnlocked(true);
+        ctx.resume().catch(() => {});
       }
 
       // iOS Safari hardware unlock: play 1-sample silent buffer to activate audio hardware
@@ -142,7 +141,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       } catch {}
     }
 
-    // Prime HTML5 Audio elements
+    // Prime HTML5 Audio elements silently
     try {
       if (orderAudioRef.current) orderAudioRef.current.load();
       if (alertAudioRef.current) alertAudioRef.current.load();
@@ -159,7 +158,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, []);
 
-  // Global user gesture listeners: touch, click, pointerdown immediately unlock audio
+  // Global user gesture listeners: touch, click, pointerdown immediately unlock audio silently
   useEffect(() => {
     const handleUserGesture = () => {
       unlockAudio();
@@ -173,35 +172,22 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, [unlockAudio]);
 
-  // Handle screen wake up (visibilitychange & focus) to auto-resume audio and unfreeze iOS speech
+  // Handle screen wake up (visibilitychange, pageshow & focus) to auto-resume audio and unfreeze iOS speech
   useEffect(() => {
     const handleWakeup = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        const ctx = getOrCreateAudioContext();
-        if (ctx && (ctx.state === 'suspended' || (ctx as any).state === 'interrupted')) {
-          ctx.resume().catch(() => {});
-        }
-
-        // Always unpause and clear stuck speech synthesis on iOS
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          try {
-            if (window.speechSynthesis.paused) {
-              window.speechSynthesis.resume();
-            }
-            window.speechSynthesis.cancel();
-          } catch {}
-        }
-      }
+      unlockAudio();
     };
 
     document.addEventListener('visibilitychange', handleWakeup);
     window.addEventListener('focus', handleWakeup);
+    window.addEventListener('pageshow', handleWakeup);
 
     return () => {
       document.removeEventListener('visibilitychange', handleWakeup);
       window.removeEventListener('focus', handleWakeup);
+      window.removeEventListener('pageshow', handleWakeup);
     };
-  }, []);
+  }, [unlockAudio]);
 
   // Speech synthesis helper in Vietnamese with WebKit anti-freeze & GC protection
   const speakVietnamese = useCallback((text: string) => {
