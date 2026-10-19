@@ -102,22 +102,36 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     <div style={{ '--brand-color': /^#[0-9a-fA-F]{6}$/.test(tenant?.activeThemeConfig?.primaryColor || '') ? tenant!.activeThemeConfig!.primaryColor : '#ea580c' } as React.CSSProperties} className="guest-storefront min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
       {/* Top Bar / Restaurant & Table Info */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-xs">
-        <div>
-          <span className="text-[11px] font-semibold text-orange-600 uppercase tracking-wider block">
-            {tenant?.name || 'Nhà Hàng'}
-          </span>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-extrabold text-slate-900">Bàn {table?.tableNumber || '--'}</h1>
-            {session && !isSessionClosed ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Phiên mở
-              </span>
-            ) : (
-              <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                Chưa mở phiên
-              </span>
-            )}
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {tenant?.logoUrl ? (
+            <img
+              src={tenant.logoUrl}
+              alt={tenant.name}
+              className="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-xs shrink-0"
+              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center font-black text-sm shrink-0">
+              {tenant?.name?.[0] || '🍜'}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <span className="text-[11px] font-bold text-orange-600 uppercase tracking-wider block truncate">
+              {tenant?.name || 'Nhà Hàng'}
+            </span>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-extrabold text-slate-900 truncate">Bàn {table?.tableNumber || '--'}</h1>
+              {session && !isSessionClosed ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Phiên mở
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+                  Chưa mở phiên
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

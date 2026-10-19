@@ -156,9 +156,6 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                 <span>Ảnh đã được thiết lập</span>
               </div>
-              <p className="text-[11px] text-slate-500 font-mono truncate max-w-[240px] sm:max-w-[280px]">
-                {value}
-              </p>
 
               <div className="flex items-center gap-2 pt-1">
                 <button

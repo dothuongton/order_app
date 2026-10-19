@@ -11,18 +11,102 @@ export async function ensureSchemaOnBoot() {
             ALTER TABLE menu_item_variants ADD COLUMN IF NOT EXISTS group_name VARCHAR(100) DEFAULT 'Biến thể';
         `);
 
-        // 2. banner columns
+        // 2. uploaded_images table for database-persisted media storage
         await client.query(`
+            CREATE TABLE IF NOT EXISTS uploaded_images (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+                filename VARCHAR(255) NOT NULL,
+                mime_type VARCHAR(100) NOT NULL,
+                size_bytes INT NOT NULL,
+                data_base64 TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_uploaded_images_tenant ON uploaded_images(tenant_id);
+        `);
+
+        // 3. banners table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS banners (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                image_url TEXT NOT NULL,
+                cta_link TEXT,
+                sort_order INT NOT NULL DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                start_time TIMESTAMPTZ DEFAULT NULL,
+                end_time TIMESTAMPTZ DEFAULT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
             ALTER TABLE banners ADD COLUMN IF NOT EXISTS sort_order INT DEFAULT 0;
             ALTER TABLE banners ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ DEFAULT NULL;
             ALTER TABLE banners ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ DEFAULT NULL;
+            CREATE INDEX IF NOT EXISTS idx_banners_tenant_active ON banners(tenant_id, is_active, sort_order);
         `);
 
-        // 3. tenant CMS columns
+        // 4. promotions table
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS promotions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                code VARCHAR(64),
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                discount_type VARCHAR(32) NOT NULL DEFAULT 'PERCENT',
+                discount_value INT NOT NULL,
+                min_order_amount INT NOT NULL DEFAULT 0,
+                max_discount_amount INT,
+                max_redemptions INT,
+                times_redeemed INT NOT NULL DEFAULT 0,
+                priority INT NOT NULL DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                start_time TIMESTAMPTZ DEFAULT NOW(),
+                end_time TIMESTAMPTZ DEFAULT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        `);
+
+        // 5. cms_drafts and cms_published_versions tables
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS cms_drafts (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+                template_id VARCHAR(64) NOT NULL DEFAULT 'classic',
+                theme_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+                content_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+                version INT NOT NULL DEFAULT 1,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS cms_published_versions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                version INT NOT NULL,
+                template_id VARCHAR(64) NOT NULL,
+                theme_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+                content_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+                changelog TEXT,
+                published_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                published_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        `);
+
+        // 6. tenant CMS & Branding columns
         await client.query(`
             ALTER TABLE tenants ADD COLUMN IF NOT EXISTS active_template_id VARCHAR(50) DEFAULT 'classic';
             ALTER TABLE tenants ADD COLUMN IF NOT EXISTS active_theme_config JSONB DEFAULT '{}';
             ALTER TABLE tenants ADD COLUMN IF NOT EXISTS active_published_version INT DEFAULT 1;
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS description TEXT;
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_url TEXT;
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cover_url TEXT;
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address TEXT;
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS opening_hours VARCHAR(100);
         `);
 
         // 4. push subscriptions table

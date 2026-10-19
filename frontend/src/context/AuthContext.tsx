@@ -24,6 +24,7 @@ interface AuthContextType {
   login: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
   hasPermission: (perm: string) => boolean;
+  updateCurrentTenant: (updates: Partial<TenantInfo>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -113,8 +114,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return currentTenant.permissions.includes(permission);
   };
 
+  const updateCurrentTenant = (updates: Partial<TenantInfo>) => {
+    setCurrentTenant(prev => prev ? { ...prev, ...updates } : null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, currentTenant, memberships, isLoading, login, logout, hasPermission }}>
+    <AuthContext.Provider value={{ user, currentTenant, memberships, isLoading, login, logout, hasPermission, updateCurrentTenant }}>
       {children}
     </AuthContext.Provider>
   );

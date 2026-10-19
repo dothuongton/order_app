@@ -68,6 +68,22 @@ export const GuestMenu: React.FC = () => {
 
   return (
     <div className="pb-28">
+      {tenant?.coverUrl && (
+        <div className="w-full h-32 sm:h-40 overflow-hidden relative border-b border-slate-200">
+          <img
+            src={tenant.coverUrl}
+            alt={tenant.name || 'Ảnh bìa quán'}
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+          />
+          {tenant.description && (
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent flex items-end p-3.5">
+              <p className="text-white text-xs font-semibold line-clamp-1 drop-shadow-sm">{tenant.description}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {theme.showBanner !== false && banners.length > 0 && (
         <section aria-label="Thông tin và ưu đãi của quán" className="px-4 pt-4">
           <BannerDisplay

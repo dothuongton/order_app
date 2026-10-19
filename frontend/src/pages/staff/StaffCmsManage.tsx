@@ -3,6 +3,7 @@ import { request } from '../../api/client.js';
 import { CmsThemeConfig, Banner, Promotion, CmsPublishedVersion } from '../../types/cms.js';
 import { MobilePreviewModal } from '../../components/cms/MobilePreviewModal.js';
 import { ImageUploadField } from '../../components/ImageUploadField.js';
+import { useAuth } from '../../context/AuthContext.js';
 import {
     Palette, Image as ImageIcon, Tag, History, Smartphone,
     Save, Send, RotateCcw, Plus, Trash2, Edit3, Check,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 
 export const StaffCmsManage: React.FC = () => {
+    const { updateCurrentTenant } = useAuth();
     const [subTab, setSubTab] = useState<'branding' | 'banners' | 'promotions' | 'history'>('branding');
     const [loading, setLoading] = useState<boolean>(true);
     const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -96,6 +98,40 @@ export const StaffCmsManage: React.FC = () => {
         loadCmsData();
     }, []);
 
+    const [isSavingProfile, setIsSavingProfile] = useState<boolean>(false);
+
+    // Direct Save Shop Profile
+    const handleSaveShopProfile = async () => {
+        if (!shopProfile) return;
+        setIsSavingProfile(true);
+        setActionMsg(null);
+        try {
+            await request('/cms/profile', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    name: shopProfile.name,
+                    description: shopProfile.description,
+                    phone: shopProfile.phone,
+                    address: shopProfile.address,
+                    openingHours: shopProfile.openingHours,
+                    logoUrl: shopProfile.logoUrl,
+                    coverUrl: shopProfile.coverUrl
+                })
+            });
+
+            if (shopProfile.name) {
+                updateCurrentTenant({ name: shopProfile.name });
+            }
+
+            setActionMsg({ type: 'success', text: 'Cập nhật và lưu thông tin quán thành công!' });
+            loadCmsData();
+        } catch (err: any) {
+            setActionMsg({ type: 'error', text: err.message || 'Lỗi lưu thông tin quán' });
+        } finally {
+            setIsSavingProfile(false);
+        }
+    };
+
     // Save Draft
     const handleSaveDraft = async () => {
         setIsSaving(true);
@@ -124,6 +160,10 @@ export const StaffCmsManage: React.FC = () => {
                         coverUrl: shopProfile.coverUrl
                     })
                 });
+
+                if (shopProfile.name) {
+                    updateCurrentTenant({ name: shopProfile.name });
+                }
             }
 
             setActionMsg({ type: 'success', text: 'Đã lưu bản nháp CMS thành công' });
@@ -437,6 +477,18 @@ export const StaffCmsManage: React.FC = () => {
                                     aspectRatio="banner"
                                     helperText="Ảnh bìa ngang đầu trang khách"
                                 />
+                            </div>
+
+                            <div className="pt-3 border-t border-slate-100 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={handleSaveShopProfile}
+                                    disabled={isSavingProfile}
+                                    className="w-full sm:w-auto py-2.5 px-5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    <Save className="w-4 h-4" />
+                                    <span>{isSavingProfile ? 'Đang lưu thông tin...' : 'Lưu Thông Tin Quán'}</span>
+                                </button>
                             </div>
                         </div>
                     </div>

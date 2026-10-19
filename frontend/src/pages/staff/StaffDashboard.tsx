@@ -14,7 +14,7 @@ import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
-  Smartphone, BellRing, Search, ShieldAlert, Palette, Settings, Sun
+  Smartphone, BellRing, Search, ShieldAlert, Palette, Settings
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -25,8 +25,6 @@ export const StaffDashboard: React.FC = () => {
     soundMode,
     cycleSoundMode,
     toggleSound,
-    isWakeLockActive,
-    toggleWakeLock,
     requestWakeLock,
     playOrderSound,
     playAlertSound,
@@ -148,8 +146,15 @@ export const StaffDashboard: React.FC = () => {
     socket.on('service_request.updated', handleUpdate);
     socket.on('table.updated', handleUpdate);
 
-    // Fast polling backup (3s) to guarantee zero delay between guest and staff
-    const interval = setInterval(fetchDashboard, 3000);
+    // Backup polling (20s) as safety net while WebSockets handle instant real-time events (optimizing DB load for 100+ stores)
+    const interval = setInterval(fetchDashboard, 20000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchDashboard();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       socket.emit('leave_staff_room');
@@ -161,8 +166,22 @@ export const StaffDashboard: React.FC = () => {
       socket.off('service_request.updated', handleUpdate);
       socket.off('table.updated', handleUpdate);
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard]);
+
+  // Permission safeguard: automatically switch to tables tab if current tab is locked for current role
+  useEffect(() => {
+    if (activeTab === 'reports' && !hasPermission('report.view')) {
+      setActiveTab('tables');
+    }
+    if (activeTab === 'menu' && !hasPermission('menu.manage')) {
+      setActiveTab('tables');
+    }
+    if (activeTab === 'cms' && !['owner', 'manager'].includes(currentTenant?.role || '')) {
+      setActiveTab('tables');
+    }
+  }, [activeTab, currentTenant?.role, hasPermission]);
 
   // Quick Open Session (F01)
   const handleQuickOpenSession = async (tableId: string) => {
@@ -389,26 +408,26 @@ export const StaffDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col max-w-lg mx-auto shadow-2xl pb-[calc(6rem+env(safe-area-inset-bottom))]">
       {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 py-3 shadow-md flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-orange-600 flex items-center justify-center font-black">
-            <Store className="w-5 h-5 text-white" />
+      <header className="sticky top-0 z-30 bg-slate-900 text-white px-3 py-2.5 shadow-md flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-xl bg-orange-600 flex items-center justify-center font-black shrink-0">
+            <Store className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <h1 className="font-extrabold text-sm leading-tight">{currentTenant?.name || 'Nhà Hàng'}</h1>
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+          <div className="min-w-0 flex-1">
+            <h1 className="font-extrabold text-xs sm:text-sm leading-tight truncate">{currentTenant?.name || 'Nhà Hàng'}</h1>
+            <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">
               <span>{user?.fullName}</span>
-              <span className="w-1 h-1 rounded-full bg-slate-500"></span>
+              <span className="mx-1">•</span>
               <span className="capitalize text-orange-400 font-semibold">{currentTenant?.role}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* Audio Sound Mode Switcher (Voice -> Chime -> Off) */}
           <button
             onClick={cycleSoundMode}
-            className={`px-2.5 py-1.5 rounded-xl transition min-h-[40px] flex items-center gap-1.5 border text-xs font-bold ${
+            className={`w-9 h-9 rounded-xl transition flex items-center justify-center border text-xs font-bold shrink-0 ${
               soundMode === 'voice'
                 ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/25'
                 : soundMode === 'chime'
@@ -417,44 +436,15 @@ export const StaffDashboard: React.FC = () => {
             }`}
             title={`Chế độ âm thanh: ${soundMode === 'voice' ? 'Giọng nói tiếng Việt' : soundMode === 'chime' ? 'Chỉ chuông báo' : 'Đã tắt âm'}. Nhấn để chuyển đổi.`}
           >
-            {soundMode === 'voice' && (
-              <>
-                <Mic className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline">Giọng nói</span>
-              </>
-            )}
-            {soundMode === 'chime' && (
-              <>
-                <Volume2 className="w-4 h-4 text-orange-400" />
-                <span className="hidden sm:inline">Chỉ chuông</span>
-              </>
-            )}
-            {soundMode === 'off' && (
-              <>
-                <VolumeX className="w-4 h-4 text-slate-500" />
-                <span className="hidden sm:inline">Tắt âm</span>
-              </>
-            )}
+            {soundMode === 'voice' && <Mic className="w-4 h-4 text-emerald-400 animate-pulse" />}
+            {soundMode === 'chime' && <Volume2 className="w-4 h-4 text-orange-400" />}
+            {soundMode === 'off' && <VolumeX className="w-4 h-4 text-slate-500" />}
           </button>
 
-          {/* Screen Wake Lock Button (keep screen on to prevent missing sound) */}
-          <button
-            onClick={toggleWakeLock}
-            className={`px-2.5 py-1.5 rounded-xl transition min-h-[40px] flex items-center gap-1.5 border text-xs font-bold ${
-              isWakeLockActive
-                ? 'text-amber-300 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25'
-                : 'text-slate-400 bg-slate-800/80 border-slate-700 hover:bg-slate-800'
-            }`}
-            title={isWakeLockActive ? 'Màn hình đang được giữ luôn sáng để không mất chuông. Nhấn để tắt.' : 'Nhấn để giữ màn hình không tự tắt.'}
-          >
-            <Sun className={`w-4 h-4 ${isWakeLockActive ? 'text-amber-400' : 'text-slate-500'}`} />
-            <span className="hidden sm:inline">{isWakeLockActive ? 'Sáng liên tục' : 'Tự tắt'}</span>
-          </button>
-
-          {/* Web Push Notification Settings Button */}
+          {/* Web Push Notification Settings Button - Icon Only */}
           <button
             onClick={() => setShowPushModal(true)}
-            className={`px-2.5 py-1.5 rounded-xl transition min-h-[40px] flex items-center gap-1.5 border text-xs font-bold ${
+            className={`w-9 h-9 rounded-xl transition flex items-center justify-center border text-xs font-bold relative shrink-0 ${
               pushState === 'granted' && isPushSubscribed
                 ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/25'
                 : pushState === 'http_insecure'
@@ -465,29 +455,29 @@ export const StaffDashboard: React.FC = () => {
                 ? 'text-amber-400 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25 animate-pulse'
                 : 'text-slate-300 bg-slate-800/80 border-slate-700 hover:bg-slate-800'
             }`}
-            title={`Web Push: ${pushState === 'granted' ? 'Đã bật' : pushState === 'http_insecure' ? 'Cần kết nối HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
+            title={`Thông báo đẩy: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
           >
             <BellRing className="w-4 h-4" />
-            <span className="text-[11px] font-bold">
-              {pushState === 'granted' && isPushSubscribed ? 'Đã bật Push' : pushState === 'http_insecure' ? 'Cần HTTPS' : 'Web Push'}
-            </span>
+            {pushState === 'granted' && isPushSubscribed && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400"></span>
+            )}
           </button>
 
-          {/* Test Sound Button */}
+          {/* Test Sound Button - Icon Only */}
           {soundEnabled && (
             <button
               onClick={testSound}
-              className="px-2.5 py-1.5 text-[11px] font-bold text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 rounded-xl transition flex items-center gap-1 min-h-[40px]"
+              className="w-9 h-9 text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 rounded-xl transition flex items-center justify-center shrink-0"
               title="Nghe thử âm báo mẫu"
             >
-              <Bell className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Thử âm</span>
+              <Bell className="w-4 h-4" />
             </button>
           )}
 
+          {/* Logout Button */}
           <button
             onClick={logout}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 min-h-[44px] min-w-[44px] flex items-center justify-center transition"
+            className="w-9 h-9 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 flex items-center justify-center transition shrink-0"
             title="Đăng xuất"
           >
             <LogOut className="w-4 h-4" />
@@ -1369,37 +1359,41 @@ export const StaffDashboard: React.FC = () => {
           )}
         </button>
 
-        <button
-          onClick={() => setActiveTab('reports')}
-          disabled={!hasPermission('report.view')}
-          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-            activeTab === 'reports' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
-          }`}
-        >
-          <BarChart2 className="w-5 h-5" />
-          <span className="text-[10px] mt-1">Báo cáo</span>
-        </button>
+        {hasPermission('report.view') && (
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
+              activeTab === 'reports' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            }`}
+          >
+            <BarChart2 className="w-5 h-5" />
+            <span className="text-[10px] mt-1">Báo cáo</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveTab('menu')}
-          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-            activeTab === 'menu' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
-          }`}
-        >
-          <Store className="w-5 h-5" />
-          <span className="text-[10px] mt-1">Món</span>
-        </button>
+        {hasPermission('menu.manage') && (
+          <button
+            onClick={() => setActiveTab('menu')}
+            className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
+              activeTab === 'menu' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            }`}
+          >
+            <Store className="w-5 h-5" />
+            <span className="text-[10px] mt-1">Món</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveTab('cms')}
-          disabled={!['owner', 'manager'].includes(currentTenant?.role || '')}
-          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-            activeTab === 'cms' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
-          }`}
-        >
-          <Settings className="w-5 h-5" />
-          <span className="text-[10px] mt-1">Thiết lập</span>
-        </button>
+        {['owner', 'manager'].includes(currentTenant?.role || '') && (
+          <button
+            onClick={() => setActiveTab('cms')}
+            className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
+              activeTab === 'cms' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            }`}
+          >
+            <Settings className="w-5 h-5" />
+            <span className="text-[10px] mt-1">Thiết lập</span>
+          </button>
+        )}
       </nav>
 
       {/* Table Detail Modal */}

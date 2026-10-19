@@ -3,8 +3,8 @@ import { z } from 'zod';
 export const safeUrl = z.string().max(4096).refine(value => {
     if (!value) return true;
     if (/^\/(?!\/)[^\\\s]*$/.test(value)) return true;
-    try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password; } catch { return false; }
-}, 'URL phải là HTTPS hoặc đường dẫn nội bộ');
+    try { const url = new URL(value); return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password; } catch { return false; }
+}, 'URL phải là đường dẫn nội bộ hoặc URL hợp lệ');
 export const themeSchema = z.object({
     primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     fontFamily: z.enum(['Inter', 'Roboto', 'Be Vietnam Pro', 'Nunito', 'system-ui']),
