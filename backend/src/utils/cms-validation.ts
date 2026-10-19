@@ -10,6 +10,7 @@ export const themeSchema = z.object({
     fontFamily: z.enum(['Inter', 'Roboto', 'Be Vietnam Pro', 'Nunito', 'system-ui']),
     layout: z.enum(['classic', 'modern_grid', 'compact_list', 'banner_featured']),
     showBanner: z.boolean(), showPromotions: z.boolean(),
+    bannerDisplayMode: z.enum(['slide', 'stack']).optional().default('stack'),
     blockOrder: z.array(z.enum(['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer'])).max(6)
 }).strict();
 export const bannerSchema = z.object({

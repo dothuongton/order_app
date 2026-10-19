@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Smartphone, ArrowLeft, ShoppingBag } from 'lucide-react';
 import { CmsThemeConfig, Banner, Promotion } from '../../types/cms.js';
+import { BannerDisplay } from '../BannerDisplay.js';
 
 interface MobilePreviewModalProps {
     isOpen: boolean;
@@ -81,28 +82,10 @@ export const MobilePreviewModal: React.FC<MobilePreviewModalProps> = ({
                         <div className="p-3 space-y-3.5">
                             {/* Banners if enabled */}
                             {showBanner && activeBanners.length > 0 && (
-                                <div className="space-y-2">
-                                    {activeBanners.map((b, idx) => {
-                                        const img = b.imageUrl || (b as any).image_url;
-                                        return (
-                                            <div key={b.id || idx} className="relative rounded-2xl overflow-hidden aspect-[16/9] w-full bg-slate-900 border border-white/10 shadow-sm">
-                                                {img && (
-                                                    <img
-                                                        src={img}
-                                                        alt={b.title}
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                )}
-                                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent p-3 flex flex-col justify-end">
-                                                    <span className="text-white font-extrabold text-xs">{b.title}</span>
-                                                    {b.description && (
-                                                        <span className="text-slate-300 text-[10px] line-clamp-1">{b.description}</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                <BannerDisplay
+                                    banners={activeBanners}
+                                    displayMode={themeConfig.bannerDisplayMode || 'stack'}
+                                />
                             )}
 
                             {/* Promotions Banner if enabled */}

@@ -536,6 +536,38 @@ export const StaffCmsManage: React.FC = () => {
                                     />
                                 </label>
 
+                                {draftTheme.showBanner && (
+                                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                                        <div className="text-xs font-bold text-slate-800">Kiểu hiển thị Banner:</div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setDraftTheme({ ...draftTheme, bannerDisplayMode: 'slide' })}
+                                                className={`p-2.5 rounded-xl border text-left transition ${
+                                                    draftTheme.bannerDisplayMode === 'slide'
+                                                        ? 'border-orange-500 bg-orange-50 text-orange-600 font-bold shadow-xs'
+                                                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                                                }`}
+                                            >
+                                                <div className="text-xs font-bold">🎠 Slide trình chiếu</div>
+                                                <div className="text-[10px] text-slate-500 mt-0.5">Trượt ngang tự động, có chấm chuyển</div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDraftTheme({ ...draftTheme, bannerDisplayMode: 'stack' })}
+                                                className={`p-2.5 rounded-xl border text-left transition ${
+                                                    (draftTheme.bannerDisplayMode || 'stack') === 'stack'
+                                                        ? 'border-orange-500 bg-orange-50 text-orange-600 font-bold shadow-xs'
+                                                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                                                }`}
+                                            >
+                                                <div className="text-xs font-bold">🖼️ Ảnh đơn lẻ</div>
+                                                <div className="text-[10px] text-slate-500 mt-0.5">Xếp dọc từng tấm như hiện tại</div>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <label className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer">
                                     <span className="text-xs font-medium text-slate-800">Bật Bảng Thông Báo Khuyến Mãi</span>
                                     <input
@@ -554,6 +586,44 @@ export const StaffCmsManage: React.FC = () => {
             {/* TAB 2: BANNERS MANAGEMENT */}
             {subTab === 'banners' && (
                 <div className="space-y-4">
+                    {/* Banner Display Mode Switcher */}
+                    <div className="p-3.5 bg-white border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                        <div>
+                            <h4 className="text-xs font-bold text-slate-800">Kiểu hiển thị trên thực đơn của khách:</h4>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                                {draftTheme.bannerDisplayMode === 'slide'
+                                    ? 'Đang chọn: Trình chiếu Slide trượt ngang tự động'
+                                    : 'Đang chọn: Ảnh đơn lẻ từng tấm xếp dọc (mặc định)'}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setDraftTheme({ ...draftTheme, bannerDisplayMode: 'slide' })}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                    draftTheme.bannerDisplayMode === 'slide'
+                                        ? 'bg-white text-orange-600 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                <span>🎠</span>
+                                <span>Slide trình chiếu</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDraftTheme({ ...draftTheme, bannerDisplayMode: 'stack' })}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                    (draftTheme.bannerDisplayMode || 'stack') === 'stack'
+                                        ? 'bg-white text-orange-600 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                <span>🖼️</span>
+                                <span>Ảnh đơn lẻ</span>
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="flex items-center justify-between">
                         <h3 className="font-extrabold text-sm text-slate-900">Danh Sách Banner ({banners.length})</h3>
                         <button

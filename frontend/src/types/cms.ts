@@ -14,6 +14,7 @@ export interface CmsThemeConfig {
     layout: 'classic' | 'modern_grid' | 'compact_list';
     showBanner: boolean;
     showPromotions: boolean;
+    bannerDisplayMode?: 'slide' | 'stack';
     blockOrder: string[];
 }
 
