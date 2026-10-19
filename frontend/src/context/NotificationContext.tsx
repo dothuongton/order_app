@@ -162,47 +162,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [isWakeLockActive, releaseWakeLock, requestWakeLock]);
 
-  // Background Audio session keep-alive (keeps mobile audio active when screen is locked)
-  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  const startBackgroundAudioSession = useCallback(() => {
-    if (typeof window === 'undefined') return;
-
-    if (!silentAudioRef.current) {
-      try {
-        const audio = new Audio('data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==');
-        audio.loop = true;
-        audio.volume = 0.001; // nearly zero so inaudible, but triggers active media session on iOS & Android
-        silentAudioRef.current = audio;
-      } catch {}
-    }
-
-    if (silentAudioRef.current) {
-      try {
-        const p = silentAudioRef.current.play();
-        if (p) p.catch(() => {});
-      } catch {}
-    }
-
-    if ('mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: 'QR Order - Chuông báo nhân viên',
-          artist: 'Hệ thống gọi món tại bàn',
-          album: 'Sẵn sàng phát chuông khi tắt màn hình',
-          artwork: [{ src: '/icon.svg', sizes: '192x192', type: 'image/svg+xml' }]
-        });
-        navigator.mediaSession.playbackState = 'playing';
-
-        navigator.mediaSession.setActionHandler('play', () => {
-          unlockAudio();
-        });
-        navigator.mediaSession.setActionHandler('pause', () => {});
-      } catch {}
-    }
-  }, []);
-
-  // Unlock audio context silently on user gesture or wakeup with iOS silent buffer trick
+  // Unlock audio context safely on user gesture or visibility change
   const unlockAudio = useCallback(() => {
     setIsAudioUnlocked(true);
     const ctx = getOrCreateAudioContext();
@@ -221,18 +181,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       } catch {}
     }
 
-    // Prime HTML5 Audio elements silently
-    try {
-      if (orderAudioRef.current) orderAudioRef.current.load();
-      if (alertAudioRef.current) alertAudioRef.current.load();
-    } catch {}
-
-    // Start background audio session if sound enabled
-    if (soundMode !== 'off') {
-      startBackgroundAudioSession();
-    }
-
-    // Unstick SpeechSynthesis on WebKit / Blink
+    // Unstick SpeechSynthesis on WebKit / Blink if paused
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         if (window.speechSynthesis.paused) {
@@ -240,23 +189,27 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
       } catch {}
     }
-  }, [soundMode, startBackgroundAudioSession]);
+  }, []);
 
-  // Global user gesture listeners: touch, click, pointerdown immediately unlock audio silently
+  // One-time user gesture listener to unlock audio without hammering CPU on every click
   useEffect(() => {
-    const handleUserGesture = () => {
+    let hasUnlocked = false;
+
+    const handleFirstGesture = () => {
+      if (hasUnlocked) return;
+      hasUnlocked = true;
       unlockAudio();
     };
 
-    const events = ['click', 'touchstart', 'touchend', 'pointerdown'];
-    events.forEach(ev => window.addEventListener(ev, handleUserGesture, { passive: true }));
+    const events = ['click', 'touchstart', 'keydown'];
+    events.forEach(ev => window.addEventListener(ev, handleFirstGesture, { passive: true, once: true }));
 
     return () => {
-      events.forEach(ev => window.removeEventListener(ev, handleUserGesture));
+      events.forEach(ev => window.removeEventListener(ev, handleFirstGesture));
     };
   }, [unlockAudio]);
 
-  // Handle screen wake up (visibilitychange, pageshow & focus) to auto-resume audio, unfreeze speech & re-request wake lock
+  // Handle screen wake up (visibilitychange & focus) to auto-resume audio context
   useEffect(() => {
     const handleWakeup = () => {
       unlockAudio();
@@ -267,7 +220,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     document.addEventListener('visibilitychange', handleWakeup);
     window.addEventListener('focus', handleWakeup);
-    window.addEventListener('pageshow', handleWakeup);
 
     // Initial wake lock attempt
     requestWakeLock();
@@ -275,7 +227,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => {
       document.removeEventListener('visibilitychange', handleWakeup);
       window.removeEventListener('focus', handleWakeup);
-      window.removeEventListener('pageshow', handleWakeup);
     };
   }, [unlockAudio, requestWakeLock]);
 
@@ -299,48 +250,40 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
-      // 3. Find Vietnamese voice if available
-      const voices = window.speechSynthesis.getVoices();
-      const viVoice = voices.find(v => {
-        const lang = (v.lang || '').toLowerCase().replace('_', '-');
-        const name = (v.name || '').toLowerCase();
-        return lang === 'vi-vn' || lang.startsWith('vi') || name.includes('vietnam') || name.includes('tiếng việt');
-      });
-      if (viVoice) {
-        utterance.voice = viVoice;
-      }
+      // Find Vietnamese voice if available
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        const viVoice = voices.find(v => {
+          const lang = (v.lang || '').toLowerCase().replace('_', '-');
+          const name = (v.name || '').toLowerCase();
+          return lang === 'vi-vn' || lang.startsWith('vi') || name.includes('vietnam') || name.includes('tiếng việt');
+        });
+        if (viVoice) {
+          utterance.voice = viVoice;
+        }
+      } catch {}
 
-      // Store in window to avoid WebKit garbage-collecting the utterance before finish
+      // Retain reference on window to prevent garbage collection mid-speech
       (window as any).__qr_active_utterance = utterance;
-
       utterance.onend = () => {
         (window as any).__qr_active_utterance = null;
       };
-      utterance.onerror = (err) => {
-        console.warn('Speech error:', err);
+      utterance.onerror = () => {
         (window as any).__qr_active_utterance = null;
       };
 
-      // 70ms delay allows cancel() to settle cleanly across WebKit/Blink
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+
       setTimeout(() => {
         try {
           if (window.speechSynthesis.paused) {
             window.speechSynthesis.resume();
           }
           window.speechSynthesis.speak(utterance);
-        } catch (e) {
-          console.warn('Error calling speak:', e);
-        }
-      }, 70);
-
-      // Chromium bug workaround: if speech engine gets paused or stuck after 200ms, nudge resume()
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          if (window.speechSynthesis.speaking && window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
-          }
-        }
-      }, 200);
+        } catch {}
+      }, 60);
     } catch (e) {
       console.warn('Speech synthesis unavailable', e);
     }
