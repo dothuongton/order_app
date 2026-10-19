@@ -92,30 +92,6 @@ export const StaffReports: React.FC = () => {
         </p>
       </div>
 
-      {/* Top Served Dishes */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
-        <div className="flex items-center gap-2">
-          <Utensils className="w-4 h-4 text-orange-600" />
-          <h4 className="font-bold text-sm text-slate-900">Món được phục vụ nhiều nhất</h4>
-        </div>
-
-        <div className="divide-y divide-slate-100">
-          {(data?.topServedItems || []).map((dish: any, idx: number) => (
-            <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
-              <span className="font-medium text-slate-800">{dish.item_name}</span>
-              <div className="text-right">
-                <span className="font-bold text-slate-900">{dish.total_served} phần</span>
-                <span className="text-slate-400 block text-[11px]">{Number(dish.total_amount).toLocaleString('vi-VN')}đ</span>
-              </div>
-            </div>
-          ))}
-
-          {(!data?.topServedItems || data.topServedItems.length === 0) && (
-            <p className="text-xs text-slate-400 py-3 text-center">Chưa có dữ liệu món đã phục vụ</p>
-          )}
-        </div>
-      </div>
-
       {/* Recent Settled Sessions */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
@@ -159,6 +135,30 @@ export const StaffReports: React.FC = () => {
 
           {(!data?.recentSettledSessions || data.recentSettledSessions.length === 0) && (
             <p className="text-xs text-slate-400 py-3 text-center">Chưa có phiên nào được thanh toán</p>
+          )}
+        </div>
+      </div>
+
+      {/* Top Served Dishes */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
+        <div className="flex items-center gap-2">
+          <Utensils className="w-4 h-4 text-orange-600" />
+          <h4 className="font-bold text-sm text-slate-900">Món được phục vụ nhiều nhất</h4>
+        </div>
+
+        <div className="divide-y divide-slate-100">
+          {(data?.topServedItems || []).map((dish: any, idx: number) => (
+            <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
+              <span className="font-medium text-slate-800">{dish.item_name}</span>
+              <div className="text-right">
+                <span className="font-bold text-slate-900">{dish.total_served} phần</span>
+                <span className="text-slate-400 block text-[11px]">{Number(dish.total_amount).toLocaleString('vi-VN')}đ</span>
+              </div>
+            </div>
+          ))}
+
+          {(!data?.topServedItems || data.topServedItems.length === 0) && (
+            <p className="text-xs text-slate-400 py-3 text-center">Chưa có dữ liệu món đã phục vụ</p>
           )}
         </div>
       </div>

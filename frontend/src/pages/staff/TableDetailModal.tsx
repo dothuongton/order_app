@@ -4,7 +4,8 @@ import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
   X, Check, CheckCheck, Ban, CreditCard, Sparkles, AlertTriangle, AlertCircle,
-  Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed, Plus, Store
+  Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed, Plus, Store,
+  Edit3, Trash2
 } from 'lucide-react';
 
 interface TableDetailModalProps {
@@ -20,6 +21,22 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const [isLoading, setIsLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  // Edit & Delete Table state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editTableNumber, setEditTableNumber] = useState(table?.table_number || '');
+  const [editTableCapacity, setEditTableCapacity] = useState(table?.capacity || 4);
+  const [isUpdatingTable, setIsUpdatingTable] = useState(false);
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeletingTable, setIsDeletingTable] = useState(false);
+
+  useEffect(() => {
+    if (table) {
+      setEditTableNumber(table.table_number);
+      setEditTableCapacity(table.capacity || 4);
+    }
+  }, [table]);
 
   // Cancellation modal state
   const [cancelModalItem, setCancelModalItem] = useState<any | null>(null);
@@ -222,6 +239,48 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     }
   };
 
+  const handleUpdateTable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!table || !editTableNumber.trim()) return;
+    setIsUpdatingTable(true);
+    setActionError(null);
+    try {
+      await request(`/staff/tables/${table.table_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          table_number: editTableNumber.trim(),
+          capacity: Number(editTableCapacity) || 4
+        })
+      });
+      setShowEditModal(false);
+      setActionSuccess(`Đã cập nhật bàn "${editTableNumber.trim()}"`);
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || 'Lỗi cập nhật bàn');
+    } finally {
+      setIsUpdatingTable(false);
+    }
+  };
+
+  const handleDeleteTable = async () => {
+    if (!table) return;
+    setIsDeletingTable(true);
+    setActionError(null);
+    try {
+      await request(`/staff/tables/${table.table_id}`, {
+        method: 'DELETE'
+      });
+      setShowDeleteModal(false);
+      onRefresh();
+      onClose();
+    } catch (err: any) {
+      setActionError(err.message || 'Lỗi xóa bàn');
+      setShowDeleteModal(false);
+    } finally {
+      setIsDeletingTable(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-fade-in">
       <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up">
@@ -244,12 +303,34 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
               </span>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-400"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {hasPermission('table.manage') && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(true)}
+                  className="w-9 h-9 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                  title="Sửa bàn"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="w-9 h-9 rounded-full hover:bg-rose-100 flex items-center justify-center text-rose-500 hover:text-rose-700 transition cursor-pointer"
+                  title="Xóa bàn"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="w-10 h-10 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-400 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Action Banners */}
@@ -620,6 +701,113 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-md min-h-[44px]"
                 >
                   {isSettling ? 'Đang xác nhận...' : 'Đã nhận đủ tiền'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* EDIT TABLE MODAL */}
+        {showEditModal && (
+          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-slide-up">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-orange-600" />
+                  <span>Chỉnh Sửa Bàn</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateTable} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Số Bàn / Tên Bàn *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editTableNumber}
+                    onChange={(e) => setEditTableNumber(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Sức Chứa Dự Kiến (Người)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={editTableCapacity}
+                    onChange={(e) => setEditTableCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingTable || !editTableNumber.trim()}
+                    className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isUpdatingTable ? 'Đang lưu...' : 'Lưu Thay Đổi'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* DELETE TABLE CONFIRMATION MODAL */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-slide-up">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  <span>Xác Nhận Xóa Bàn</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600">
+                Bạn có chắc chắn muốn xóa <strong className="text-slate-900">Bàn {table.table_number}</strong>?
+                Mã QR tương ứng sẽ không thể dùng để gọi món nữa.
+              </p>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingTable}
+                  onClick={handleDeleteTable}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1"
+                >
+                  {isDeletingTable ? 'Đang xóa...' : 'Xóa Bàn'}
                 </button>
               </div>
             </div>

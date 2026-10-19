@@ -51,6 +51,12 @@ export const StaffDashboard: React.FC = () => {
   const [cancelReason, setCancelReason] = useState<string>('Hết nguyên liệu');
   const [markItemOutOfStock, setMarkItemOutOfStock] = useState<boolean>(true);
 
+  // Add Table state
+  const [showAddTableModal, setShowAddTableModal] = useState<boolean>(false);
+  const [newTableNumber, setNewTableNumber] = useState<string>('');
+  const [newTableCapacity, setNewTableCapacity] = useState<number>(4);
+  const [isAddingTable, setIsAddingTable] = useState<boolean>(false);
+
   const fetchDashboard = useCallback(async () => {
     try {
       const data = await request<{ tables: StaffTable[]; openRequests: ServiceRequest[] }>('/staff/dashboard/snapshot');
@@ -245,6 +251,38 @@ export const StaffDashboard: React.FC = () => {
       fetchDashboard();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi hủy món', type: 'error' });
+    }
+  };
+
+  const handleAddTable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTableNumber.trim()) return;
+    setIsAddingTable(true);
+    try {
+      const res = await request<any>('/staff/tables', {
+        method: 'POST',
+        body: JSON.stringify({
+          table_number: newTableNumber.trim(),
+          capacity: Number(newTableCapacity) || 4
+        })
+      });
+      showToast({
+        title: 'Thêm bàn thành công',
+        message: res.message || `Đã tạo ${newTableNumber.trim()}`,
+        type: 'success'
+      });
+      setShowAddTableModal(false);
+      setNewTableNumber('');
+      setNewTableCapacity(4);
+      await fetchDashboard();
+    } catch (err: any) {
+      showToast({
+        title: 'Lỗi tạo bàn',
+        message: err.message || 'Không thể tạo bàn mới',
+        type: 'error'
+      });
+    } finally {
+      setIsAddingTable(false);
     }
   };
 
@@ -459,17 +497,31 @@ export const StaffDashboard: React.FC = () => {
         {/* TAB 1: Tables Overview */}
         {activeTab === 'tables' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="font-extrabold text-slate-900 text-lg">Danh sách bàn</h2>
                 <p className="text-xs text-slate-500">Trạng thái thời gian thực của các bàn phục vụ</p>
               </div>
-              <button
-                onClick={fetchDashboard}
-                className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {hasPermission('table.manage') && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddTableModal(true)}
+                    className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1 min-h-[38px] cursor-pointer"
+                    title="Tạo thêm bàn mới"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Thêm bàn</span>
+                  </button>
+                )}
+                <button
+                  onClick={fetchDashboard}
+                  className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition"
+                  title="Làm mới"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Quick Search & Filter Bar for 100 Tables */}
@@ -1392,6 +1444,72 @@ export const StaffDashboard: React.FC = () => {
                 Xác nhận hủy
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD TABLE MODAL */}
+      {showAddTableModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-slide-up">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                <Store className="w-5 h-5 text-orange-600" />
+                <span>Thêm Bàn Phục Vụ Mới</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => { setShowAddTableModal(false); setNewTableNumber(''); }}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddTable} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Số Bàn / Tên Bàn *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: Bàn 06, A03, VIP 1..."
+                  value={newTableNumber}
+                  onChange={(e) => setNewTableNumber(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                  autoFocus
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">Mỗi bàn sẽ tự động được cấp mã QR riêng để khách quét gọi món.</span>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Sức Chứa Dự Kiến (Người)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={newTableCapacity}
+                  onChange={(e) => setNewTableCapacity(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => { setShowAddTableModal(false); setNewTableNumber(''); }}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingTable || !newTableNumber.trim()}
+                  className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+                >
+                  {isAddingTable ? 'Đang tạo...' : 'Tạo Bàn'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
