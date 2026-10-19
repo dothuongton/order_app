@@ -32,11 +32,28 @@ self.addEventListener('push', (event) => {
     badge: payload.badge || '/icon.svg',
     tag: notificationTag,
     renotify: true,
+    requireInteraction: true,
+    silent: false,
     data: data,
-    vibrate: [200, 100, 200]
+    vibrate: [500, 200, 500, 200, 800],
+    actions: [
+      { action: 'open', title: '👀 Mở xem ngay' }
+    ]
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        clientList.forEach((client) => {
+          client.postMessage({
+            type: 'PUSH_ORDER_EVENT',
+            payload: payload
+          });
+        });
+      })
+    ])
+  );
 });
 
 // Handle user clicking on notification (lockscreen or banner)

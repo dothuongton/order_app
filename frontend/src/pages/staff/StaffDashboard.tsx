@@ -14,7 +14,7 @@ import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
-  Smartphone, BellRing, Search, ShieldAlert, Palette, Settings
+  Smartphone, BellRing, Search, ShieldAlert, Palette, Settings, Sun
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -25,6 +25,9 @@ export const StaffDashboard: React.FC = () => {
     soundMode,
     cycleSoundMode,
     toggleSound,
+    isWakeLockActive,
+    toggleWakeLock,
+    requestWakeLock,
     playOrderSound,
     playAlertSound,
     testSound,
@@ -87,6 +90,11 @@ export const StaffDashboard: React.FC = () => {
       window.removeEventListener('focus', handleWakeup);
     };
   }, [fetchDashboard]);
+
+  // Keep screen awake while on staff dashboard
+  useEffect(() => {
+    requestWakeLock();
+  }, [requestWakeLock]);
 
   // Connect to staff socket room
   useEffect(() => {
@@ -402,6 +410,20 @@ export const StaffDashboard: React.FC = () => {
                 <span className="hidden sm:inline">Tắt âm</span>
               </>
             )}
+          </button>
+
+          {/* Screen Wake Lock Button (keep screen on to prevent missing sound) */}
+          <button
+            onClick={toggleWakeLock}
+            className={`px-2.5 py-1.5 rounded-xl transition min-h-[40px] flex items-center gap-1.5 border text-xs font-bold ${
+              isWakeLockActive
+                ? 'text-amber-300 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25'
+                : 'text-slate-400 bg-slate-800/80 border-slate-700 hover:bg-slate-800'
+            }`}
+            title={isWakeLockActive ? 'Màn hình đang được giữ luôn sáng để không mất chuông. Nhấn để tắt.' : 'Nhấn để giữ màn hình không tự tắt.'}
+          >
+            <Sun className={`w-4 h-4 ${isWakeLockActive ? 'text-amber-400' : 'text-slate-500'}`} />
+            <span className="hidden sm:inline">{isWakeLockActive ? 'Sáng liên tục' : 'Tự tắt'}</span>
           </button>
 
           {/* Web Push Notification Settings Button */}

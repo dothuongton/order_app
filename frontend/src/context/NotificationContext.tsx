@@ -22,6 +22,10 @@ interface NotificationContextType {
   isAudioUnlocked: boolean;
   unlockAudio: () => void;
   toggleSound: () => void;
+  isWakeLockActive: boolean;
+  requestWakeLock: () => Promise<void>;
+  releaseWakeLock: () => void;
+  toggleWakeLock: () => void;
   playOrderSound: (tableName?: string) => void;
   playAlertSound: (tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE') => void;
   playSuccessSound: () => void;
@@ -122,6 +126,82 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, []);
 
+  // Screen Wake Lock API to prevent phone/tablet screen from sleeping
+  const [isWakeLockActive, setIsWakeLockActive] = useState<boolean>(false);
+  const wakeLockRef = useRef<any>(null);
+
+  const requestWakeLock = useCallback(async () => {
+    if (typeof window === 'undefined' || !('wakeLock' in navigator)) return;
+    try {
+      if (!wakeLockRef.current) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        setIsWakeLockActive(true);
+        wakeLockRef.current.addEventListener('release', () => {
+          wakeLockRef.current = null;
+          setIsWakeLockActive(false);
+        });
+      }
+    } catch (err) {
+      console.warn('Wake Lock request error:', err);
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+      setIsWakeLockActive(false);
+    }
+  }, []);
+
+  const toggleWakeLock = useCallback(() => {
+    if (isWakeLockActive) {
+      releaseWakeLock();
+    } else {
+      requestWakeLock();
+    }
+  }, [isWakeLockActive, releaseWakeLock, requestWakeLock]);
+
+  // Background Audio session keep-alive (keeps mobile audio active when screen is locked)
+  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const startBackgroundAudioSession = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    if (!silentAudioRef.current) {
+      try {
+        const audio = new Audio('data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==');
+        audio.loop = true;
+        audio.volume = 0.001; // nearly zero so inaudible, but triggers active media session on iOS & Android
+        silentAudioRef.current = audio;
+      } catch {}
+    }
+
+    if (silentAudioRef.current) {
+      try {
+        const p = silentAudioRef.current.play();
+        if (p) p.catch(() => {});
+      } catch {}
+    }
+
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'QR Order - Chuông báo nhân viên',
+          artist: 'Hệ thống gọi món tại bàn',
+          album: 'Sẵn sàng phát chuông khi tắt màn hình',
+          artwork: [{ src: '/icon.svg', sizes: '192x192', type: 'image/svg+xml' }]
+        });
+        navigator.mediaSession.playbackState = 'playing';
+
+        navigator.mediaSession.setActionHandler('play', () => {
+          unlockAudio();
+        });
+        navigator.mediaSession.setActionHandler('pause', () => {});
+      } catch {}
+    }
+  }, []);
+
   // Unlock audio context silently on user gesture or wakeup with iOS silent buffer trick
   const unlockAudio = useCallback(() => {
     setIsAudioUnlocked(true);
@@ -147,16 +227,20 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (alertAudioRef.current) alertAudioRef.current.load();
     } catch {}
 
-    // Unstick SpeechSynthesis on iOS WebKit
+    // Start background audio session if sound enabled
+    if (soundMode !== 'off') {
+      startBackgroundAudioSession();
+    }
+
+    // Unstick SpeechSynthesis on WebKit / Blink
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
-        window.speechSynthesis.cancel();
       } catch {}
     }
-  }, []);
+  }, [soundMode, startBackgroundAudioSession]);
 
   // Global user gesture listeners: touch, click, pointerdown immediately unlock audio silently
   useEffect(() => {
@@ -172,41 +256,56 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, [unlockAudio]);
 
-  // Handle screen wake up (visibilitychange, pageshow & focus) to auto-resume audio and unfreeze iOS speech
+  // Handle screen wake up (visibilitychange, pageshow & focus) to auto-resume audio, unfreeze speech & re-request wake lock
   useEffect(() => {
     const handleWakeup = () => {
       unlockAudio();
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
     };
 
     document.addEventListener('visibilitychange', handleWakeup);
     window.addEventListener('focus', handleWakeup);
     window.addEventListener('pageshow', handleWakeup);
 
+    // Initial wake lock attempt
+    requestWakeLock();
+
     return () => {
       document.removeEventListener('visibilitychange', handleWakeup);
       window.removeEventListener('focus', handleWakeup);
       window.removeEventListener('pageshow', handleWakeup);
     };
-  }, [unlockAudio]);
+  }, [unlockAudio, requestWakeLock]);
 
-  // Speech synthesis helper in Vietnamese with WebKit anti-freeze & GC protection
+  // Speech synthesis helper in Vietnamese with robust voice detection & Blink/WebKit unfreeze
   const speakVietnamese = useCallback((text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     try {
-      // iOS WebKit unfreeze
+      // 1. Unfreeze if paused
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
-      window.speechSynthesis.cancel(); // Clear pending queue
+
+      // 2. Clear any pending speech queue
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'vi-VN';
-      utterance.rate = 1.05;
+      utterance.rate = 1.0;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
+      // 3. Find Vietnamese voice if available
       const voices = window.speechSynthesis.getVoices();
-      const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
+      const viVoice = voices.find(v => {
+        const lang = (v.lang || '').toLowerCase().replace('_', '-');
+        const name = (v.name || '').toLowerCase();
+        return lang === 'vi-vn' || lang.startsWith('vi') || name.includes('vietnam') || name.includes('tiếng việt');
+      });
       if (viVoice) {
         utterance.voice = viVoice;
       }
@@ -222,12 +321,26 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         (window as any).__qr_active_utterance = null;
       };
 
-      // 60ms delay allows cancel() to settle cleanly across WebKit/Blink
+      // 70ms delay allows cancel() to settle cleanly across WebKit/Blink
       setTimeout(() => {
         try {
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
           window.speechSynthesis.speak(utterance);
-        } catch {}
-      }, 60);
+        } catch (e) {
+          console.warn('Error calling speak:', e);
+        }
+      }, 70);
+
+      // Chromium bug workaround: if speech engine gets paused or stuck after 200ms, nudge resume()
+      setTimeout(() => {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          if (window.speechSynthesis.speaking && window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+        }
+      }, 200);
     } catch (e) {
       console.warn('Speech synthesis unavailable', e);
     }
@@ -435,33 +548,38 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [removeToast]);
 
-  // 1. New Order Notification (Voice or Chime)
+  // 1. New Order Notification (Dual Chime + Voice)
   const playOrderSound = useCallback((tableName?: string) => {
     if (soundMode === 'off') return;
 
+    // 1. ALWAYS play the loud chime tone first (guarantees sound is heard even if TTS is unavailable/slow or screen is off)
+    playOrderSoundTone();
+
+    // 2. If 'voice' mode is enabled, speak table name
     if (soundMode === 'voice') {
       const spokenTable = tableName || 'Bàn';
-      speakVietnamese(`${spokenTable} vừa đặt món`);
-    } else {
-      // Default Chime only
-      playOrderSoundTone();
+      setTimeout(() => {
+        speakVietnamese(`${spokenTable} vừa đặt món`);
+      }, 350);
     }
   }, [soundMode, speakVietnamese, playOrderSoundTone]);
 
-  // 2. Service Request Notification (Voice or Chime)
+  // 2. Service Request Notification (Dual Chime + Voice)
   const playAlertSound = useCallback((tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE') => {
     if (soundMode === 'off') return;
 
+    // 1. ALWAYS play the alert tone first
+    playAlertSoundTone();
+
+    // 2. If 'voice' mode is enabled, speak table name & action
     if (soundMode === 'voice') {
       const spokenTable = tableName || 'Bàn';
-      if (requestType === 'CHECKOUT') {
-        speakVietnamese(`${spokenTable} yêu cầu thanh toán`);
-      } else {
-        speakVietnamese(`${spokenTable} yêu cầu hỗ trợ`);
-      }
-    } else {
-      // Default Chime only
-      playAlertSoundTone();
+      const prompt = requestType === 'CHECKOUT'
+        ? `${spokenTable} yêu cầu thanh toán`
+        : `${spokenTable} yêu cầu hỗ trợ`;
+      setTimeout(() => {
+        speakVietnamese(prompt);
+      }, 350);
     }
   }, [soundMode, speakVietnamese, playAlertSoundTone]);
 
@@ -479,14 +597,42 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     } catch {}
   }, [soundMode, playHarmonicNote]);
 
+  // Listen for push events relayed from Service Worker (when screen is locked / in background)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'PUSH_ORDER_EVENT') {
+        const payload = event.data.payload || {};
+        const eventType = payload.data?.type || payload.type;
+        const tableName = payload.data?.tableName || payload.tableName;
+        const requestType = payload.data?.requestType;
+
+        if (eventType === 'order.created') {
+          playOrderSound(tableName);
+        } else if (eventType === 'service_request.created') {
+          playAlertSound(tableName, requestType);
+        }
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    };
+  }, [playOrderSound, playAlertSound]);
+
   // Test sound function
   const testSound = useCallback(() => {
     unlockAudio();
     if (soundMode === 'voice') {
-      speakVietnamese('Bàn số 1 vừa đặt món mới');
+      playOrderSoundTone();
+      setTimeout(() => {
+        speakVietnamese('Bàn số 1 vừa đặt món mới');
+      }, 350);
       showToast({
-        title: '🗣️ Thử giọng nói tiếng Việt',
-        message: 'Đang phát âm: "Bàn số 1 vừa đặt món mới"',
+        title: '🗣️ Thử chuông & giọng nói tiếng Việt',
+        message: 'Đang phát chuông và đọc: "Bàn số 1 vừa đặt món mới"',
         type: 'info',
         duration: 3500
       });
@@ -519,6 +665,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         isAudioUnlocked,
         unlockAudio,
         toggleSound,
+        isWakeLockActive,
+        requestWakeLock,
+        releaseWakeLock,
+        toggleWakeLock,
         playOrderSound,
         playAlertSound,
         playSuccessSound,
