@@ -14,7 +14,7 @@ import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
-  Smartphone, BellRing, Search, ShieldAlert, Palette
+  Smartphone, BellRing, Search, ShieldAlert, Palette, Settings
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -1202,8 +1202,8 @@ export const StaffDashboard: React.FC = () => {
             activeTab === 'cms' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
-          <Palette className="w-5 h-5" />
-          <span className="text-[10px] mt-1">CMS</span>
+          <Settings className="w-5 h-5" />
+          <span className="text-[10px] mt-1">Thiết lập</span>
         </button>
       </nav>
 
