@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { request } from '../../api/client.js';
 import { CmsThemeConfig, Banner, Promotion, CmsPublishedVersion } from '../../types/cms.js';
 import { MobilePreviewModal } from '../../components/cms/MobilePreviewModal.js';
+import { ImageUploadField } from '../../components/ImageUploadField.js';
 import {
     Palette, Image as ImageIcon, Tag, History, Smartphone,
     Save, Send, RotateCcw, Plus, Trash2, Edit3, Check,
@@ -417,27 +418,21 @@ export const StaffCmsManage: React.FC = () => {
                                 />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-slate-700 font-semibold mb-1">Logo URL</label>
-                                    <input
-                                        type="text"
-                                        value={shopProfile.logoUrl || ''}
-                                        onChange={(e) => setShopProfile({ ...shopProfile, logoUrl: e.target.value })}
-                                        placeholder="https://..."
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-slate-900 text-[11px] font-mono focus:bg-white focus:outline-hidden focus:border-orange-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-slate-700 font-semibold mb-1">Ảnh Bìa URL</label>
-                                    <input
-                                        type="text"
-                                        value={shopProfile.coverUrl || ''}
-                                        onChange={(e) => setShopProfile({ ...shopProfile, coverUrl: e.target.value })}
-                                        placeholder="https://..."
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 text-slate-900 text-[11px] font-mono focus:bg-white focus:outline-hidden focus:border-orange-500"
-                                    />
-                                </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                                <ImageUploadField
+                                    label="Logo Quán"
+                                    value={shopProfile.logoUrl || ''}
+                                    onChange={(url) => setShopProfile({ ...shopProfile, logoUrl: url })}
+                                    aspectRatio="square"
+                                    helperText="Ảnh vuông 1:1 góc hóa đơn và menu"
+                                />
+                                <ImageUploadField
+                                    label="Ảnh Bìa Quán"
+                                    value={shopProfile.coverUrl || ''}
+                                    onChange={(url) => setShopProfile({ ...shopProfile, coverUrl: url })}
+                                    aspectRatio="banner"
+                                    helperText="Ảnh bìa ngang đầu trang khách"
+                                />
                             </div>
                         </div>
                     </div>
@@ -824,17 +819,13 @@ export const StaffCmsManage: React.FC = () => {
                                 />
                             </div>
 
-                            <div>
-                                <label className="block text-slate-700 font-semibold mb-1">Đường Dẫn Ảnh (Image URL) *</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={editingBanner.imageUrl || ''}
-                                    onChange={(e) => setEditingBanner({ ...editingBanner, imageUrl: e.target.value })}
-                                    placeholder="https://images.unsplash.com/..."
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-mono text-[11px] focus:bg-white focus:outline-hidden focus:border-orange-500"
-                                />
-                            </div>
+                            <ImageUploadField
+                                label="Hình Ảnh Banner *"
+                                value={editingBanner.imageUrl || ''}
+                                onChange={(url) => setEditingBanner({ ...editingBanner, imageUrl: url })}
+                                aspectRatio="banner"
+                                helperText="Tải ảnh banner tỷ lệ ngang 16:9 hoặc 21:9"
+                            />
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>

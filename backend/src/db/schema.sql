@@ -419,3 +419,16 @@ CREATE INDEX IF NOT EXISTS idx_banners_tenant_active ON banners(tenant_id, is_ac
 CREATE INDEX IF NOT EXISTS idx_promotions_tenant_active ON promotions(tenant_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_cms_versions_tenant ON cms_published_versions(tenant_id, version DESC);
 CREATE INDEX IF NOT EXISTS idx_promo_redemptions_promo ON promotion_redemptions(promotion_id);
+
+-- 9. Uploaded Images (Lưu trữ ảnh trực tiếp an toàn, không phụ thuộc ổ đĩa tạm thời)
+CREATE TABLE IF NOT EXISTS uploaded_images (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    filename VARCHAR(255),
+    mime_type VARCHAR(64) NOT NULL DEFAULT 'image/jpeg',
+    size_bytes INT NOT NULL DEFAULT 0,
+    data_base64 TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_uploaded_images_tenant ON uploaded_images(tenant_id);
