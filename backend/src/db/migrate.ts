@@ -14,7 +14,22 @@ export async function migrate() {
     const client = await pool.connect();
     try {
         await client.query(sql);
-        console.log('✅ Migrations completed successfully.');
+        console.log('✅ Base schema & updates applied successfully.');
+
+        // Also run migrations directory if present
+        const migrationsDir = path.join(__dirname, 'migrations');
+        if (fs.existsSync(migrationsDir)) {
+            const files = fs.readdirSync(migrationsDir)
+                .filter((f) => f.endsWith('.sql') && !f.includes('_down'))
+                .sort();
+
+            for (const file of files) {
+                console.log(`➡️ Running migration: ${file}`);
+                const migrationSql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+                await client.query(migrationSql);
+            }
+            console.log('✅ All migration files applied successfully.');
+        }
     } catch (error) {
         console.error('❌ Migration failed:', error);
         throw error;
