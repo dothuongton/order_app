@@ -96,7 +96,7 @@ export class GuestService {
 
         // Fetch active promotions for this shop
         const promosRes = await query(`
-            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount
+            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, scope, applicable_item_ids
             FROM promotions
             WHERE tenant_id = $1 AND is_active = true
               AND NOW() >= start_time AND (end_time IS NULL OR NOW() <= end_time)
@@ -335,6 +335,7 @@ export class GuestService {
 
                 createdItems.push({
                     id: orderItem.id,
+                    menuItemId: item.menuItemId,
                     name: orderItem.snapshot_name,
                     price: parseInt(orderItem.snapshot_price, 10),
                     quantity: orderItem.quantity,

@@ -222,16 +222,24 @@ export const StaffCmsManage: React.FC = () => {
         if (!editingPromo?.title || !editingPromo?.discountValue) return;
 
         try {
+            const promoPayload = Object.fromEntries(
+                Object.entries(editingPromo).filter(([key, value]) => [
+                    'code','title','description','discountType','discountValue',
+                    'minOrderAmount','maxDiscountAmount','maxRedemptions','priority',
+                    'scope','applicableItemIds','isActive','startTime','endTime'
+                ].includes(key) && value != null)
+            );
+
             if (editingPromo.id) {
                 await request(`/cms/promotions/${editingPromo.id}`, {
                     method: 'PATCH',
-                    body: JSON.stringify(Object.fromEntries(Object.entries(editingPromo).filter(([key, value]) => ['code','title','description','discountType','discountValue','minOrderAmount','maxDiscountAmount','maxRedemptions','priority','isActive','startTime','endTime'].includes(key) && value != null)))
+                    body: JSON.stringify(promoPayload)
                 });
                 setActionMsg({ type: 'success', text: 'Cập nhật khuyến mãi thành công' });
             } else {
                 await request('/cms/promotions', {
                     method: 'POST',
-                    body: JSON.stringify(Object.fromEntries(Object.entries(editingPromo).filter(([key, value]) => ['code','title','description','discountType','discountValue','minOrderAmount','maxDiscountAmount','maxRedemptions','priority','isActive','startTime','endTime'].includes(key) && value != null)))
+                    body: JSON.stringify(promoPayload)
                 });
                 setActionMsg({ type: 'success', text: 'Tạo khuyến mãi mới thành công' });
             }
@@ -627,6 +635,8 @@ export const StaffCmsManage: React.FC = () => {
                                     discountValue: 10,
                                     minOrderAmount: 0,
                                     priority: 1,
+                                    scope: 'ALL',
+                                    applicableItemIds: [],
                                     isActive: true
                                 });
                                 setShowPromoModal(true);
@@ -656,6 +666,17 @@ export const StaffCmsManage: React.FC = () => {
                                             </span>
                                         </div>
                                         <h4 className="font-extrabold text-sm text-slate-900 mt-1.5">{p.title}</h4>
+                                        <div className="mt-1">
+                                            {p.scope === 'SPECIFIC_ITEMS' ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-200">
+                                                    🎯 Theo {p.applicableItemIds?.length || 0} món được chọn
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 text-[10px] font-bold border border-sky-200">
+                                                    🌐 Cả sàn / Toàn đơn
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -877,7 +898,7 @@ export const StaffCmsManage: React.FC = () => {
             {/* PROMOTION EDIT MODAL */}
             {showPromoModal && editingPromo && (
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-                    <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-5 space-y-3.5 shadow-2xl">
+                    <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-5 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center pb-2 border-b border-slate-100">
                             <h3 className="font-extrabold text-slate-900 text-sm">
                                 {editingPromo.id ? 'Sửa Chương Trình Khuyến Mãi' : 'Tạo Khuyến Mãi Mới'}
@@ -960,6 +981,104 @@ export const StaffCmsManage: React.FC = () => {
                                     />
                                 </div>
                             </div>
+
+                            {/* SCOPE SELECTION: TOÀN ĐƠN / CẢ SÀN vs TỪNG MÓN */}
+                            <div className="space-y-2 pt-2 border-t border-slate-100">
+                                <label className="block text-slate-700 font-semibold">Phạm Vi Áp Dụng Khuyến Mãi</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingPromo({ ...editingPromo, scope: 'ALL' })}
+                                        className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2 ${
+                                            (editingPromo.scope || 'ALL') === 'ALL'
+                                                ? 'border-orange-500 bg-orange-50/60 text-orange-950 font-bold ring-1 ring-orange-500'
+                                                : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        <span className="text-base">🌐</span>
+                                        <div>
+                                            <div className="text-xs">Cả Sàn / Toàn Đơn</div>
+                                            <div className="text-[10px] text-slate-500 font-normal">Áp dụng cho mọi món</div>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingPromo({
+                                            ...editingPromo,
+                                            scope: 'SPECIFIC_ITEMS',
+                                            applicableItemIds: editingPromo.applicableItemIds || []
+                                        })}
+                                        className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2 ${
+                                            editingPromo.scope === 'SPECIFIC_ITEMS'
+                                                ? 'border-orange-500 bg-orange-50/60 text-orange-950 font-bold ring-1 ring-orange-500'
+                                                : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        <span className="text-base">🎯</span>
+                                        <div>
+                                            <div className="text-xs">Chọn Từng Món</div>
+                                            <div className="text-[10px] text-slate-500 font-normal">Chỉ giảm món được tick</div>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {editingPromo.scope === 'SPECIFIC_ITEMS' && (
+                                <div className="space-y-2 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-slate-700 font-bold text-xs">
+                                            Chọn món áp dụng ({editingPromo.applicableItemIds?.length || 0}/{menuItems.length})
+                                        </span>
+                                        <div className="flex gap-2 text-[11px]">
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingPromo({ ...editingPromo, applicableItemIds: menuItems.map(m => m.id) })}
+                                                className="text-orange-600 hover:underline font-semibold"
+                                            >
+                                                Chọn tất cả
+                                            </button>
+                                            <span className="text-slate-300">|</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingPromo({ ...editingPromo, applicableItemIds: [] })}
+                                                className="text-slate-500 hover:underline"
+                                            >
+                                                Bỏ chọn
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="max-h-44 overflow-y-auto space-y-1 pr-1 divide-y divide-slate-100 bg-white rounded-xl border border-slate-200 p-2">
+                                        {menuItems.map(item => {
+                                            const isChecked = (editingPromo.applicableItemIds || []).includes(item.id);
+                                            return (
+                                                <label key={item.id} className="flex items-center justify-between py-1.5 px-1 hover:bg-slate-50 rounded cursor-pointer text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={(e) => {
+                                                                const currentIds = editingPromo.applicableItemIds || [];
+                                                                const nextIds = e.target.checked
+                                                                    ? [...currentIds, item.id]
+                                                                    : currentIds.filter(id => id !== item.id);
+                                                                setEditingPromo({ ...editingPromo, applicableItemIds: nextIds });
+                                                            }}
+                                                            className="w-4 h-4 text-orange-600 rounded border-slate-300 focus:ring-orange-500"
+                                                        />
+                                                        <span className="font-medium text-slate-800">{item.name}</span>
+                                                    </div>
+                                                    <span className="text-slate-500 text-[11px] font-mono">{Number(item.price).toLocaleString('vi-VN')}đ</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                    {(editingPromo.applicableItemIds?.length || 0) === 0 && (
+                                        <p className="text-[11px] text-amber-600 font-medium">⚠️ Vui lòng chọn ít nhất 1 món áp dụng ưu đãi này.</p>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="flex items-center gap-2 pt-2">
                                 <button

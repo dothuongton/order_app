@@ -41,6 +41,8 @@ export interface PromotionInput {
     maxDiscountAmount?: number;
     maxRedemptions?: number;
     priority?: number;
+    scope?: 'ALL' | 'SPECIFIC_ITEMS';
+    applicableItemIds?: string[];
     isActive?: boolean;
     startTime?: string;
     endTime?: string;
@@ -369,12 +371,29 @@ export class CmsService {
             SELECT 
                 id, code, title, description, discount_type, discount_value,
                 min_order_amount, max_discount_amount, max_redemptions, current_redemptions,
-                priority, is_active, start_time, end_time, created_at
+                priority, scope, applicable_item_ids, is_active, start_time, end_time, created_at
             FROM promotions
             WHERE tenant_id = $1
             ORDER BY priority DESC, created_at DESC
         `, [tenantId]);
-        return res.rows.map(row => ({ id: row.id, code: row.code, title: row.title, description: row.description, discountType: row.discount_type, discountValue: Number(row.discount_value), minOrderAmount: Number(row.min_order_amount), maxDiscountAmount: row.max_discount_amount == null ? undefined : Number(row.max_discount_amount), maxRedemptions: row.max_redemptions, currentRedemptions: row.current_redemptions, priority: row.priority, isActive: row.is_active, startTime: row.start_time, endTime: row.end_time }));
+        return res.rows.map(row => ({
+            id: row.id,
+            code: row.code,
+            title: row.title,
+            description: row.description,
+            discountType: row.discount_type,
+            discountValue: Number(row.discount_value),
+            minOrderAmount: Number(row.min_order_amount),
+            maxDiscountAmount: row.max_discount_amount == null ? undefined : Number(row.max_discount_amount),
+            maxRedemptions: row.max_redemptions,
+            currentRedemptions: row.current_redemptions,
+            priority: row.priority,
+            scope: row.scope || 'ALL',
+            applicableItemIds: row.applicable_item_ids || [],
+            isActive: row.is_active,
+            startTime: row.start_time,
+            endTime: row.end_time
+        }));
     }
 
     static async createPromotion(tenantId: string, input: PromotionInput) {
@@ -387,13 +406,16 @@ export class CmsService {
             throw new Error('Số tiền giảm phải lớn hơn 0');
         }
 
+        const scope = input.scope || 'ALL';
+        const applicableItemIds = scope === 'SPECIFIC_ITEMS' ? (input.applicableItemIds || []) : [];
+
         const res = await query(`
             INSERT INTO promotions (
                 tenant_id, code, title, description, discount_type, discount_value,
-                min_order_amount, max_discount_amount, max_redemptions, priority, is_active,
-                start_time, end_time
+                min_order_amount, max_discount_amount, max_redemptions, priority,
+                scope, applicable_item_ids, is_active, start_time, end_time
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING *
         `, [
             tenantId,
@@ -406,6 +428,8 @@ export class CmsService {
             input.maxDiscountAmount || null,
             input.maxRedemptions || null,
             input.priority || 0,
+            scope,
+            applicableItemIds,
             input.isActive ?? true,
             input.startTime ? new Date(input.startTime) : new Date(),
             input.endTime ? new Date(input.endTime) : null
@@ -432,18 +456,23 @@ export class CmsService {
         const maxDiscountAmount = input.maxDiscountAmount !== undefined ? input.maxDiscountAmount : cur.max_discount_amount;
         const maxRedemptions = input.maxRedemptions !== undefined ? input.maxRedemptions : cur.max_redemptions;
         const priority = input.priority !== undefined ? input.priority : cur.priority;
+        const scope = input.scope !== undefined ? input.scope : (cur.scope || 'ALL');
+        const applicableItemIds = input.applicableItemIds !== undefined
+            ? (scope === 'SPECIFIC_ITEMS' ? input.applicableItemIds : [])
+            : (scope === 'SPECIFIC_ITEMS' ? (cur.applicable_item_ids || []) : []);
         const isActive = input.isActive !== undefined ? input.isActive : cur.is_active;
 
         const res = await query(`
             UPDATE promotions
             SET code = $1, title = $2, description = $3, discount_type = $4, discount_value = $5,
                 min_order_amount = $6, max_discount_amount = $7, max_redemptions = $8,
-                priority = $9, is_active = $10, updated_at = NOW()
-            WHERE id = $11 AND tenant_id = $12
+                priority = $9, scope = $10, applicable_item_ids = $11, is_active = $12, updated_at = NOW()
+            WHERE id = $13 AND tenant_id = $14
             RETURNING *
         `, [
             code, title, description, discountType, discountValue,
-            minOrderAmount, maxDiscountAmount, maxRedemptions, priority, isActive,
+            minOrderAmount, maxDiscountAmount, maxRedemptions, priority,
+            scope, applicableItemIds, isActive,
             promoId, tenantId
         ]);
 

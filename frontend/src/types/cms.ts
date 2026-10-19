@@ -64,6 +64,8 @@ export interface Promotion {
     maxRedemptions?: number;
     currentRedemptions: number;
     priority: number;
+    scope?: 'ALL' | 'SPECIFIC_ITEMS';
+    applicableItemIds?: string[];
     isActive: boolean;
     startTime?: string;
     endTime?: string;

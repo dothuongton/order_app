@@ -24,5 +24,7 @@ export const promotionSchema = z.object({
     minOrderAmount: z.number().int().nonnegative().max(1000000000).optional(),
     maxDiscountAmount: z.number().int().positive().max(1000000000).optional(),
     maxRedemptions: z.number().int().positive().optional(), priority: z.number().int().min(0).max(10000).optional(),
+    scope: z.enum(['ALL', 'SPECIFIC_ITEMS']).optional(),
+    applicableItemIds: z.array(z.string().uuid()).optional(),
     isActive: z.boolean().optional(), startTime: z.string().datetime({ offset: true }).optional(), endTime: z.string().datetime({ offset: true }).optional()
 }).strict();

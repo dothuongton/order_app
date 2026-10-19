@@ -387,6 +387,8 @@ CREATE TABLE IF NOT EXISTS promotions (
     max_redemptions INT,                 -- Giới hạn tổng số lượt dùng (null: không giới hạn)
     current_redemptions INT NOT NULL DEFAULT 0,
     priority INT NOT NULL DEFAULT 0,     -- Độ ưu tiên (cao hơn sẽ được chọn khi không cộng dồn)
+    scope VARCHAR(32) NOT NULL DEFAULT 'ALL', -- 'ALL' (Cả sàn / Toàn đơn) hoặc 'SPECIFIC_ITEMS' (Từng món)
+    applicable_item_ids UUID[] DEFAULT '{}',  -- Danh sách ID món ăn áp dụng khi scope = 'SPECIFIC_ITEMS'
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     start_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     end_time TIMESTAMPTZ,

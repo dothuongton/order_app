@@ -104,7 +104,7 @@ export class PricingService {
             SELECT 
                 id, code, title, discount_type, discount_value,
                 min_order_amount, max_discount_amount, max_redemptions,
-                current_redemptions, priority
+                current_redemptions, priority, scope, applicable_item_ids
             FROM promotions
             WHERE tenant_id = $1 
               AND is_active = true
@@ -119,8 +119,20 @@ export class PricingService {
         let bestDiscount = 0;
 
         for (const promo of promosRes.rows) {
+            const isSpecific = promo.scope === 'SPECIFIC_ITEMS';
+            const applicableSet = new Set<string>(promo.applicable_item_ids || []);
+            const eligibleLines = isSpecific
+                ? lineItems.filter(li => applicableSet.has(li.menuItemId))
+                : lineItems;
+
+            if (eligibleLines.length === 0) {
+                continue; // No matching items in order
+            }
+
+            const eligibleSubtotal = eligibleLines.reduce((sum, li) => sum + li.lineSubtotal, 0);
+
             const minOrder = parseInt(promo.min_order_amount || '0', 10);
-            if (rawSubtotal < minOrder) {
+            if (eligibleSubtotal < minOrder) {
                 continue;
             }
 
@@ -128,17 +140,17 @@ export class PricingService {
             let calculatedDiscount = 0;
 
             if (promo.discount_type === 'PERCENT') {
-                calculatedDiscount = Math.floor((rawSubtotal * discValue) / 100);
+                calculatedDiscount = Math.floor((eligibleSubtotal * discValue) / 100);
                 if (promo.max_discount_amount) {
                     const maxCap = parseInt(promo.max_discount_amount, 10);
                     calculatedDiscount = Math.min(calculatedDiscount, maxCap);
                 }
             } else if (promo.discount_type === 'FIXED_AMOUNT') {
-                calculatedDiscount = Math.min(discValue, rawSubtotal);
+                calculatedDiscount = Math.min(discValue, eligibleSubtotal);
             }
 
-            // Ensure discount is non-negative and doesn't exceed subtotal
-            calculatedDiscount = Math.max(0, Math.min(calculatedDiscount, rawSubtotal));
+            // Ensure discount is non-negative and doesn't exceed eligible subtotal
+            calculatedDiscount = Math.max(0, Math.min(calculatedDiscount, eligibleSubtotal));
 
             // Best deal comparison: higher discount wins; if equal, higher priority wins
             if (
@@ -150,19 +162,45 @@ export class PricingService {
             }
         }
 
-        // Largest-remainder allocation preserves the exact discount without ever
-        // assigning more than a line's subtotal, including many tiny-value lines.
-        const discounts = lineItems.map(li => rawSubtotal > 0 ? Number(BigInt(li.lineSubtotal) * BigInt(bestDiscount) / BigInt(rawSubtotal)) : 0);
-        let remainder = bestDiscount - discounts.reduce((sum, value) => sum + value, 0);
-        const allocationOrder = lineItems.map((li, index) => ({ index, remainder: rawSubtotal > 0 ? (BigInt(li.lineSubtotal) * BigInt(bestDiscount)) % BigInt(rawSubtotal) : 0n }))
-            .sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1);
-        for (const { index } of allocationOrder) {
-            if (remainder <= 0) break;
-            if (discounts[index] < lineItems[index].lineSubtotal) { discounts[index]++; remainder--; }
+        // Allocate discount across eligible lines using largest-remainder algorithm
+        const isBestSpecific = bestPromo?.scope === 'SPECIFIC_ITEMS';
+        const bestApplicableSet = new Set<string>(bestPromo?.applicable_item_ids || []);
+
+        const eligibleIndices: number[] = [];
+        lineItems.forEach((li, idx) => {
+            if (!isBestSpecific || bestApplicableSet.has(li.menuItemId)) {
+                eligibleIndices.push(idx);
+            }
+        });
+
+        const targetSubtotal = eligibleIndices.reduce((sum, idx) => sum + lineItems[idx].lineSubtotal, 0);
+        const discounts = new Array(lineItems.length).fill(0);
+
+        if (bestDiscount > 0 && targetSubtotal > 0) {
+            eligibleIndices.forEach(idx => {
+                const li = lineItems[idx];
+                discounts[idx] = Number(BigInt(li.lineSubtotal) * BigInt(bestDiscount) / BigInt(targetSubtotal));
+            });
+
+            let remainder = bestDiscount - discounts.reduce((sum, value) => sum + value, 0);
+            const allocationOrder = eligibleIndices.map(idx => ({
+                index: idx,
+                remainder: (BigInt(lineItems[idx].lineSubtotal) * BigInt(bestDiscount)) % BigInt(targetSubtotal)
+            })).sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1);
+
+            for (const { index } of allocationOrder) {
+                if (remainder <= 0) break;
+                if (discounts[index] < lineItems[index].lineSubtotal) {
+                    discounts[index]++;
+                    remainder--;
+                }
+            }
         }
+
         const calculatedItems: CalculatedOrderItem[] = lineItems.map((li, index) => {
             const itemDiscount = discounts[index];
             const itemFinal = Math.max(0, li.lineSubtotal - itemDiscount);
+            const isApplied = itemDiscount > 0 || (bestPromo && (!isBestSpecific || bestApplicableSet.has(li.menuItemId)));
 
             return {
                 menuItemId: li.menuItemId,
@@ -172,7 +210,7 @@ export class PricingService {
                 subtotal: li.lineSubtotal,
                 discountAmount: itemDiscount,
                 finalPrice: itemFinal,
-                appliedPromotionId: bestPromo ? bestPromo.id : null,
+                appliedPromotionId: isApplied ? bestPromo.id : null,
                 note: li.note
             };
         });

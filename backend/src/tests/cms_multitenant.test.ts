@@ -399,6 +399,82 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             expect(orderData.items[0].discountAmount).toBe(20000);
             expect(orderData.items[0].finalPrice).toBe(120000);
         });
+
+        it('applies promotion only to selected specific items (SPECIFIC_ITEMS scope)', async () => {
+            // Find two different items in shop A
+            const nemChua = (await query(`SELECT id, price FROM menu_items WHERE name = 'Nem Chua Rán Hà Nội'`)).rows[0];
+            const traSua = (await query(`SELECT id, price FROM menu_items WHERE name != 'Nem Chua Rán Hà Nội' AND tenant_id = (SELECT id FROM tenants WHERE slug = 'pho-co') LIMIT 1`)).rows[0];
+
+            // Create promo: 50% OFF only for Nem Chua Rán (high priority 99 to beat other promos)
+            const promoRes = await fetch(`${baseUrl}/api/v1/cms/promotions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({
+                    title: 'Giảm 50% Nem Chua Rán',
+                    discountType: 'PERCENT',
+                    discountValue: 50,
+                    scope: 'SPECIFIC_ITEMS',
+                    applicableItemIds: [nemChua.id],
+                    priority: 99
+                })
+            });
+            expect(promoRes.status).toBe(201);
+            const promoData: any = await promoRes.json();
+            expect(promoData.promotion.scope).toBe('SPECIFIC_ITEMS');
+            expect(promoData.promotion.applicable_item_ids).toContain(nemChua.id);
+
+            // Guest creates order with 2 x Nem chua rán (35k x 2 = 70k) and 1 x Tra sua
+            const tableA01 = (await query(`SELECT id FROM tables WHERE public_qr_id = 'qr-phoco-a01'`)).rows[0];
+            const joinRes = await fetch(`${baseUrl}/api/v1/public/tables/qr-phoco-a01/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            const guestToken = (await joinRes.json() as any).token;
+
+            const nemQty = 2;
+            const nemPrice = Number(nemChua.price);
+            const traPrice = Number(traSua.price);
+            const rawSubtotal = (nemPrice * nemQty) + traPrice;
+            const expectedDiscount = Math.floor((nemPrice * nemQty * 50) / 100); // 35,000đ
+
+            const orderRes = await fetch(`${baseUrl}/api/v1/guest/orders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-guest-token': guestToken
+                },
+                body: JSON.stringify({
+                    idempotencyKey: `order-specific-promo-${Date.now()}`,
+                    items: [
+                        { menuItemId: nemChua.id, quantity: nemQty },
+                        { menuItemId: traSua.id, quantity: 1 }
+                    ]
+                })
+            });
+
+            expect(orderRes.status).toBe(201);
+            const orderData: any = await orderRes.json();
+
+            expect(orderData.subtotal).toBe(rawSubtotal);
+            expect(orderData.discountTotal).toBe(expectedDiscount);
+            expect(orderData.finalTotal).toBe(rawSubtotal - expectedDiscount);
+
+            // Nem chua rán item MUST receive all 35,000đ discount
+            const nemLine = orderData.items.find((i: any) => i.menuItemId === nemChua.id);
+            expect(nemLine).toBeDefined();
+            expect(nemLine.discountAmount).toBe(expectedDiscount);
+            expect(nemLine.finalPrice).toBe((nemPrice * nemQty) - expectedDiscount);
+
+            // Other item MUST receive 0 discount
+            const otherLine = orderData.items.find((i: any) => i.menuItemId === traSua.id);
+            expect(otherLine).toBeDefined();
+            expect(otherLine.discountAmount).toBe(0);
+            expect(otherLine.finalPrice).toBe(traPrice);
+        });
     });
 
     // ==========================================
