@@ -12,8 +12,42 @@ cmsRouter.param('id', (req, res, next, id) => {
     next();
 });
 
-// Protect all CMS routes with staff authentication + owner/manager role
+// Protect all CMS routes with staff authentication
 cmsRouter.use(authenticateStaff);
+
+/**
+ * POST /api/v1/cms/upload
+ * Upload image directly as Base64 (persisted in database, accessible to any authenticated staff)
+ */
+cmsRouter.post('/upload', async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.staff!.tenantId;
+        const { data, filename } = req.body;
+        if (!data || typeof data !== 'string') {
+            return res.status(400).json({ error: 'INVALID_DATA', message: 'Vui lòng cung cấp dữ liệu ảnh' });
+        }
+
+        const { mimeType, sizeBytes } = decodeImage(data);
+
+        const insertRes = await query(`
+            INSERT INTO uploaded_images (tenant_id, filename, mime_type, size_bytes, data_base64)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, mime_type, size_bytes, created_at
+        `, [tenantId, filename || 'image.jpg', mimeType, sizeBytes, data]);
+
+        const row = insertRes.rows[0];
+        return res.status(201).json({
+            id: row.id,
+            url: `/api/v1/public/images/${row.id}`,
+            mimeType: row.mime_type,
+            sizeBytes: row.size_bytes
+        });
+    } catch (err: any) {
+        return res.status(err.status || 500).json({ error: err.code || 'UPLOAD_FAILED', message: err.message || 'Lỗi tải ảnh lên' });
+    }
+});
+
+// Require Shop Owner or Manager role for CMS modifications
 cmsRouter.use(requireShopAdmin);
 
 /**
@@ -213,37 +247,5 @@ cmsRouter.delete('/promotions/:id', async (req: Request, res: Response) => {
         res.json({ message: 'Xóa chương trình khuyến mãi thành công' });
     } catch (err: any) {
         res.status(400).json({ error: 'BAD_REQUEST', message: err.message });
-    }
-});
-
-/**
- * POST /api/v1/cms/upload
- * Upload image directly as Base64 (persisted in database, zero external dependencies)
- */
-cmsRouter.post('/upload', async (req: Request, res: Response) => {
-    try {
-        const tenantId = req.staff!.tenantId;
-        const { data, filename } = req.body;
-        if (!data || typeof data !== 'string') {
-            return res.status(400).json({ error: 'INVALID_DATA', message: 'Vui lòng cung cấp dữ liệu ảnh' });
-        }
-
-        const { mimeType, sizeBytes } = decodeImage(data);
-
-        const insertRes = await query(`
-            INSERT INTO uploaded_images (tenant_id, filename, mime_type, size_bytes, data_base64)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, mime_type, size_bytes, created_at
-        `, [tenantId, filename || 'image.jpg', mimeType, sizeBytes, data]);
-
-        const row = insertRes.rows[0];
-        return res.status(201).json({
-            id: row.id,
-            url: `/api/v1/public/images/${row.id}`,
-            mimeType: row.mime_type,
-            sizeBytes: row.size_bytes
-        });
-    } catch (err: any) {
-        return res.status(err.status || 500).json({ error: err.code || 'UPLOAD_FAILED', message: err.message || 'Lỗi tải ảnh lên' });
     }
 });

@@ -139,27 +139,27 @@ export async function seed(force: boolean = false) {
 
         // 6. Menu Items (Đồ ăn vặt & Đồ uống)
         const itemsRes = await client.query(`
-            INSERT INTO menu_items (tenant_id, category_id, name, description, price, is_available)
+            INSERT INTO menu_items (tenant_id, category_id, name, description, price, image_url, is_available)
             VALUES
-                ($1, $2, 'Bánh Tráng Trộn Đặc Biệt', 'Bánh tráng phơi sương, trứng cút, khô bò, xoài non, rau răm, sốt tắc cay ngọt', 25000, true),
-                ($1, $2, 'Bánh Tráng Nướng Đà Lạt', 'Trứng cút, tép khô, hành hoa, xúc xích, phô mai nướng giòn rụm', 25000, true),
-                ($1, $2, 'Khoai Tây Lắc Phô Mai', 'Khoai tây chiên vàng giòn rụm lắc bột phô mai béo ngậy', 30000, true),
-                ($1, $2, 'Nem Chua Rán Hà Nội', 'Đĩa 5 chiếc nem chua lăn bột xù chiên giòn rụm, thơm bùi', 35000, true),
-                ($1, $2, 'Cá Viên Chiên Thập Cẩm', 'Combo cá viên, bò viên, tôm viên, đậu bắp chiên kèm tương đen sốt cay', 35000, true),
-                ($1, $2, 'Gà Xiên Que Sốt Cay', 'Gà xiên que nướng than hoa quết sốt cay ngọt Hàn Quốc', 20000, true),
-                ($1, $2, 'Xoài Lắc Muối Tôm', 'Xoài non giòn rụm lắc muối tôm Tây Ninh chua cay đậm đà', 20000, true),
-                ($1, $2, 'Cơm Cháy Chà Bông Mỡ Hành', 'Cơm cháy đáy nồi giòn tan phủ đẫm chà bông gà cay và sốt mỡ hành', 25000, true),
-                ($1, $3, 'Trà Sữa Trân Châu Đường Đen', 'Trà sữa đậm vị thơm béo kết hợp trân châu đen dai giòn dẻo', 30000, true),
-                ($1, $3, 'Trà Đào Cam Sả', 'Trà thanh nhiệt với đào tươi giòn, hương cam sả thơm mát', 30000, true),
-                ($1, $3, 'Trà Tắc Xí Muội Khổng Lồ', 'Ly 700ml trà lài tươi pha tắc vàng và xí muội mặn ngọt giải nhiệt cực đã', 25000, true),
-                ($1, $3, 'Trà Chanh Giã Tay', 'Trà Ô Long thơm nồng giã tay cùng chanh tươi Quảng Đông mát lạnh', 25000, true),
-                ($1, $3, 'Trà Dâu Tằm Macchiato', 'Trà dâu tằm chua ngọt thanh mát phủ lớp kem cheese béo mịn', 35000, true),
-                ($1, $3, 'Sữa Tươi Trân Châu Đường Đen', 'Sữa tươi tiệt trùng Đà Lạt hòa quyện đường đen organic dẻo quánh', 35000, true),
-                ($1, $3, 'Coca-Cola Ướp Lạnh', 'Lon 330ml ướp lạnh sảng khoái', 15000, true),
-                ($1, $3, 'Nước Suối Tinh Khiết', 'Chai 500ml ướp lạnh sảng khoái', 10000, true),
-                ($1, $4, 'Thêm Trân Châu Đen', 'Phần trân châu đen hoàng kim dẻo dai', 5000, true),
-                ($1, $4, 'Thêm Phô Mai Tươi', 'Viên phô mai tươi béo ngậy tan chảy', 8000, true),
-                ($1, $4, 'Thêm Bánh Flan Trứng', 'Bánh flan caramen trứng gà thơm ngậy', 10000, true)
+                ($1, $2, 'Bánh Tráng Trộn Đặc Biệt', 'Bánh tráng phơi sương, trứng cút, khô bò, xoài non, rau răm, sốt tắc cay ngọt', 25000, 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $2, 'Bánh Tráng Nướng Đà Lạt', 'Trứng cút, tép khô, hành hoa, xúc xích, phô mai nướng giòn rụm', 25000, 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $2, 'Khoai Tây Lắc Phô Mai', 'Khoai tây chiên vàng giòn rụm lắc bột phô mai béo ngậy', 30000, 'https://images.unsplash.com/photo-1576107232684-1279f3908594?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $2, 'Nem Chua Rán Hà Nội', 'Đĩa 5 chiếc nem chua lăn bột xù chiên giòn rụm, thơm bùi', 35000, 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $2, 'Cá Viên Chiên Thập Cẩm', 'Combo cá viên, bò viên, tôm viên, đậu bắp chiên kèm tương đen sốt cay', 35000, 'https://images.unsplash.com/photo-1529042410759-befb1204b468?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $2, 'Gà Xiên Que Sốt Cay', 'Gà xiên que nướng than hoa quết sốt cay ngọt Hàn Quốc', 20000, 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $2, 'Xoài Lắc Muối Tôm', 'Xoài non giòn rụm lắc muối tôm Tây Ninh chua cay đậm đà', 20000, 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $2, 'Cơm Cháy Chà Bông Mỡ Hành', 'Cơm cháy đáy nồi giòn tan phủ đẫm chà bông gà cay và sốt mỡ hành', 25000, 'https://images.unsplash.com/photo-1505253758473-96b3015f27eb?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Trà Sữa Trân Châu Đường Đen', 'Trà sữa đậm vị thơm béo kết hợp trân châu đen dai giòn dẻo', 30000, 'https://images.unsplash.com/photo-1558857563-b37cf062961d?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Trà Đào Cam Sả', 'Trà thanh nhiệt với đào tươi giòn, hương cam sả thơm mát', 30000, 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Trà Tắc Xí Muội Khổng Lồ', 'Ly 700ml trà lài tươi pha tắc vàng và xí muội mặn ngọt giải nhiệt cực đã', 25000, 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Trà Chanh Giã Tay', 'Trà Ô Long thơm nồng giã tay cùng chanh tươi Quảng Đông mát lạnh', 25000, 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Trà Dâu Tằm Macchiato', 'Trà dâu tằm chua ngọt thanh mát phủ lớp kem cheese béo mịn', 35000, 'https://images.unsplash.com/photo-1556881286-a6963e63588f?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Sữa Tươi Trân Châu Đường Đen', 'Sữa tươi tiệt trùng Đà Lạt hòa quyện đường đen organic dẻo quánh', 35000, 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Coca-Cola Ướp Lạnh', 'Lon 330ml ướp lạnh sảng khoái', 15000, 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $3, 'Nước Suối Tinh Khiết', 'Chai 500ml ướp lạnh sảng khoái', 10000, 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $4, 'Thêm Trân Châu Đen', 'Phần trân châu đen hoàng kim dẻo dai', 5000, 'https://images.unsplash.com/photo-1595981267035-7b04ca84a82d?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $4, 'Thêm Phô Mai Tươi', 'Viên phô mai tươi béo ngậy tan chảy', 8000, 'https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d?w=800&auto=format&fit=crop&q=80', true),
+                ($1, $4, 'Thêm Bánh Flan Trứng', 'Bánh flan caramen trứng gà thơm ngậy', 10000, 'https://images.unsplash.com/photo-1528975604071-b4dc52a2d18c?w=800&auto=format&fit=crop&q=80', true)
             RETURNING id, name, price;
         `, [phoCoId, catSnacks, catDrinks, catToppings]);
 

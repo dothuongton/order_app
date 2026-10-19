@@ -146,7 +146,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
                 alt={label}
                 className="w-full h-full max-h-36 sm:max-h-40 object-cover rounded-xl"
                 onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
+                  (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&auto=format&fit=crop&q=80';
                 }}
               />
             </div>

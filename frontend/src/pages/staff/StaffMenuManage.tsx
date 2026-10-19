@@ -201,7 +201,7 @@ export const StaffMenuManage: React.FC = () => {
             variants: filteredVariants
           })
         });
-        showNotification(`Đã cập nhật món "${res.item.name}"`);
+        showNotification(`Đã cập nhật món "${res?.item?.name || editingItem.name}"`);
       } else {
         // Create
         const res = await request<{ item: MenuItemData }>('/staff/menu/items', {
@@ -216,7 +216,7 @@ export const StaffMenuManage: React.FC = () => {
             variants: filteredVariants
           })
         });
-        showNotification(`Đã thêm món "${res.item.name}" thành công`);
+        showNotification(`Đã thêm món "${res?.item?.name || editingItem.name}" thành công`);
       }
       setShowItemModal(false);
       setEditingItem(null);
@@ -364,6 +364,9 @@ export const StaffMenuManage: React.FC = () => {
                       alt={item.name}
                       className="w-full h-full object-cover"
                       loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&auto=format&fit=crop&q=80';
+                      }}
                     />
                   ) : (
                     <ImageIcon className="w-5 h-5 text-slate-300" />

@@ -321,7 +321,12 @@ staffRouter.get('/menu/items', async (req: Request, res: Response) => {
             WHERE mi.tenant_id = $1
             ORDER BY mc.sort_order ASC, mi.name ASC
         `, [staff.tenantId]);
-        return res.json({ items: items.rows });
+        return res.json({
+            items: items.rows.map(r => ({
+                ...r,
+                price: parseInt(r.price, 10)
+            }))
+        });
     } catch (err: any) {
         return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
@@ -356,18 +361,18 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
     try {
         const staff = req.staff!;
         const variantInputSchema = z.object({
-            id: z.string().uuid().optional(),
+            id: z.string().uuid().optional().nullable().or(z.literal('')),
             name: z.string().trim().min(1, 'Tên biến thể không được để trống').max(255),
-            price_adjustment: z.number().int().min(0, 'Phụ thu không được âm').default(0),
+            price_adjustment: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0),
             is_available: z.boolean().optional().default(true)
         });
 
         const schema = z.object({
             name: z.string().trim().min(1, 'Tên món không được để trống').max(255),
             category_id: z.string().uuid('Danh mục không hợp lệ'),
-            price: z.number().int().nonnegative('Giá món không hợp lệ'),
+            price: z.coerce.number().int().nonnegative('Giá món không hợp lệ'),
             description: z.string().max(2000).optional().nullable(),
-            image_url: z.string().max(4096).optional().nullable(),
+            image_url: z.string().max(5000000).optional().nullable().or(z.literal('')),
             is_available: z.boolean().optional().default(true),
             variants: z.array(variantInputSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
         });
@@ -403,8 +408,26 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
             }
         }
 
-        return res.status(201).json({ item: createdItem, message: 'Thêm món mới thành công' });
+        const variantsRes = await query(`
+            SELECT id, name, price_adjustment, is_available
+            FROM menu_item_variants
+            WHERE menu_item_id = $1 AND tenant_id = $2
+            ORDER BY price_adjustment ASC, name ASC
+        `, [createdItem.id, staff.tenantId]);
+
+        return res.status(201).json({
+            item: {
+                ...createdItem,
+                price: parseInt(createdItem.price, 10),
+                variants: variantsRes.rows.map(r => ({
+                    ...r,
+                    price_adjustment: parseInt(r.price_adjustment, 10)
+                }))
+            },
+            message: 'Thêm món mới thành công'
+        });
     } catch (err: any) {
+        console.error('Staff create menu item error:', err);
         return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
@@ -416,18 +439,18 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
         const itemId = req.params.id;
 
         const variantInputSchema = z.object({
-            id: z.string().uuid().optional(),
+            id: z.string().uuid().optional().nullable().or(z.literal('')),
             name: z.string().trim().min(1, 'Tên biến thể không được để trống').max(255),
-            price_adjustment: z.number().int().min(0, 'Phụ thu không được âm').default(0),
+            price_adjustment: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0),
             is_available: z.boolean().optional().default(true)
         });
 
         const schema = z.object({
             name: z.string().trim().min(1, 'Tên món không được để trống').max(255).optional(),
             category_id: z.string().uuid('Danh mục không hợp lệ').optional(),
-            price: z.number().int().nonnegative('Giá món không hợp lệ').optional(),
+            price: z.coerce.number().int().nonnegative('Giá món không hợp lệ').optional(),
             description: z.string().max(2000).optional().nullable(),
-            image_url: z.string().max(4096).optional().nullable(),
+            image_url: z.string().max(5000000).optional().nullable().or(z.literal('')),
             is_available: z.boolean().optional(),
             variants: z.array(variantInputSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
         });
@@ -456,23 +479,29 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             UPDATE menu_items
             SET category_id = COALESCE($1::uuid, category_id),
                 name = COALESCE($2::varchar, name),
-                description = CASE WHEN $3::text IS NOT NULL THEN $3::text ELSE description END,
-                price = COALESCE($4::bigint, price),
-                image_url = CASE WHEN $5::text IS NOT NULL THEN $5::text ELSE image_url END,
-                is_available = COALESCE($6::boolean, is_available),
+                description = CASE WHEN $3::boolean THEN $4::text ELSE description END,
+                price = COALESCE($5::bigint, price),
+                image_url = CASE WHEN $6::boolean THEN $7::text ELSE image_url END,
+                is_available = COALESCE($8::boolean, is_available),
                 updated_at = NOW()
-            WHERE id = $7::uuid AND tenant_id = $8::uuid
+            WHERE id = $9::uuid AND tenant_id = $10::uuid
             RETURNING *
         `, [
             category_id || null,
             name || null,
-            description !== undefined ? description : null,
+            description !== undefined,
+            description || null,
             price !== undefined ? price : null,
-            image_url !== undefined ? image_url : null,
+            image_url !== undefined,
+            image_url || null,
             is_available !== undefined ? is_available : null,
             itemId,
             staff.tenantId
         ]);
+
+        if (updateRes.rows.length === 0) {
+            return res.status(404).json({ error: 'NOT_FOUND', message: 'Không tìm thấy món ăn' });
+        }
 
         // If variants provided, replace existing variants (up to 3)
         if (variants !== undefined) {
@@ -485,8 +514,27 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             }
         }
 
-        return res.json({ item: updateRes.rows[0], message: 'Cập nhật món thành công' });
+        const updatedItem = updateRes.rows[0];
+        const variantsRes = await query(`
+            SELECT id, name, price_adjustment, is_available
+            FROM menu_item_variants
+            WHERE menu_item_id = $1 AND tenant_id = $2
+            ORDER BY price_adjustment ASC, name ASC
+        `, [itemId, staff.tenantId]);
+
+        return res.json({
+            item: {
+                ...updatedItem,
+                price: parseInt(updatedItem.price, 10),
+                variants: variantsRes.rows.map(r => ({
+                    ...r,
+                    price_adjustment: parseInt(r.price_adjustment, 10)
+                }))
+            },
+            message: 'Cập nhật món thành công'
+        });
     } catch (err: any) {
+        console.error('Staff update menu item error:', err);
         return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
