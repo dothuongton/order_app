@@ -4,7 +4,7 @@
 > **Target Branch:** `main` (commit `cb6eba3`)  
 > **Work Branch:** `codex/core-audit-fixes`  
 > **Date:** 2026-10-20  
-> **Status:** All 5 review items resolved, tested, and verified.
+> **Status:** All review items resolved, tested, and verified.
 
 ---
 
@@ -19,70 +19,77 @@
 
 ---
 
-## 2. Promotion Selection Policy & Stuck Settlement Fix (#28)
+## 2. Promotion Selection Policy & Cap Handling Fix (#28)
 
-- **Root Cause:**
-  - `getBillSummary` previously scanned `partsRes.rows.find(r => r.applied_promotion_id)` without filtering out cancelled parts (`oip.status = 'CANCELLED'`).
-  - In a multi-round scenario where Round 1 (with Promo A) was cancelled and Round 2 (with Promo B) was served, `getBillSummary` picked Promo A (which was disabled), calculated 0đ discount, and quoted 60,000đ.
-  - Settlement (`confirmPaymentAndCloseSession`) only queried `oip.status = 'SERVED'`, picked Promo B, calculated 20,000đ discount, and computed 40,000đ.
-  - Comparing `expectedAmount: 60000` vs `finalAmount: 40000` threw 409 `PRICE_CHANGED`. Subsequent reloads re-quoted 60,000đ, causing an infinite 409 loop.
-- **Resolution:**
-  - Unified promotion basket across `getBillSummary` and `confirmPaymentAndCloseSession`: only non-cancelled active item parts (`status IN ('SERVED', 'ACCEPTED')`) can provide attached promotions.
-  - Deterministic query ordering in `confirmPaymentAndCloseSession`: `ORDER BY o.order_number ASC, oi.created_at ASC, oi.id ASC`.
-  - In `createOrder`, `existingPromoCheck` filters `oip.status != 'CANCELLED' AND p.is_active = true` so cancelled earlier rounds do not poison subsequent rounds.
-  - Both quote and settlement now quote 40,000đ and settle at 40,000đ without 409 errors.
-  - Added regression test `BUS-02e` in `bus02_to_06_finance_lifecycle.test.ts`.
+- **Issues Addressed:**
+  1. *Cancelled round poison:* `getBillSummary` previously scanned `partsRes.rows` including cancelled parts (`status = 'CANCELLED'`). When Round 1 with disabled Promo A was cancelled and Round 2 with Promo B was served, quote chose Promo A (0đ discount) while settlement chose Promo B (20k discount), triggering infinite 409 `PRICE_CHANGED`.
+  2. *Multiple attached promotions with exhausted cap:* When a table had Round 1 with Promo A (which was subsequently exhausted by another table) and Round 2 with Promo B (available), `getBillSummary` skipped exhausted Promo A and selected Promo B (quoting 100k). However, settlement stopped at the first attached promo (Promo A), saw it was exhausted, and threw 409 `PROMOTION_EXHAUSTED` prematurely without checking subsequent available attached promotions.
+- **Unified Resolution:**
+  - In both `getBillSummary` and `confirmPaymentAndCloseSession`:
+    - Only non-cancelled active item parts (`status IN ('SERVED', 'ACCEPTED')`) provide attached promotion IDs.
+    - Query ordering is deterministic: `ORDER BY o.order_number ASC, oi.created_at ASC, oi.id ASC`.
+    - Both quote and settlement iterate through `attachedPromoIds` looking for an active, non-exhausted promotion that meets `min_order_amount`.
+    - If Promo A is exhausted, settlement records that an attached promo was exhausted (`hadExhaustedAttachedPromo`), but continues checking to see if a subsequent attached promo (Promo B) is available.
+    - If Promo B is available, both quote and settlement select Promo B, claim it atomically, and settle cleanly.
+    - Only if *no* attached promo is eligible and `hadExhaustedAttachedPromo` was found with `expectedAmount < rawServedTotal` does settlement throw 409 `PROMOTION_EXHAUSTED` to prompt quote reloading.
+  - Concurrency safety (`expectedAmount`, `settlement_version`, atomic `UPDATE promotions ... RETURNING id`) is preserved.
+  - Regression tests `BUS-02e` and `BUS-06c` in `bus02_to_06_finance_lifecycle.test.ts` verify both single-round cancelled promos and multi-round exhausted promo recovery.
 
 ---
 
-## 3. Boundary Gate Hardening (#29)
+## 3. Boundary Gate & Author Identity Hardening (#29)
 
-- **Root Cause:**
-  - Previous validator inspected branch name substrings (`/cms-super-admin/i`), allowing branch names to grant lane privileges.
-  - Substring checks accepted ambiguous or unknown identifiers.
-  - GitHub Actions interpolated PR metadata directly into bash script strings (`"${{ github.event.pull_request.head.ref }}"`).
-  - `frontend/src/api/admin.ts` and `frontend/src/types/admin.ts` were missing from Sang's exact allowlist.
-- **Resolution:**
-  - `scripts/check-file-boundaries.mjs` now strictly resolves explicit lane tokens (`SangVuxx`, `lane:cms-super-admin`, `dothuongton`, `lane:core`, `codex`, `antigravity`).
-  - Unknown or conflicting metadata (e.g. `SangVuxx dothuongton` or branch names) fails closed with an error.
-  - Added `frontend/src/api/admin.ts` and `frontend/src/types/admin.ts` to `SANG_ALLOWED_EXACT`.
-  - In `.github/workflows/ci.yml`, PR metadata is passed via step `env:` variables without shell string interpolation.
-  - Handled rename (source and destination) and delete operations via `parseChangedFilesFromDiffStatus`.
-  - Updated `sec05_boundary_check.test.ts` to 13 passing test cases.
+- **Issues Addressed:**
+  1. *Label replacing author identity:* CLI previously used `PR_LABELS || PR_AUTHOR`, allowing `PR_AUTHOR=SangVuxx PR_LABELS=lane:core` to pass.
+  2. *Normal labels breaking author validation:* Labels like `priority:P1` caused legitimate author `dothuongton` to be rejected as an unknown identifier.
+  3. *Exact files assignment:* `frontend/src/api/admin.ts` and `frontend/src/types/admin.ts` were missing from Sang's exact allowlist.
+- **Unified Resolution:**
+  - `resolveLaneFromAuthorAndLabels(authorInput, labelsInput)` separates author identity from PR labels:
+    - Author identity is validated strictly against recognized repository accounts (`SangVuxx` for Sang lane; `dothuongton`, `codex`, `antigravity` for Core lane). Unknown authors fail closed.
+    - PR labels are parsed strictly for lane labels (`lane:cms-super-admin`, `lane:admin`, `lane:core`). Ordinary labels (`priority:P1`, `bug`, etc.) are ignored.
+    - Author lane and label lane must be compatible. If `PR_AUTHOR=SangVuxx` has `PR_LABELS=lane:core`, or if conflicting lane labels exist, the check fails closed.
+  - CLI entry point takes `author = process.argv[3] || process.env.PR_AUTHOR || process.env.GITHUB_ACTOR` and `labels = process.env.PR_LABELS`, matching CI workflow.
+  - Added exact files `frontend/src/api/admin.ts` and `frontend/src/types/admin.ts` to `SANG_ALLOWED_EXACT`.
+  - Documented policy protection: `scripts/check-file-boundaries.mjs` and `.github/workflows/**` are owned exclusively by Core and cannot be modified by Sang.
+  - Added CLI test in `sec05_boundary_check.test.ts` executing the script via `process.env` without argv override (15 tests total).
 
 ---
 
 ## 4. Safe Seed Default Preservation (#25)
 
-- **Resolution:**
-  - `export async function seed(force: boolean = process.env.NODE_ENV === 'test')` in `backend/src/db/seed.ts` ensures that outside test environments, `force` defaults to `false`.
-  - If tenants and users exist, `seed()` returns immediately and does not wipe operational data.
-  - Production seeding is blocked unless `ALLOW_PROD_SEED=true`.
-  - Added automated test in `sec01_superadmin_persist.test.ts` verifying that calling default `seed()` outside test environments preserves existing tenant markers.
+- `export async function seed(force: boolean = process.env.NODE_ENV === 'test')` in `backend/src/db/seed.ts` ensures that outside test environments, `force` defaults to `false`.
+- If tenants and users exist, `seed()` preserves live operational data and returns immediately.
+- Production seeding is blocked unless `ALLOW_PROD_SEED=true`.
+- Verified in `sec01_superadmin_persist.test.ts`.
 
 ---
 
 ## 5. Archived Shop Recovery Contract (#6 / #19)
 
-- **Resolution:**
-  - When a tenant is `archived`, staff access to recovery operations is maintained for existing open sessions:
-    - Reads: `GET /staff/dashboard/snapshot`, `GET /staff/sessions/:id/bill-summary`
-    - Item resolution: `POST /staff/sessions/:id/accept-all`, `POST /staff/sessions/:id/serve-all`, `POST /staff/order-items/:id/cancel`
-    - Settlement: `POST /staff/sessions/:id/confirm-payment-and-close`, `POST /staff/sessions/:id/close-without-charge`
-    - Table readiness: `POST /staff/tables/:id/mark-ready`
-  - All new session creation, menu editing, table creation, and category modifications remain strictly blocked (`403 SHOP_ARCHIVED`).
-  - Added end-to-end recovery test in `sec06_tenant_status.test.ts` testing an archived shop with `PENDING` and `ACCEPTED` items being resolved, quoted, settled, and closed.
+- For `archived` tenants, staff can access recovery routes to resolve lingering `PENDING` and `ACCEPTED` items and settle obligations:
+  - Reads: `GET /staff/dashboard/snapshot`, `GET /staff/sessions/:id/bill-summary`
+  - Item resolution: `POST /staff/sessions/:id/accept-all`, `POST /staff/sessions/:id/serve-all`, `POST /staff/order-items/:id/cancel`
+  - Settlement: `POST /staff/sessions/:id/confirm-payment-and-close`, `POST /staff/sessions/:id/close-without-charge`
+  - Table readiness: `POST /staff/tables/:id/mark-ready`
+- All other operations (new sessions, table creation, menu modifications) remain blocked with `403 SHOP_ARCHIVED`.
+- Verified in `sec06_tenant_status.test.ts`.
 
 ---
 
 ## 6. Test Suite and Build Summary
 
-- **Backend Tests:** 15 test files, 131 tests — 100% PASSING.
-- **Backend Build:** `npm --prefix backend run build` — PASSING (0 errors).
-- **Frontend Build:** `npm --prefix frontend run build` — PASSING (0 errors).
-- **Boundary Check CLI:** `node scripts/check-file-boundaries.mjs origin/main dothuongton` — PASSING.
-- **Independent Codex Reproducer:** `node --import tsx backend/scripts/review-21a3fca-independent.mjs` — All 4 test cases output desired results:
-  - `cancelled-first-promotion`: quote 40,000đ, pay 200 OK.
-  - `archived-accepted-session`: dashboard 200, serve 200, settle 200 OK.
-  - `lane-bypass`: coreOnSangFile valid: false, unknownOnCoreFile valid: false, sangOwnedApi valid: true.
-  - `seed-default-preservation`: markerPreserved: true.
+- **Backend Tests:** 15 test files, 134 tests — **100% PASSING**.
+- **Backend Build:** `npm --prefix backend run build` — **PASSING** (0 errors).
+- **Frontend Build:** `npm --prefix frontend run build` — **PASSING** (0 errors).
+- **Boundary Gate CLI (via env):**
+  - `PR_AUTHOR=SangVuxx PR_LABELS=lane:core node scripts/check-file-boundaries.mjs origin/main` -> **FAIL CLOSED** (exit 1).
+  - `PR_AUTHOR=dothuongton PR_LABELS="priority:P1 bug" node scripts/check-file-boundaries.mjs origin/main` -> **PASS** (exit 0).
+  - `PR_AUTHOR=unknown-user PR_LABELS=lane:core node scripts/check-file-boundaries.mjs origin/main` -> **FAIL CLOSED** (exit 1).
+- **Independent Codex Reproducers:**
+  - `backend/scripts/review-21a3fca-independent.mjs` — All 4 test cases PASS.
+  - `backend/scripts/review-978b49f-independent.mjs` — All cases PASS:
+    - `cancelled-first-promotion`: quote 40,000đ, pay 200 OK.
+    - `multiple-attached-cap`: quote 100,000đ, pay 200 OK, sessionStatus: "CLOSED".
+    - `archived-accepted-session`: dashboard 200, serve 200, settle 200 OK.
+    - `lane-bypass`: coreOnSangFile valid: false, unknownOnCoreFile valid: false, sangOwnedApi valid: true.
+    - `seed-default-preservation`: markerPreserved: true.

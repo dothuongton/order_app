@@ -1,10 +1,18 @@
 import { describe, it, expect } from 'vitest';
+import { execSync } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import {
     validateAuthorFiles,
     validateDiffForSecretsAndDebug,
     resolveLane,
     parseChangedFilesFromDiffStatus
 } from '../../../../scripts/check-file-boundaries.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '../../../../');
+const scriptPath = path.join(repoRoot, 'scripts/check-file-boundaries.mjs');
 
 describe('SEC-05: CI File Boundary & Hygiene Gate (Issue #5, Issue #29)', () => {
     it('allows valid CMS Super Admin files for SangVuxx lane (including components, tests, docs, and exact admin.ts files)', () => {
@@ -168,5 +176,52 @@ A\tbackend/src/modules/admin/new.ts
         expect(parsed).toContain('frontend/src/new/path.ts');
         expect(parsed).toContain('frontend/src/deprecated/file.ts');
         expect(parsed).toContain('backend/src/modules/admin/new.ts');
+    });
+
+    it('handles author and PR labels independently, ignoring ordinary labels and rejecting conflicting ones', () => {
+        const coreFiles = ['backend/src/modules/guest/guest.service.ts'];
+
+        // 1. Author dothuongton with ordinary label priority:P1 should SUCCEED
+        const res1 = validateAuthorFiles('dothuongton', coreFiles, 'priority:P1 bug');
+        expect(res1.valid).toBe(true);
+        expect(res1.violations).toHaveLength(0);
+
+        // 2. Author SangVuxx claiming lane:core via label must FAIL CLOSED
+        const res2 = validateAuthorFiles('SangVuxx', coreFiles, 'lane:core');
+        expect(res2.valid).toBe(false);
+        expect(res2.violations.some(v => v.includes('conflicting label "lane:core"'))).toBe(true);
+
+        // 3. Author dothuongton with Sang lane label must FAIL CLOSED
+        const res3 = validateAuthorFiles('dothuongton', coreFiles, 'lane:cms-super-admin');
+        expect(res3.valid).toBe(false);
+        expect(res3.violations.some(v => v.includes('conflicting Sang lane label'))).toBe(true);
+
+        // 4. Unknown author with valid lane label must FAIL CLOSED
+        const res4 = validateAuthorFiles('unknown-contributor', coreFiles, 'lane:core');
+        expect(res4.valid).toBe(false);
+        expect(res4.violations.some(v => v.includes('Unknown or unauthorized author'))).toBe(true);
+    });
+
+    it('enforces boundaries when executed via CLI using process.env (PR_AUTHOR, PR_LABELS) without argv override', () => {
+        // 1. SangVuxx with lane:core attempting to touch core diff via env must exit with non-zero
+        try {
+            execSync(`node "${scriptPath}" origin/main`, {
+                cwd: repoRoot,
+                env: { ...process.env, PR_AUTHOR: 'SangVuxx', PR_LABELS: 'lane:core' },
+                stdio: 'pipe'
+            });
+            expect.unreachable('Should have thrown');
+        } catch (err: any) {
+            expect(err.status).toBe(1);
+            expect(err.stderr.toString()).toContain('conflicting label "lane:core"');
+        }
+
+        // 2. dothuongton with ordinary label priority:P1 via env must exit 0
+        const out = execSync(`node "${scriptPath}" origin/main`, {
+            cwd: repoRoot,
+            env: { ...process.env, PR_AUTHOR: 'dothuongton', PR_LABELS: 'priority:P1 bug' },
+            encoding: 'utf-8'
+        });
+        expect(out).toContain('passed successfully');
     });
 });

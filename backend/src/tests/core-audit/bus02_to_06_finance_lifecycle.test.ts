@@ -407,6 +407,110 @@ describe('Financial Lifecycle & Session Promotion Suite (BUS-02, BUS-03, BUS-04,
         expect(session2Status.rows[0].status).toBe('CLOSED');
     });
 
+    it('BUS-06c: Multiple attached promotions where first is exhausted selects subsequent available promotion without 409 stuck session (Issue #28)', async () => {
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
+
+        // 1. Create active fixed 10k promo A with max_redemptions = 1
+        const promoARes = await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, max_redemptions, is_active, priority)
+            VALUES ($1, 'MULTI-CAP-A', 'Capped Promo A', 'FIXED_AMOUNT', 10000, 0, 1, true, 1)
+            RETURNING id
+        `, [tenantId]);
+        const promoAId = promoARes.rows[0].id;
+
+        const tableT1Res = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-MCAP-1', 'qr-mcap-1') RETURNING id`, [tenantId]);
+        const tableT2Res = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-MCAP-2', 'qr-mcap-2') RETURNING id`, [tenantId]);
+        const t1Id = tableT1Res.rows[0].id;
+        const t2Id = tableT2Res.rows[0].id;
+
+        // Target table session (sTarget) and consuming session (sConsume)
+        const sTarget = await StaffService.openSession(tenantId, t1Id, waiterId);
+        const sConsume = await StaffService.openSession(tenantId, t2Id, waiterId);
+
+        // sTarget places round 1 (60k) with Promo A
+        await GuestService.createOrder(tenantId, sTarget.sessionId, t1Id, {
+            idempotencyKey: 'mcap-target-round-1',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        // sConsume places round and settles using Promo A, exhausting its 1 redemption
+        await GuestService.createOrder(tenantId, sConsume.sessionId, t2Id, {
+            idempotencyKey: 'mcap-consume-order',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+        await StaffService.acceptAllPending(tenantId, sConsume.sessionId, waiterId);
+        await StaffService.serveAllAccepted(tenantId, sConsume.sessionId, waiterId);
+        const consumeQuote = await GuestService.getBillSummary(tenantId, sConsume.sessionId);
+        await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            sConsume.sessionId,
+            consumeQuote.settlementVersion,
+            waiterId,
+            undefined,
+            undefined,
+            consumeQuote.validBillTotal
+        );
+
+        // Deactivate Promo A, create Promo B (20k discount)
+        await query(`UPDATE promotions SET is_active = false WHERE id = $1`, [promoAId]);
+        const promoBRes = await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, is_active, priority)
+            VALUES ($1, 'MULTI-AVAIL-B', 'Available Promo B', 'FIXED_AMOUNT', 20000, 0, true, 2)
+            RETURNING id
+        `, [tenantId]);
+        const promoBId = promoBRes.rows[0].id;
+
+        // sTarget places round 2 (60k) with Promo B
+        await GuestService.createOrder(tenantId, sTarget.sessionId, t1Id, {
+            idempotencyKey: 'mcap-target-round-2',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+        await StaffService.acceptAllPending(tenantId, sTarget.sessionId, waiterId);
+        await StaffService.serveAllAccepted(tenantId, sTarget.sessionId, waiterId);
+
+        // Re-enable Promo A (it is active in DB, but its 1 cap is consumed)
+        await query(`UPDATE promotions SET is_active = true WHERE id = $1`, [promoAId]);
+
+        // Quote evaluation:
+        // Promo A is exhausted, Promo B is available -> Quote must select Promo B!
+        // 120,000đ raw - 20,000đ discount = 100,000đ
+        const quote = await GuestService.getBillSummary(tenantId, sTarget.sessionId);
+        expect(quote.rawBillTotal).toBe(120000);
+        expect(quote.totalDiscount).toBe(20000);
+        expect(quote.validBillTotal).toBe(100000);
+        expect(quote.appliedPromotions).toHaveLength(1);
+        expect(quote.appliedPromotions[0].id).toBe(promoBId);
+
+        // Settlement evaluation:
+        // Settlement must also select Promo B without throwing 409 PROMOTION_EXHAUSTED for Promo A
+        const settled = await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            sTarget.sessionId,
+            quote.settlementVersion,
+            waiterId,
+            undefined,
+            undefined,
+            quote.validBillTotal
+        );
+
+        expect(settled.totalAmount).toBe(100000);
+
+        // Verify bill lines
+        const billRes = await query(`SELECT id FROM bills WHERE session_id = $1`, [sTarget.sessionId]);
+        const billLinesRes = await query(`SELECT subtotal FROM bill_lines WHERE bill_id = $1`, [billRes.rows[0].id]);
+        const totalLineAmount = billLinesRes.rows.reduce((sum, r) => sum + parseInt(r.subtotal, 10), 0);
+        expect(totalLineAmount).toBe(100000);
+
+        // Verify redemptions: Promo A has 1 redemption (cap never exceeded), Promo B has 1 redemption
+        const redemptionsA = await query(`SELECT COUNT(*) FROM promotion_redemptions WHERE promotion_id = $1`, [promoAId]);
+        const redemptionsB = await query(`SELECT COUNT(*) FROM promotion_redemptions WHERE promotion_id = $1`, [promoBId]);
+        expect(parseInt(redemptionsA.rows[0].count, 10)).toBe(1);
+        expect(parseInt(redemptionsB.rows[0].count, 10)).toBe(1);
+
+        const targetStatus = await query(`SELECT status FROM table_sessions WHERE id = $1`, [sTarget.sessionId]);
+        expect(targetStatus.rows[0].status).toBe('CLOSED');
+    });
+
     it('BUS-02d: Session discount re-evaluates against remaining served total after partial cancellation (Issue #28)', async () => {
         await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
 

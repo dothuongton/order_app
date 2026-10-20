@@ -729,47 +729,51 @@ export class StaffService {
             ));
             let selectedPromo: any = null;
             let sessionDiscount = 0;
+            let hadExhaustedAttachedPromo: any = null;
 
             if (attachedPromoIds.length > 0) {
-                let attachedPromo: any = null;
+                // Find first non-exhausted, eligible attached promotion
                 for (const promoId of attachedPromoIds) {
-                    const found = promoRes.rows.find(p => p.id === promoId);
-                    if (found) {
-                        attachedPromo = found;
-                        break;
+                    const promo = promoRes.rows.find(p => p.id === promoId);
+                    if (!promo) continue;
+
+                    const isExhausted = promo.max_redemptions !== null && Number(promo.current_redemptions) >= Number(promo.max_redemptions);
+                    if (isExhausted) {
+                        if (!hadExhaustedAttachedPromo) {
+                            hadExhaustedAttachedPromo = promo;
+                        }
+                        continue; // Check subsequent attached promotions
+                    }
+
+                    const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                    if (rawServedTotal >= minOrder) {
+                        const discValue = parseInt(promo.discount_value, 10);
+                        let calc = 0;
+                        if (promo.discount_type === 'PERCENT') {
+                            calc = Math.floor((rawServedTotal * discValue) / 100);
+                            if (promo.max_discount_amount) {
+                                calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+                            }
+                        } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                            calc = Math.min(discValue, rawServedTotal);
+                        }
+                        const calculatedDiscount = Math.max(0, Math.min(calc, rawServedTotal));
+                        if (calculatedDiscount > 0) {
+                            sessionDiscount = calculatedDiscount;
+                            selectedPromo = promo;
+                            break;
+                        }
                     }
                 }
 
-                if (attachedPromo) {
-                    const isExhausted = attachedPromo.max_redemptions !== null && Number(attachedPromo.current_redemptions) >= Number(attachedPromo.max_redemptions);
-                    if (isExhausted) {
-                        // If staff expected a discounted bill, throw 409 PROMOTION_EXHAUSTED so they reload the new quote
-                        if (expectedAmount !== undefined && expectedAmount < rawServedTotal) {
-                            throw {
-                                status: 409,
-                                code: 'PROMOTION_EXHAUSTED',
-                                message: `Chương trình khuyến mãi "${attachedPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
-                            };
-                        }
-                    } else {
-                        const minOrder = parseInt(attachedPromo.min_order_amount || '0', 10);
-                        if (rawServedTotal >= minOrder) {
-                            const discValue = parseInt(attachedPromo.discount_value, 10);
-                            let calc = 0;
-                            if (attachedPromo.discount_type === 'PERCENT') {
-                                calc = Math.floor((rawServedTotal * discValue) / 100);
-                                if (attachedPromo.max_discount_amount) {
-                                    calc = Math.min(calc, parseInt(attachedPromo.max_discount_amount, 10));
-                                }
-                            } else if (attachedPromo.discount_type === 'FIXED_AMOUNT') {
-                                calc = Math.min(discValue, rawServedTotal);
-                            }
-                            sessionDiscount = Math.max(0, Math.min(calc, rawServedTotal));
-                            if (sessionDiscount > 0) {
-                                selectedPromo = attachedPromo;
-                            }
-                        }
-                    }
+                // If no attached promotion could be applied, but an attached promotion was exhausted
+                // and staff expected a discounted bill, throw 409 PROMOTION_EXHAUSTED so they reload the new quote
+                if (!selectedPromo && hadExhaustedAttachedPromo && expectedAmount !== undefined && expectedAmount < rawServedTotal) {
+                    throw {
+                        status: 409,
+                        code: 'PROMOTION_EXHAUSTED',
+                        message: `Chương trình khuyến mãi "${hadExhaustedAttachedPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                    };
                 }
             } else {
                 // Find best qualifying tenant promotion where cap is not reached

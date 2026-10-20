@@ -20,6 +20,17 @@ import path from 'path';
  *   - Any file in backend/src/modules/cms/** (this is shop CMS, not platform super admin)
  *   - Any file in frontend/src/pages/staff/**
  *   - Shared auth, middleware, database, types, routes, configs
+ * 
+ * Enforcement Boundary & Policy Protection Architecture:
+ * 1. Script/Policy Ownership:
+ *    - scripts/check-file-boundaries.mjs and .github/workflows/** are strictly owned by Core (dothuongton).
+ *    - SANG_ALLOWED_PREFIXES strictly excludes scripts/ and .github/. Any attempt by Sang to modify
+ *      the boundary check script or CI workflows is immediately rejected as a boundary violation.
+ * 2. Repository Branch Protection:
+ *    - GitHub branch protection on `main` enforces required PR reviews and status checks.
+ *    - PR execution runs in an isolated ephemeral VM; modifying the local script in a PR cannot
+ *      bypass protected branch checks on GitHub because only Core maintainers have merge authority.
+ *    - When a PR modifies scripts/ or CI, Core review is mandatory per AGENTS.md and CODEOWNERS.
  */
 
 export const SANG_ALLOWED_PREFIXES = [
@@ -51,44 +62,107 @@ export function isSangPath(filePath) {
            SANG_ALLOWED_EXACT.includes(normalized);
 }
 
+export function resolveLaneFromAuthorAndLabels(authorInput, labelsInput = '') {
+    if (!authorInput || typeof authorInput !== 'string' || authorInput.trim() === '') {
+        return { lane: null, error: 'Lane detection error: PR author is required (must not be empty)' };
+    }
+
+    const cleanAuthor = authorInput.trim().toLowerCase();
+    const SANG_AUTHORS = new Set(['sangvuxx', 'sangvux']);
+    const CORE_AUTHORS = new Set(['dothuongton', 'core', 'antigravity', 'codex', 'github-actions[bot]']);
+
+    let authorLane = null;
+    if (SANG_AUTHORS.has(cleanAuthor)) {
+        authorLane = 'sang';
+    } else if (CORE_AUTHORS.has(cleanAuthor)) {
+        authorLane = 'core';
+    } else {
+        return {
+            lane: null,
+            error: `Lane detection error: Unknown or unauthorized author "${authorInput}". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity).`
+        };
+    }
+
+    // Parse labels if present: only lane labels are inspected, ordinary labels (priority:P1, bug, etc.) are ignored
+    if (labelsInput && typeof labelsInput === 'string') {
+        const tokens = labelsInput.trim().split(/[\s,]+/).filter(Boolean);
+        let hasSangLabel = false;
+        let hasCoreLabel = false;
+
+        for (const token of tokens) {
+            const lower = token.toLowerCase();
+            if (lower === 'lane:cms-super-admin' || lower === 'lane:admin') {
+                hasSangLabel = true;
+            } else if (lower === 'lane:core') {
+                hasCoreLabel = true;
+            }
+        }
+
+        if (hasSangLabel && hasCoreLabel) {
+            return {
+                lane: null,
+                error: `Lane detection error: Conflicting lane labels present on PR (${labelsInput}).`
+            };
+        }
+
+        if (authorLane === 'sang' && hasCoreLabel) {
+            return {
+                lane: null,
+                error: `Lane detection error: Author "${authorInput}" belongs to Sang lane but PR has conflicting label "lane:core".`
+            };
+        }
+
+        if (authorLane === 'core' && hasSangLabel) {
+            return {
+                lane: null,
+                error: `Lane detection error: Author "${authorInput}" belongs to Core lane but PR has conflicting Sang lane label.`
+            };
+        }
+    }
+
+    return { lane: authorLane, error: null };
+}
+
 export function resolveLane(identifier) {
     if (!identifier || typeof identifier !== 'string' || identifier.trim() === '') {
         return { lane: null, error: 'Lane detection error: author or lane identifier is required (must not be empty)' };
     }
 
     const tokens = identifier.trim().split(/[\s,]+/).filter(Boolean);
-    let isSang = false;
-    let isCore = false;
+    const SANG_TOKENS = new Set(['sangvuxx', 'sangvux', 'lane:cms-super-admin', 'lane:admin']);
+    const CORE_TOKENS = new Set(['dothuongton', 'core', 'antigravity', 'codex', 'lane:core', 'github-actions[bot]']);
 
-    const SANG_IDENTIFIERS = new Set(['sangvuxx', 'sangvux', 'lane:cms-super-admin', 'lane:admin']);
-    const CORE_IDENTIFIERS = new Set(['dothuongton', 'core', 'antigravity', 'codex', 'lane:core', 'github-actions[bot]']);
+    let hasSang = false;
+    let hasCore = false;
 
     for (const token of tokens) {
         const lower = token.toLowerCase();
-        if (SANG_IDENTIFIERS.has(lower)) {
-            isSang = true;
-        } else if (CORE_IDENTIFIERS.has(lower)) {
-            isCore = true;
-        } else {
-            // Check if token matches exact lane: prefix
-            if (lower.startsWith('lane:')) {
-                return { lane: null, error: `Lane detection error: Unknown lane label "${token}".` };
-            }
+        if (SANG_TOKENS.has(lower)) {
+            hasSang = true;
+        } else if (CORE_TOKENS.has(lower)) {
+            hasCore = true;
         }
     }
 
-    if (isSang && isCore) {
+    if (hasSang && hasCore) {
         return { lane: null, error: `Lane detection error: Conflicting lane metadata in "${identifier}". PR cannot belong to both Core and Sang lanes.` };
     }
-    if (isSang) return { lane: 'sang', error: null };
-    if (isCore) return { lane: 'core', error: null };
 
-    return { lane: null, error: `Lane detection error: Unknown or unauthorized lane identifier "${identifier}". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity).` };
+    if (hasSang) return { lane: 'sang', error: null };
+    if (hasCore) return { lane: 'core', error: null };
+
+    return {
+        lane: null,
+        error: `Lane detection error: Unknown or unauthorized lane identifier "${identifier}". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity).`
+    };
 }
 
-export function validateAuthorFiles(author, files) {
+export function validateAuthorFiles(author, files, labels = '') {
     const violations = [];
-    const laneResult = resolveLane(author);
+    const laneResult = (typeof author === 'string' && labels)
+        ? resolveLaneFromAuthorAndLabels(author, labels)
+        : resolveLane(author);
+
     if (laneResult.error) {
         violations.push(laneResult.error);
         return {
@@ -192,14 +266,15 @@ export function validateDiffForSecretsAndDebug(diffText) {
 // CLI execution
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename || '')) {
     const baseRef = process.argv[2] || 'origin/main';
-    // Priority: Explicit argv[3] > PR_LABELS > PR_AUTHOR > GITHUB_ACTOR
-    const authorOrLane = process.argv[3] || process.env.PR_LABELS || process.env.PR_AUTHOR || process.env.GITHUB_ACTOR || '';
+    // Priority: Explicit argv[3] > PR_AUTHOR > GITHUB_ACTOR (PR_LABELS is used for compatibility check only)
+    const author = process.argv[3] || process.env.PR_AUTHOR || process.env.GITHUB_ACTOR || '';
+    const labels = process.env.PR_LABELS || '';
 
     try {
         const diffStatusRaw = execSync(`git diff --name-status ${baseRef}...HEAD`, { encoding: 'utf-8' });
         const changedFiles = parseChangedFilesFromDiffStatus(diffStatusRaw);
 
-        const boundaryCheck = validateAuthorFiles(authorOrLane, changedFiles);
+        const boundaryCheck = validateAuthorFiles(author, changedFiles, labels);
         if (!boundaryCheck.valid) {
             console.error('❌ File Boundary Violation:');
             boundaryCheck.violations.forEach(v => console.error(`  - ${v}`));
