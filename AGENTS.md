@@ -2,12 +2,12 @@
 
 ## Đọc trước khi làm
 
-1. Yêu cầu trực tiếp mới nhất của chủ dự án và issue được giao.
+1. Yêu cầu trực tiếp mới nhất của chủ dự án, ADR docs/architecture/decisions/0001-current-stack-table-order-mvp.md và issue được giao.
 2. docs/specs/README.md → GAERU_SOFT_V4_MASTER.md → GAERU_V4_TABLE_ORDER_ADDENDUM.md.
 3. docs/specs/V4_IMPLEMENTATION_MAP.md, issue#2 về ownership và contract#6.
 4. .agents/skills/karpathy-guidelines/SKILL.md (nguồn/commit trong UPSTREAM.md) khi viết, review hoặc refactor code.
 
-Spec V4 là đích phát triển toàn hệ thống. README QRv1.2 mô tả code hiện tại; báo cáo review không thay spec. Đợt sửa core không được gọi là hoàn thành V4. Đặc tả gốc lưu nguyên văn; proposal Muse hoặc nhận định agent không tự thay đổi nó. Nếu có mâu thuẫn spec/issue/hiện trạng, nêu khác biệt và ghi ADR/issue cụ thể; không tự quyết chính sách tiền/quyền. Làm phần độc lập đã rõ trong phạm vi chủ dự án giao.
+Đã chốt MVP order tại bàn trên React/Vite/Express/pg hiện tại; chưa mở rộng online/payment integration hoặc đổi framework. Giữ nhiều thiết bị hiện có, chưa tự bật claim độc quyền. Spec V4 là đích phát triển toàn hệ thống theo giai đoạn. README QRv1.2 mô tả code hiện tại; báo cáo review không thay spec. Đợt sửa core không được gọi là hoàn thành V4. Đặc tả gốc lưu nguyên văn; proposal Muse hoặc nhận định agent không tự thay đổi nó. Nếu có mâu thuẫn spec/issue/hiện trạng, nêu khác biệt và ghi ADR/issue cụ thể; không tự quyết chính sách tiền/quyền. Làm phần độc lập đã rõ trong phạm vi chủ dự án giao.
 
 ## Ownership chống chồng chéo
 
@@ -20,7 +20,7 @@ Spec V4 là đích phát triển toàn hệ thống. README QRv1.2 mô tả code
 
 Theo Karpathy: nêu giả định; giải pháp nhỏ đủ mục tiêu; chỉ sửa dòng liên quan; tiêu chí nghiệm thu kiểm chứng được. Không refactor/framework migration ngoài issue; kiến trúc V4 phải có Sprint0/ADR/migration plan riêng.
 
-Server quyết định quyền, tenant/store scope, state và giá. Không hard-delete ledger/bill hoặc sửa số tiền lịch sử âm thầm. QR public không tự cấp quyền ghi/bill; claim tối đa1 hiệu lực theo addendum. Có quote/revision và idempotency đúng ý định khi thao tác tiền/order.
+Server quyết định quyền, tenant/store scope, state và giá. Không hard-delete ledger/bill hoặc sửa số tiền lịch sử âm thầm. QR public không chứng minh hiện diện; API/guest token phải có tenant/session scope. Giữ mô hình nhiều thiết bị hiện có trong MVP; requirement1claim của addendum chờ quyết định UX theo ADR-0001, không tự triển khai. Có quote/revision và idempotency đúng ý định khi thao tác tiền/order.
 
 Không console.log/debugger/debug alert, fake data báo hoàn tất, any/ts-ignore/catch rỗng để che lỗi trong bản bàn giao. Giữ logger/audit cần thiết với mức phù hợp, không password/token/private key/PII trong log/ảnh/diff. Không xóa code/log không liên quan chỉ để đạt checklist.
 

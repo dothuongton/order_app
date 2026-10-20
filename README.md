@@ -1,5 +1,7 @@
 # GAERU SOFT — Đặc tả V4 và code QR Order hiện tại
 
+**Ưu tiên đã chốt:** [MVP order tại bàn trên stack hiện tại](docs/architecture/decisions/0001-current-stack-table-order-mvp.md). Giữ React/Vite/Express/pg nếu đáp ứng; đặt online và tích hợp thanh toán phát triển sau. Không cần đổi framework để đưa quán vào pilot.
+
 **Hệ thống đích:** [GAERU SOFT V4 Master](docs/specs/GAERU_SOFT_V4_MASTER.md) + [Bổ sung order tại bàn](docs/specs/GAERU_V4_TABLE_ORDER_ADDENDUM.md), do chủ dự án cung cấp, được lưu nguyên văn.
 
 - Bắt đầu tại [docs/specs](docs/specs/README.md): thứ tự đọc, sai khác với code hiện tại và nguồn tài liệu.

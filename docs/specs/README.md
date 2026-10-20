@@ -8,13 +8,17 @@ Hai tài liệu dưới đây do chủ dự án cung cấp, được lưu nguyê
 4. [Quy tắc làm việc chung](../../AGENTS.md) và [Karpathy skill trong repo](../../.agents/skills/karpathy-guidelines/SKILL.md).
 5. [Nguồn/checksum](SOURCES.json): xác nhận tài liệu gốc không bị sửa ngầm.
 
+## Quyết định MVP hiện hành
+
+[ADR-0001](../architecture/decisions/0001-current-stack-table-order-mvp.md): chủ dự án chốt giữ stack hiện tại nếu đáp ứng, ưu tiên quán dùng order tại bàn, online/thanh toán để sau. Giữ nhiều thiết bị của code hiện tại, chưa tự bật claim độc quyền. ADR này ưu tiên khi phạm vi/kiến trúc đề xuất trong spec cũ khác yêu cầu hiện tại.
+
 ## Cách đọc đúng
 
 - Master/addendum là đặc tả đích. README QR v1.2 và audit là thông tin triển khai hiện tại. Spec Muse và đề xuất kỹ thuật là đầu vào cần đối chiếu, không tự ghi đè master/addendum.
 - Phần order tại bàn áp dụng addendum để làm rõ master; nếu có mâu thuẫn chưa giải quyết, ghi ADR/issue thay vì tự chọn cách khác hoặc tự sửa nguyên văn tài liệu.
-- Master đề xuất Next.js/NestJS/Prisma/Redis và monorepo; hiện tại là React/Vite/Express/pg. Phải có thiết kế migration từng giai đoạn, PoC và kế hoạch dữ liệu/cutover/rollback; không coi việc giữ stack trong một hotfix là hủy kiến trúc V4, cũng không rewrite tất cả trong PR vá lỗi.
+- Master đề xuất Next.js/NestJS/Prisma/Redis và monorepo; hiện tại là React/Vite/Express/pg. Theo ADR-0001, tiếp tục stack hiện tại cho MVP; không yêu cầu chuyển framework/monorepo. Chỉ khi nhu cầu/số đo cho thấy cần mới đề xuất migration có rollback trong ADR riêng.
 - Master có tham chiếu repo gaeruvn/qrorder và domain dự kiến; repo thực thi hiện được chủ dự án chỉ định là dothuongton/order_app. Giữ nguyên tham chiếu gốc để truy xuất, nêu sai khác trong ADR thay vì âm thầm sửa nguồn.
-- Addendum yêu cầu **một claim hiệu lực mỗi session**; Muse đề xuất nhiều guest cùng join và anomaly. Hai cách này không tương đương: không được triển khai nhiều quyền ghi/bill access công khai chỉ vì proposal Muse. QR vẫn là định tuyến public, không chứng minh hiện diện; claim/transfer/revoke cần atomic và scope.
+- Addendum yêu cầu **một claim hiệu lực mỗi session**; Muse đề xuất nhiều guest cùng join và anomaly. Hai cách này không tương đương. Theo yêu cầu MVP hiện tại, giữ nhiều thiết bị như code hiện có, chưa triển khai claim độc quyền; #52 chờ quyết định UX. Mọi token vẫn cần scope, không public bill/history; QR không chứng minh hiện diện.
 - Addendum có CHECKOUT_LOCKED và payment riêng; current code OPEN/CLOSED + xác nhận thủ công chưa là toàn bộ state machine V4. Không gọi chuyển khoản thủ công là xác minh ngân hàng tự động.
 
 ## Trạng thái và phân công

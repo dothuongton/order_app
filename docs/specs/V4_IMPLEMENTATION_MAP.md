@@ -32,11 +32,15 @@ ID trong bảng là ID **module của spec**, khác với mã lỗi audit SEC/BU
 | DATA-01 | Analytics & Reporting | In Progress — một phần | #13/#30/#44/#45 | Daily read-model không tự là profitability toàn V4 |
 | OPS-02 | Platform Support & Operations | In Progress — một phần | #15–#19/#23/#35/#38/#46–#48 | Không tự cấp support quyền sửa tiền/reset owner/impersonate |
 
-## Cổng Sprint0 trước chia triển khai full V4
+## Phạm vi MVP đã chốt
 
-- Quyết định cách đi từ QR hiện tại tới kiến trúc mục tiêu Next/Nest/Prisma: re-use/migrate từng module hay tạo nền V4 tách riêng, deployment/cutover và lý do. Không tự biến hotfix thành rewrite, không tự loại mục tiêu V4 khỏi backlog.
+[ADR-0001](../architecture/decisions/0001-current-stack-table-order-mvp.md) chốt công nghệ hiện tại và order tại bàn trước. Online/payment integration, framework rewrite, SaaS/POS/Ship và mục tiêu1000quán không là điều kiện của MVP. Giữ nhiều thiết bị đang có; #52 claimđộcquyền chưa triển khai, #53 paymentstate mới để sau. Ma trận25module bên trên là roadmap dài hạn, không phải checklist bắt buộc làm tất cả để pilot.
+
+## Kiểm kê MVP/Sprint0
+
+- Giữ React/Vite/Express/pg và repo hiện tại theo ADR-0001; kiểm kê yêu cầu order tại bàn so code để làm khoảng trống thực sự. Không mở ADR đổi framework nếu chưa có bằng chứng cần.
 - Backup source/DB và kiểm kê contract/schema/data có thể tái sử dụng, điểm tenant→brand/store, migration ID reservation và owner file.
-- Chốt MVP1 SaaS→QR/POS→Payment/Invoice và dependency; 25 module có epic/issue theo giai đoạn, không bật tất cả để hai người cùng sửa shared files.
+- MVP1 order tại bàn: menu/tùy chọn/gửi-gọi thêm/nhận-phục vụ-hủy/trạng thái/đóng và mở lượt mới. Phân quyền/tenant/isolation/idempotency đi cùng; các module khác nằm backlog dài hạn.
 - Chuẩn hóa OpenAPI/events/permissions/entitlements và read/write authority theo module. Core sở hữu shared contracts/schema; Sang sở hữu admin surfaces; mở thêm lane khi có người và ranh giới thật.
 - Claim, checkout lock và payment state phải map theo addendum; đổi flow UX từ Muse cần ADR đối chiếu spec và xác nhận của chủ dự án trước bật.
 - DoD từng module: schema/migration/rollback, API validation+scope+state, UI ngoại lệ, event/audit, tests và pilot/rollout thực. Mock/API giả không bằng Tested/Released.
