@@ -163,7 +163,7 @@ async function markTableReady(staffToken, tableId) {
 }
 
 async function main() {
-  console.log('🚀 Launching headless Chrome with remote debugging on port', PORT);
+  console.log('🚀 Launching headless Chrome on port', PORT);
   const profileDir = `/tmp/chrome-issue57-real-${Date.now()}`;
   fs.mkdirSync(profileDir, { recursive: true });
 
@@ -363,8 +363,6 @@ async function main() {
     const currentUrl = await evaluate("window.location.href");
     const storedAuth = await evaluate("sessionStorage.getItem('guest_auth_qr-phoco-a01')");
     const guestToken = await evaluate("sessionStorage.getItem('guest_token')");
-    console.log(`  Debug A01: url=${currentUrl}, storedAuth=${storedAuth}, guestToken=${guestToken ? guestToken.substring(0, 10) + '...' : 'null'}`);
-    console.log('  Debug A01 network requests:', networkRequests.map(r => `${r.method} ${r.url}`).slice(-10));
     assert(guestToken, 'Guest browser must obtain and store guest_token upon joining open session');
 
     // Check menu state
@@ -419,7 +417,6 @@ async function main() {
     }
 
     // Check bill in browser: shows served Nem Chua and amount
-    console.log('  Debug bodyText after serve:\n--- START ---\n' + bodyText + '\n--- END ---');
     assert(bodyText.includes('Nem Chua'), 'Bill breakdown must list served Nem Chua');
     assert(bodyText.includes('63.000') || bodyText.includes('60.000'), 'Bill breakdown must calculate served total');
     console.log('  ✅ Real order & serving verified in guest browser');
@@ -444,7 +441,6 @@ async function main() {
     }
 
     // Assert Header badge is "Đã kết thúc"
-    console.log('DEBUG bodyText after settlement:\n--- START ---\n' + bodyText + '\n--- END ---');
     assert(bodyText.includes('Đã kết thúc'), 'Bill header badge must be "Đã kết thúc"');
 
     // Assert banner is "Phiên bàn đã thanh toán hoàn tất"
