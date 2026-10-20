@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS menu_categories (
 CREATE TABLE IF NOT EXISTS menu_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    category_id UUID NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
+    category_id UUID NOT NULL REFERENCES menu_categories(id) ON DELETE RESTRICT,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     price BIGINT NOT NULL, -- Số nguyên VND
@@ -109,6 +109,9 @@ CREATE TABLE IF NOT EXISTS menu_items (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_menu_items_tenant_category ON menu_items (tenant_id, category_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_menu_categories_tenant_name ON menu_categories (tenant_id, LOWER(TRIM(name)));
 
 -- 9. Menu Item Variants (Legacy)
 CREATE TABLE IF NOT EXISTS menu_item_variants (
