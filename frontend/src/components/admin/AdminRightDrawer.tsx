@@ -46,11 +46,33 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
     // Local state for permissions checkboxes when in permissions mode
     const [permissionGroups, setPermissionGroups] = React.useState<any[]>([]);
 
+    const drawerRef = React.useRef<HTMLElement>(null);
+
     React.useEffect(() => {
         if (content?.type === 'permissions') {
             setPermissionGroups(JSON.parse(JSON.stringify(content.role.permissionGroups)));
         }
     }, [content]);
+
+    // ESC key closes drawer (Issue #88)
+    React.useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
+    // Auto-focus drawer on open
+    React.useEffect(() => {
+        if (isOpen) {
+            const timer = setTimeout(() => drawerRef.current?.focus(), 60);
+            return () => clearTimeout(timer);
+        }
+    }, [isOpen]);
 
     if (!isOpen || !content) return null;
 
@@ -65,7 +87,13 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
             />
 
             {/* Slide-over panel */}
-            <aside className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-right duration-300">
+            <aside
+                ref={drawerRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                className="relative w-full max-w-full sm:max-w-md bg-white h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-right duration-300 outline-none"
+            >
                 {/* =========================================================================
                     1. PERMISSIONS MODE (Image 1 style)
                    ========================================================================= */}

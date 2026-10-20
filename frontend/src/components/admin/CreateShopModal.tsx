@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Store, Lock, Eye, EyeOff } from 'lucide-react';
 import { CreateShopPayload } from '../../types/admin.js';
 
@@ -21,6 +21,27 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
     const [linkExistingOwner, setLinkExistingOwner] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const nameInputRef = useRef<HTMLInputElement>(null);
+
+    // ESC key closes modal (Issue #88)
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isSubmitting) {
+                handleClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, isSubmitting]);
+
+    // Auto-focus first input on open
+    useEffect(() => {
+        if (isOpen) {
+            const timer = setTimeout(() => nameInputRef.current?.focus(), 60);
+            return () => clearTimeout(timer);
+        }
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -126,7 +147,7 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
             <div
-                className="bg-white rounded-3xl w-full max-w-xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                className="bg-white rounded-3xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="create-shop-title"
@@ -158,7 +179,7 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
                     {error && (
                         <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 font-semibold">
                             {error}
@@ -171,6 +192,8 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                                 Tên Quán <span className="text-rose-500">*</span>
                             </label>
                             <input
+                                ref={nameInputRef}
+                                id="create-shop-name"
                                 type="text"
                                 required
                                 disabled={isSubmitting}
