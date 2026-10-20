@@ -4,7 +4,7 @@ import { GuestMenu } from './GuestMenu.js';
 import { GuestOrders } from './GuestOrders.js';
 import { GuestBill } from './GuestBill.js';
 import { CartDrawer } from '../../components/CartDrawer.js';
-import { UtensilsCrossed, ClipboardList, Receipt, ShoppingBag, AlertCircle, Sparkles } from 'lucide-react';
+import { UtensilsCrossed, ClipboardList, Receipt, ShoppingBag, AlertCircle, Sparkles, WifiOff } from 'lucide-react';
 
 interface GuestLandingProps {
   qrId: string;
@@ -20,7 +20,8 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     loadTableMenu,
     joinSession,
     isLoading,
-    isSessionClosed
+    isSessionClosed,
+    isOnline
   } = useGuest();
 
   const [activeTab, setActiveTab] = useState<'menu' | 'orders' | 'bill'>('menu');
@@ -49,14 +50,14 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
   // A guest who scans before staff open the table should not need to reload.
   // Stop after the first successful join; never auto-join a later customer session.
   useEffect(() => {
-    if (!waitingForOpen) return;
+    if (!waitingForOpen || isSessionClosed) return;
     const timer = setInterval(() => {
       joinSession(qrId).then(() => setWaitingForOpen(false)).catch((err: any) => {
         if (err.code !== 'SESSION_NOT_OPEN') { setWaitingForOpen(false); setInitError(err.message); }
       });
     }, 8000);
     return () => clearInterval(timer);
-  }, [waitingForOpen, qrId, joinSession]);
+  }, [waitingForOpen, isSessionClosed, qrId, joinSession]);
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -126,8 +127,14 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   Phiên mở
                 </span>
+              ) : isSessionClosed ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                  Đã kết thúc
+                </span>
               ) : (
-                <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                   Chưa mở phiên
                 </span>
               )}
@@ -147,6 +154,14 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
         )}
       </header>
 
+      {/* Connection Warning Banner (Mất kết nối) */}
+      {!isOnline && (
+        <div className="bg-rose-600 text-white px-4 py-2.5 shadow-sm flex items-center gap-2.5 text-xs font-semibold animate-pulse">
+          <WifiOff className="w-4 h-4 shrink-0" />
+          <span>Mất kết nối mạng. Đang tự động kết nối lại...</span>
+        </div>
+      )}
+
       {/* Notice Banner: If table session is closed (F10) */}
       {isSessionClosed && !waitingForOpen && (
         <div className="bg-emerald-600 text-white p-4 shadow-sm flex items-center gap-3">
@@ -161,7 +176,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       )}
 
       {/* Notice Banner: If table not opened yet (AT02) */}
-      {!session && (!isSessionClosed || waitingForOpen) && (
+      {!session && !isSessionClosed && (
         <div className="bg-amber-500 text-white px-4 py-3 shadow-sm flex items-center gap-2.5">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <p className="text-xs font-medium leading-tight">

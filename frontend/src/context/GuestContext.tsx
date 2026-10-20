@@ -15,6 +15,7 @@ interface GuestContextType {
   billSummary: BillSummary | null;
   isLoading: boolean;
   isSessionClosed: boolean;
+  isOnline: boolean;
   activeServiceRequests: any[];
   banners: any[];
   promotions: any[];
@@ -29,6 +30,17 @@ interface GuestContextType {
   requestCheckout: (note?: string) => Promise<any>;
   refreshOrdersAndBill: () => Promise<void>;
 }
+
+interface ScopedGuestSession {
+  qrId: string;
+  sessionId: string;
+  token: string;
+  isClosed?: boolean;
+}
+
+const getAuthStorageKey = (qr: string) => `guest_auth_${qr}`;
+const getCartStorageKey = (qr: string, sessId?: string | null) => `guest_cart_${qr}_${sessId || 'draft'}`;
+const getReceiptStorageKey = (qr: string) => `guest_receipt_${qr}`;
 
 const GuestContext = createContext<GuestContextType | null>(null);
 
@@ -49,39 +61,150 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [banners, setBanners] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
 
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
   const pendingOrder = useRef<{ payload: string; key: string } | null>(null);
   const submittingOrder = useRef<Promise<any> | null>(null);
 
-  // Load menu by QR id
+  // Monitor network connectivity (Mất kết nối)
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Refresh orders & bill
+  const refreshOrdersAndBill = useCallback(async () => {
+    const token = sessionStorage.getItem('guest_token');
+    if (!token) return;
+
+    try {
+      if (!isSessionClosed) {
+        try {
+          const sessionData = await request<any>('/guest/session');
+          setActiveServiceRequests(sessionData.openRequests || []);
+        } catch {}
+      } else {
+        setActiveServiceRequests([]);
+      }
+
+      const [ordersData, billData] = await Promise.all([
+        request<{ orders: Order[] }>('/guest/orders'),
+        request<BillSummary>('/guest/bill-summary')
+      ]);
+
+      setOrders(ordersData.orders || []);
+      setBillSummary(billData);
+    } catch (err: any) {
+      if (err.code === 'SESSION_CLOSED' || err.code === 'ACCESS_REVOKED') {
+        setIsSessionClosed(true);
+        setActiveServiceRequests([]);
+        setCart([]);
+        if (publicQrId && billSummary) {
+          try {
+            sessionStorage.setItem(getReceiptStorageKey(publicQrId), JSON.stringify({
+              qrId: publicQrId,
+              sessionId: session?.id,
+              billSummary: { ...billSummary, isClosed: true, sessionStatus: 'CLOSED' },
+              orders,
+              closedAt: new Date().toISOString()
+            }));
+          } catch {}
+        }
+        sessionStorage.removeItem('guest_token');
+      }
+    }
+  }, [isSessionClosed, publicQrId, session?.id, billSummary, orders]);
+
+  // Load menu by QR id with session scoping and isolation
   const loadTableMenu = useCallback(async (qrId: string) => {
     setIsLoading(true);
     setPublicQrId(qrId);
-    setOrders([]);
-    setBillSummary(null);
-    setCart([]);
-    setActiveServiceRequests([]);
     pendingOrder.current = null;
-    sessionStorage.removeItem('guest_token');
+
+    const scopedKey = getAuthStorageKey(qrId);
+    let storedSession: ScopedGuestSession | null = null;
+    try {
+      const raw = sessionStorage.getItem(scopedKey);
+      if (raw) storedSession = JSON.parse(raw);
+    } catch {
+      storedSession = null;
+    }
+
     try {
       const data = await request<any>(`/public/tables/${qrId}/menu`);
       setTenant(data.tenant);
       setTable(data.table);
-      setSession(data.session);
       setCategories(data.categories || []);
       setMenuItems(data.menuItems || []);
       setBanners(data.banners || []);
       setPromotions(data.promotions || []);
 
       if (data.session) {
+        // Table has an active OPEN session
+        setSession(data.session);
         setIsSessionClosed(false);
+        // Clear old receipt snapshot from a past session on this table
+        sessionStorage.removeItem(getReceiptStorageKey(qrId));
+
+        // Check if current browser already has credentials matching this exact active session
+        if (storedSession && storedSession.sessionId === data.session.id) {
+          sessionStorage.setItem('guest_token', storedSession.token);
+          try {
+            const savedCart = sessionStorage.getItem(getCartStorageKey(qrId, data.session.id));
+            if (savedCart) setCart(JSON.parse(savedCart));
+          } catch {}
+          await refreshOrdersAndBill();
+        } else {
+          // New guest or previous session from this device is outdated: clear old data
+          sessionStorage.removeItem('guest_token');
+          sessionStorage.removeItem(scopedKey);
+          setOrders([]);
+          setBillSummary(null);
+          setCart([]);
+          setActiveServiceRequests([]);
+        }
       } else {
-        setIsSessionClosed(true);
+        // Table has NO active session (UNOPENED or CLOSED)
+        // Check if this browser has a stored receipt snapshot for this table
+        let storedReceipt: any = null;
+        try {
+          const rawReceipt = sessionStorage.getItem(getReceiptStorageKey(qrId));
+          if (rawReceipt) storedReceipt = JSON.parse(rawReceipt);
+        } catch {}
+
+        if (storedReceipt && storedReceipt.billSummary) {
+          // This guest just completed dining on this table -> show their closed receipt
+          setSession({ id: storedReceipt.sessionId, status: 'CLOSED' });
+          setIsSessionClosed(true);
+          setBillSummary(storedReceipt.billSummary);
+          setOrders(storedReceipt.orders || []);
+          setCart([]);
+          setActiveServiceRequests([]);
+          sessionStorage.removeItem('guest_token');
+          return;
+        }
+
+        // Clean UNOPENED state for fresh scan without prior receipt
+        setSession(null);
+        setIsSessionClosed(false);
+        setOrders([]);
+        setBillSummary(null);
+        setCart([]);
         setActiveServiceRequests([]);
+        sessionStorage.removeItem('guest_token');
+        sessionStorage.removeItem(scopedKey);
+        sessionStorage.removeItem(getReceiptStorageKey(qrId));
       }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [refreshOrdersAndBill]);
 
   // Join table session
   const joinSession = useCallback(async (qrId: string) => {
@@ -92,42 +215,30 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         body: JSON.stringify({ deviceFingerprint: navigator.userAgent })
       });
       sessionStorage.setItem('guest_token', res.token);
+      const scopedKey = getAuthStorageKey(qrId);
+      sessionStorage.setItem(scopedKey, JSON.stringify({
+        qrId,
+        sessionId: res.sessionId,
+        token: res.token,
+        isClosed: false
+      }));
       setSession({ id: res.sessionId, status: 'OPEN' });
       setIsSessionClosed(false);
+      try {
+        const savedCart = sessionStorage.getItem(getCartStorageKey(qrId, res.sessionId));
+        if (savedCart) setCart(JSON.parse(savedCart));
+      } catch {}
       await refreshOrdersAndBill();
     } catch (err: any) {
       if (err.code === 'SESSION_NOT_OPEN') {
         setSession(null);
+        setIsSessionClosed(false);
       }
       throw err;
     } finally {
       setIsLoading(false);
     }
-  }, []);
-
-  // Refresh orders & bill
-  const refreshOrdersAndBill = useCallback(async () => {
-    const token = sessionStorage.getItem('guest_token');
-    if (!token) return;
-
-    try {
-      const sessionData = await request<any>('/guest/session');
-      setActiveServiceRequests(sessionData.openRequests || []);
-
-      const ordersData = await request<{ orders: Order[] }>('/guest/orders');
-      setOrders(ordersData.orders || []);
-
-      const billData = await request<BillSummary>('/guest/bill-summary');
-      setBillSummary(billData);
-    } catch (err: any) {
-      if (err.code === 'SESSION_CLOSED' || err.code === 'ACCESS_REVOKED') {
-        setIsSessionClosed(true);
-        setActiveServiceRequests([]);
-        sessionStorage.removeItem('guest_token');
-        setCart([]);
-      }
-    }
-  }, []);
+  }, [refreshOrdersAndBill]);
 
   // Listen to socket session room events
   useEffect(() => {
@@ -143,10 +254,25 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const handleSessionClosed = (payload?: any) => {
       setIsSessionClosed(true);
-      setSession(null);
+      setSession((prev: any) => prev ? { ...prev, status: 'CLOSED' } : { id: 'closed', status: 'CLOSED' });
       setActiveServiceRequests([]);
-      sessionStorage.removeItem('guest_token');
       setCart([]);
+      if (publicQrId) {
+        try {
+          if (session?.id) sessionStorage.removeItem(getCartStorageKey(publicQrId, session.id));
+          sessionStorage.removeItem(getAuthStorageKey(publicQrId));
+          sessionStorage.removeItem('guest_token');
+          if (billSummary) {
+            sessionStorage.setItem(getReceiptStorageKey(publicQrId), JSON.stringify({
+              qrId: publicQrId,
+              sessionId: session?.id,
+              billSummary: { ...billSummary, isClosed: true, sessionStatus: 'CLOSED' },
+              orders,
+              closedAt: new Date().toISOString()
+            }));
+          }
+        } catch {}
+      }
       showToast({
         title: 'Phiên bàn đã kết thúc',
         message: payload?.message || 'Hóa đơn đã được thanh toán. Cảm ơn quý khách!',
@@ -262,7 +388,24 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }));
   };
 
-  const clearCart = () => setCart([]);
+  // Persist cart scoped to table and session
+  useEffect(() => {
+    if (!publicQrId || !session?.id || isSessionClosed) return;
+    try {
+      if (cart.length > 0) {
+        sessionStorage.setItem(getCartStorageKey(publicQrId, session.id), JSON.stringify(cart));
+      } else {
+        sessionStorage.removeItem(getCartStorageKey(publicQrId, session.id));
+      }
+    } catch {}
+  }, [cart, publicQrId, session?.id, isSessionClosed]);
+
+  const clearCart = () => {
+    setCart([]);
+    if (publicQrId && session?.id) {
+      sessionStorage.removeItem(getCartStorageKey(publicQrId, session.id));
+    }
+  };
 
   // Submit order with stable idempotency key
   const submitOrder = async () => {
@@ -360,6 +503,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       billSummary,
       isLoading,
       isSessionClosed,
+      isOnline,
       activeServiceRequests,
       banners,
       promotions,
