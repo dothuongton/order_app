@@ -1,0 +1,79 @@
+{
+  "head": "2e764be",
+  "results": [
+    {
+      "id": "cancelled-first-promotion",
+      "quote": 40000,
+      "pay": 200,
+      "reloaded": 40000,
+      "retry": 400,
+      "message": "Đã xác nhận thanh toán 40.000đ và kết thúc phiên bàn 1faf0edb-c8e8-4551-9305-8f47771a17f3"
+    },
+    {
+      "id": "multiple-attached-cap",
+      "quote": 100000,
+      "pay": 200,
+      "reloaded": 100000,
+      "retry": 400,
+      "retryError": "ALREADY_CLOSED",
+      "sessionStatus": "CLOSED"
+    },
+    {
+      "id": "multiple-attached-minimum",
+      "quote": 100000,
+      "pay": 200,
+      "message": "Đã xác nhận thanh toán 100.000đ và kết thúc phiên bàn 002dd83d-a4b3-41b4-b14b-906961b41dd1",
+      "reloaded": 100000,
+      "retry": 400
+    },
+    {
+      "id": "archived-accepted-session",
+      "dashboard": 200,
+      "serve": 200,
+      "settle": 200
+    },
+    {
+      "id": "lane-bypass",
+      "coreOnSangFile": {
+        "valid": false,
+        "violations": [
+          "Core lane violation: Core cannot touch Super Admin lane file: backend/src/modules/admin/admin.service.ts"
+        ]
+      },
+      "unknownOnCoreFile": {
+        "valid": false,
+        "violations": [
+          "Lane detection error: Unknown or unauthorized lane identifier \"unknown-user my-core-work \". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity)."
+        ]
+      },
+      "sangOwnedApi": {
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "id": "seed-default-preservation",
+      "markerPreserved": true
+    }
+  ],
+  "boundaryNode20": [
+    {
+      "case": "violation",
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "case": "missing-base",
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "boundaryFileControl": {
+    "exitCode": 1,
+    "detectedViolation": true
+  },
+  "node20Version": "20.20.2",
+  "currentCiBranch": "bootstrap (verified Actions log 39384935709)"
+}

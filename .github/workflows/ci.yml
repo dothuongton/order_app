@@ -31,7 +31,12 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             if git cat-file -e "origin/$BASE_REF:scripts/check-file-boundaries.mjs" 2>/dev/null; then
               echo "Executing trusted boundary check script from origin/$BASE_REF"
-              git show "origin/$BASE_REF:scripts/check-file-boundaries.mjs" | node - "origin/$BASE_REF"
+              TMP_GUARD="${RUNNER_TEMP:-/tmp}/trusted-boundary-$$.mjs"
+              git show "origin/$BASE_REF:scripts/check-file-boundaries.mjs" > "$TMP_GUARD"
+              node "$TMP_GUARD" "origin/$BASE_REF"
+              EXIT_CODE=$?
+              rm -f "$TMP_GUARD"
+              exit $EXIT_CODE
             else
               echo "Bootstrap mode: executing local boundary check script"
               node scripts/check-file-boundaries.mjs "origin/$BASE_REF"

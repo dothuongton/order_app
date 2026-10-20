@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { execSync } from 'child_process';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 /**
  * Validates PR file boundaries according to Issue #2, Issue #5, and Issue #29.
@@ -277,12 +279,11 @@ export function validateDiffForSecretsAndDebug(diffText) {
     };
 }
 
-// CLI execution
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename || '')) {
-    let baseRef = process.argv[2] || 'origin/main';
+export function runCli(argv = process.argv, env = process.env) {
+    let baseRef = argv[2] || 'origin/main';
     // Priority: Explicit argv[3] > PR_AUTHOR > GITHUB_ACTOR (PR_LABELS is used for compatibility check only)
-    const author = process.argv[3] || process.env.PR_AUTHOR || process.env.GITHUB_ACTOR || '';
-    const labels = process.env.PR_LABELS || '';
+    const author = argv[3] || env.PR_AUTHOR || env.GITHUB_ACTOR || '';
+    const labels = env.PR_LABELS || '';
 
     // Verify that the requested baseRef exists. Fail closed if untrusted or missing!
     try {
@@ -320,4 +321,23 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
         console.error('Error checking PR boundaries:', err.message);
         process.exit(1);
     }
+}
+
+// Auto-run when executed directly via CLI, executed from a trusted temp file, or piped via stdin
+export function isMainModule() {
+    const argv1 = process.argv[1];
+    if (!argv1) return false;
+    if (argv1 === '-' || argv1 === '[stdin]') return true;
+
+    try {
+        const scriptRealPath = fs.realpathSync(fileURLToPath(import.meta.url));
+        const argvRealPath = fs.realpathSync(path.resolve(argv1));
+        return scriptRealPath === argvRealPath;
+    } catch {
+        return Boolean(argv1 && (argv1.endsWith('.mjs') || argv1.endsWith('.js')) && !argv1.includes('vitest'));
+    }
+}
+
+if (isMainModule()) {
+    runCli();
 }

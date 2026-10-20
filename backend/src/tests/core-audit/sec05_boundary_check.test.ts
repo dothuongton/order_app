@@ -204,8 +204,35 @@ A\tbackend/src/modules/admin/new.ts
         expect(res4.violations.some(v => v.includes('Unknown or unauthorized author'))).toBe(true);
     });
 
-    describe('Git CLI Execution & Fixture Suite (Issue #29)', () => {
+    describe('Git CLI Execution & CI Workflow Trusted Guard Suite (Issue #29)', () => {
         let fixtureDir: string;
+
+        // Helper executing the exact CI workflow step logic
+        function runWorkflowCheck(baseRef: string, env: Record<string, string>) {
+            const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-runner-temp-'));
+            try {
+                const script = `
+                    if git cat-file -e "${baseRef}:scripts/check-file-boundaries.mjs" 2>/dev/null; then
+                        TMP_GUARD="${runnerTemp}/trusted-boundary-$$.mjs"
+                        git show "${baseRef}:scripts/check-file-boundaries.mjs" > "$TMP_GUARD"
+                        node "$TMP_GUARD" "${baseRef}"
+                        EXIT_CODE=$?
+                        rm -f "$TMP_GUARD"
+                        exit $EXIT_CODE
+                    else
+                        node scripts/check-file-boundaries.mjs "${baseRef}"
+                    fi
+                `;
+                return execSync(script, {
+                    cwd: fixtureDir,
+                    env: { ...process.env, RUNNER_TEMP: runnerTemp, ...env },
+                    encoding: 'utf-8',
+                    stdio: 'pipe'
+                });
+            } finally {
+                fs.rmSync(runnerTemp, { recursive: true, force: true });
+            }
+        }
 
         beforeAll(() => {
             fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-boundary-fixture-'));
@@ -213,13 +240,15 @@ A\tbackend/src/modules/admin/new.ts
             execSync('git config user.name "Tester"', { cwd: fixtureDir });
             execSync('git config user.email "test@example.com"', { cwd: fixtureDir });
 
-            // Create initial baseline on main
+            // Create baseline on main WITH scripts/check-file-boundaries.mjs committed
             fs.writeFileSync(path.join(fixtureDir, 'README.md'), '# Initial');
+            fs.mkdirSync(path.join(fixtureDir, 'scripts'), { recursive: true });
+            fs.copyFileSync(scriptPath, path.join(fixtureDir, 'scripts/check-file-boundaries.mjs'));
             fs.mkdirSync(path.join(fixtureDir, 'backend/src/modules/admin'), { recursive: true });
             fs.mkdirSync(path.join(fixtureDir, 'backend/src/modules/guest'), { recursive: true });
             fs.writeFileSync(path.join(fixtureDir, 'backend/src/modules/admin/admin.service.ts'), '// admin');
             fs.writeFileSync(path.join(fixtureDir, 'backend/src/modules/guest/guest.service.ts'), '// guest');
-            execSync('git add . && git commit -m "Baseline commit"', { cwd: fixtureDir });
+            execSync('git add . && git commit -m "Baseline commit with scripts on main"', { cwd: fixtureDir });
         });
 
         afterAll(() => {
@@ -230,40 +259,100 @@ A\tbackend/src/modules/admin/new.ts
 
         it('fails closed when trusted base reference cannot be resolved in git (no silent fallback to HEAD~1 or HEAD)', () => {
             try {
-                execSync(`node "${scriptPath}" non-existent-base-ref`, {
-                    cwd: fixtureDir,
-                    env: { ...process.env, PR_AUTHOR: 'dothuongton' },
-                    stdio: 'pipe'
-                });
+                runWorkflowCheck('refs/heads/does-not-exist', { PR_AUTHOR: 'dothuongton' });
                 expect.unreachable('Should fail on unresolvable base ref');
             } catch (err: any) {
                 expect(err.status).toBe(1);
                 const stderr = err.stderr.toString();
-                expect(stderr).toContain('Base reference "non-existent-base-ref" cannot be resolved');
+                expect(stderr).toContain('Base reference "refs/heads/does-not-exist" cannot be resolved');
                 expect(stderr).toContain('git fetch origin <base_branch>');
             }
         });
 
-        it('inspects full multi-commit diff against base and catches violations in earlier commits (not masked by later clean commits)', () => {
-            // Checkout feature branch
-            execSync('git checkout -b feature-multi-commit', { cwd: fixtureDir });
+        it('allows valid author with correct lane diff using workflow execution', () => {
+            execSync('git checkout main', { cwd: fixtureDir });
+            execSync('git checkout -b feature-valid-core', { cwd: fixtureDir });
+            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/guest/guest.service.ts'), '\n// valid guest change');
+            execSync('git commit -am "Valid core change"', { cwd: fixtureDir });
 
-            // Commit 1: Core author touches Sang\'s lane file (VIOLATION)
-            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/admin/admin.service.ts'), '\n// core edited this');
-            execSync('git commit -am "Core touched Sang admin file"', { cwd: fixtureDir });
+            const out = runWorkflowCheck('main', { PR_AUTHOR: 'dothuongton', PR_LABELS: 'priority:P1 bug' });
+            expect(out).toContain('passed successfully');
+        });
 
-            // Commit 2: Core author edits clean doc file
-            fs.appendFileSync(path.join(fixtureDir, 'README.md'), '\n// doc update');
-            execSync('git commit -am "Core updated doc only"', { cwd: fixtureDir });
+        it('blocks author modifying files outside assigned lane using workflow execution', () => {
+            execSync('git checkout main', { cwd: fixtureDir });
+            execSync('git checkout -b feature-core-violating-sang', { cwd: fixtureDir });
+            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/admin/admin.service.ts'), '\n// core touched sang lane');
+            execSync('git commit -am "Core touched admin file"', { cwd: fixtureDir });
 
-            // Running against base "main" must catch the violation from commit 1!
             try {
-                execSync(`node "${scriptPath}" main`, {
+                runWorkflowCheck('main', { PR_AUTHOR: 'dothuongton' });
+                expect.unreachable('Should fail when core author touches Sang file');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                expect(err.stderr.toString()).toContain('Core cannot touch Super Admin lane file');
+            }
+        });
+
+        it('inspects full multi-commit diff against base and catches violations in earlier commits (not masked by later clean commits)', () => {
+            execSync('git checkout main', { cwd: fixtureDir });
+            execSync('git checkout -b feature-multi-commit-violation', { cwd: fixtureDir });
+
+            // Commit 1: Core touches Sang lane file (VIOLATION)
+            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/admin/admin.service.ts'), '\n// core touched admin');
+            execSync('git commit -am "Commit 1 violating"', { cwd: fixtureDir });
+
+            // Commit 2: Clean doc update
+            fs.appendFileSync(path.join(fixtureDir, 'README.md'), '\n// clean doc update');
+            execSync('git commit -am "Commit 2 clean doc"', { cwd: fixtureDir });
+
+            try {
+                runWorkflowCheck('main', { PR_AUTHOR: 'dothuongton' });
+                expect.unreachable('Should fail because commit 1 had violation');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                expect(err.stderr.toString()).toContain('Core cannot touch Super Admin lane file');
+            }
+        });
+
+        it('prevents PR branch from bypassing checks by tampering with check-file-boundaries.mjs (trusted guard from base is executed)', () => {
+            execSync('git checkout main', { cwd: fixtureDir });
+            execSync('git checkout -b feature-malicious-pr', { cwd: fixtureDir });
+
+            // Tamper with check script in PR branch to exit 0
+            fs.writeFileSync(path.join(fixtureDir, 'scripts/check-file-boundaries.mjs'), 'console.log("MALICIOUS_BYPASS"); process.exit(0);');
+            // Also commit a boundary violation
+            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/admin/admin.service.ts'), '\n// unauthorized change');
+            execSync('git commit -am "Tamper script and modify sang file"', { cwd: fixtureDir });
+
+            try {
+                const out = runWorkflowCheck('main', { PR_AUTHOR: 'dothuongton' });
+                expect.unreachable('Malicious script must not bypass check');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                // Proves that the trusted script from main ran, not the tampered script!
+                expect(err.stderr.toString()).toContain('Core cannot touch Super Admin lane file');
+                expect(err.stdout.toString()).not.toContain('MALICIOUS_BYPASS');
+            }
+        });
+
+        it('executes validator and verifies diff when piped via stdin (cat script | node - <base>)', () => {
+            execSync('git checkout feature-valid-core', { cwd: fixtureDir });
+            const cleanOut = execSync(`cat scripts/check-file-boundaries.mjs | node - main`, {
+                cwd: fixtureDir,
+                env: { ...process.env, PR_AUTHOR: 'dothuongton' },
+                encoding: 'utf-8'
+            });
+            expect(cleanOut).toContain('passed successfully');
+
+            execSync('git checkout feature-core-violating-sang', { cwd: fixtureDir });
+            try {
+                execSync(`cat scripts/check-file-boundaries.mjs | node - main`, {
                     cwd: fixtureDir,
                     env: { ...process.env, PR_AUTHOR: 'dothuongton' },
                     stdio: 'pipe'
                 });
-                expect.unreachable('Should fail because commit 1 touched Sang file');
+                expect.unreachable('Should fail when piped via stdin on violating diff');
             } catch (err: any) {
                 expect(err.status).toBe(1);
                 expect(err.stderr.toString()).toContain('Core cannot touch Super Admin lane file');
@@ -271,7 +360,8 @@ A\tbackend/src/modules/admin/new.ts
         });
 
         it('detects violations on renamed files in multi-commit branch', () => {
-            execSync('git checkout -b feature-rename', { cwd: fixtureDir });
+            execSync('git checkout main', { cwd: fixtureDir });
+            execSync('git checkout -b feature-rename-violation', { cwd: fixtureDir });
 
             // Core author renames guest file to admin file
             fs.renameSync(
@@ -281,11 +371,7 @@ A\tbackend/src/modules/admin/new.ts
             execSync('git add -A && git commit -m "Rename to admin path"', { cwd: fixtureDir });
 
             try {
-                execSync(`node "${scriptPath}" main`, {
-                    cwd: fixtureDir,
-                    env: { ...process.env, PR_AUTHOR: 'dothuongton' },
-                    stdio: 'pipe'
-                });
+                runWorkflowCheck('main', { PR_AUTHOR: 'dothuongton' });
                 expect.unreachable('Should fail because destination is in Sang lane');
             } catch (err: any) {
                 expect(err.status).toBe(1);
@@ -294,18 +380,11 @@ A\tbackend/src/modules/admin/new.ts
         });
 
         it('enforces author vs label separation via CLI (fails closed on conflicting labels, ignores ordinary labels)', () => {
-            execSync('git checkout main', { cwd: fixtureDir });
-            execSync('git checkout -b feature-clean-core', { cwd: fixtureDir });
-            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/guest/guest.service.ts'), '\n// clean guest edit');
-            execSync('git commit -am "Clean core change"', { cwd: fixtureDir });
+            execSync('git checkout feature-valid-core', { cwd: fixtureDir });
 
             // 1. Sang author claiming lane:core on core diff -> FAIL CLOSED
             try {
-                execSync(`node "${scriptPath}" main`, {
-                    cwd: fixtureDir,
-                    env: { ...process.env, PR_AUTHOR: 'SangVuxx', PR_LABELS: 'lane:core' },
-                    stdio: 'pipe'
-                });
+                runWorkflowCheck('main', { PR_AUTHOR: 'SangVuxx', PR_LABELS: 'lane:core' });
                 expect.unreachable('Sang author with lane:core must fail closed');
             } catch (err: any) {
                 expect(err.status).toBe(1);
@@ -313,20 +392,12 @@ A\tbackend/src/modules/admin/new.ts
             }
 
             // 2. Core author with ordinary labels priority:P1 bug -> PASS
-            const out = execSync(`node "${scriptPath}" main`, {
-                cwd: fixtureDir,
-                env: { ...process.env, PR_AUTHOR: 'dothuongton', PR_LABELS: 'priority:P1 bug' },
-                encoding: 'utf-8'
-            });
+            const out = runWorkflowCheck('main', { PR_AUTHOR: 'dothuongton', PR_LABELS: 'priority:P1 bug' });
             expect(out).toContain('passed successfully');
 
             // 3. Unknown author -> FAIL CLOSED
             try {
-                execSync(`node "${scriptPath}" main`, {
-                    cwd: fixtureDir,
-                    env: { ...process.env, PR_AUTHOR: 'random-unauthorized-user' },
-                    stdio: 'pipe'
-                });
+                runWorkflowCheck('main', { PR_AUTHOR: 'random-unauthorized-user' });
                 expect.unreachable('Unknown author must fail closed');
             } catch (err: any) {
                 expect(err.status).toBe(1);
