@@ -237,7 +237,7 @@ export async function ensureSchemaOnBoot() {
             DO $$
             BEGIN
                 IF EXISTS (
-                    SELECT 1 FROM information_schema.table_constraints 
+                    SELECT 1 FROM information_schema.table_constraints
                     WHERE constraint_name = 'table_sessions_table_id_fkey'
                 ) THEN
                     ALTER TABLE table_sessions DROP CONSTRAINT table_sessions_table_id_fkey;

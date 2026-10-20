@@ -17,8 +17,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         const customName = 'Admin Do Not Reset';
 
         await query(`
-            UPDATE users 
-            SET password_hash = $1, full_name = $2, is_platform_admin = false 
+            UPDATE users
+            SET password_hash = $1, full_name = $2, is_platform_admin = false
             WHERE email = 'superadmin@qrorder.vn'
         `, [customHash, customName]);
 
@@ -26,8 +26,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         await ensureSchemaOnBoot();
 
         let res = await query(`
-            SELECT password_hash, full_name, is_platform_admin 
-            FROM users 
+            SELECT password_hash, full_name, is_platform_admin
+            FROM users
             WHERE email = 'superadmin@qrorder.vn'
         `);
         expect(res.rows[0].password_hash).toBe(customHash);
@@ -38,8 +38,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         await migrate();
 
         res = await query(`
-            SELECT password_hash, full_name, is_platform_admin 
-            FROM users 
+            SELECT password_hash, full_name, is_platform_admin
+            FROM users
             WHERE email = 'superadmin@qrorder.vn'
         `);
         expect(res.rows[0].password_hash).toBe(customHash);
@@ -50,8 +50,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         await seed(false);
 
         res = await query(`
-            SELECT password_hash, full_name, is_platform_admin 
-            FROM users 
+            SELECT password_hash, full_name, is_platform_admin
+            FROM users
             WHERE email = 'superadmin@qrorder.vn'
         `);
         expect(res.rows[0].password_hash).toBe(customHash);
@@ -61,8 +61,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         // 5. Restore superadmin credentials so other test suites can authenticate cleanly
         const defaultHash = await bcrypt.hash('admin123', 10);
         await query(`
-            UPDATE users 
-            SET password_hash = $1, full_name = 'Hệ Thống Super Admin', is_platform_admin = true 
+            UPDATE users
+            SET password_hash = $1, full_name = 'Hệ Thống Super Admin', is_platform_admin = true
             WHERE email = 'superadmin@qrorder.vn'
         `, [defaultHash]);
     });
