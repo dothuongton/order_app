@@ -397,27 +397,78 @@ export class GuestService {
             // Calculate pricing and promotions server-side using PricingService
             const pricing = await PricingService.calculateOrderPricing(client, tenantId, input.items);
 
-            // Check if this session already had a promotion applied in a previous order (BUS-02)
+            // Check if this session already had a promotion applied in a previous order (BUS-02, R2)
             const existingPromoCheck = await client.query(`
-                SELECT applied_promotion_id 
-                FROM orders 
-                WHERE session_id = $1 AND applied_promotion_id IS NOT NULL 
+                SELECT o.applied_promotion_id, p.title, p.code, p.discount_type, p.discount_value, p.max_discount_amount,
+                       COALESCE(SUM(o.discount_total), 0) as total_discount_given
+                FROM orders o
+                JOIN promotions p ON p.id = o.applied_promotion_id
+                WHERE o.session_id = $1 AND o.applied_promotion_id IS NOT NULL
+                GROUP BY o.applied_promotion_id, p.title, p.code, p.discount_type, p.discount_value, p.max_discount_amount
                 LIMIT 1
             `, [sessionId]);
 
-            const canApplyOrderPromo = existingPromoCheck.rows.length === 0 && Boolean(pricing.appliedPromotion);
-            if (!canApplyOrderPromo) {
-                pricing.discountTotal = 0;
-                pricing.appliedPromotion = null;
-                for (const it of pricing.items) {
-                    it.discountAmount = 0;
-                    it.finalPrice = it.basePrice * it.quantity;
-                    it.appliedPromotionId = null;
+            let effectiveOrderPromoId: string | null = null;
+            let effectiveOrderDiscount = 0;
+
+            if (existingPromoCheck.rows.length === 0) {
+                // Round 1: Apply best promo if available
+                if (pricing.appliedPromotion) {
+                    effectiveOrderPromoId = pricing.appliedPromotion.id;
+                    effectiveOrderDiscount = pricing.discountTotal;
                 }
+            } else {
+                // Subsequent rounds: continue applying the same session promotion according to its type (R2)
+                const sessPromo = existingPromoCheck.rows[0];
+                effectiveOrderPromoId = sessPromo.applied_promotion_id;
+                const discValue = parseInt(sessPromo.discount_value, 10);
+                const prevDiscount = parseInt(sessPromo.total_discount_given, 10);
+
+                if (sessPromo.discount_type === 'PERCENT') {
+                    let calc = Math.floor((pricing.subtotal * discValue) / 100);
+                    if (sessPromo.max_discount_amount) {
+                        const maxCap = parseInt(sessPromo.max_discount_amount, 10);
+                        const remainingCap = Math.max(0, maxCap - prevDiscount);
+                        calc = Math.min(calc, remainingCap);
+                    }
+                    effectiveOrderDiscount = Math.max(0, Math.min(calc, pricing.subtotal));
+                } else if (sessPromo.discount_type === 'FIXED_AMOUNT') {
+                    const remainingFixed = Math.max(0, discValue - prevDiscount);
+                    effectiveOrderDiscount = Math.max(0, Math.min(remainingFixed, pricing.subtotal));
+                }
+
+                // Allocate effectiveOrderDiscount across pricing.items
+                const lineItems = pricing.items;
+                const rawSubtotal = pricing.subtotal;
+                const lineDiscounts = lineItems.map(li => rawSubtotal > 0 ? Number(BigInt(li.subtotal) * BigInt(effectiveOrderDiscount) / BigInt(rawSubtotal)) : 0);
+                let remainder = effectiveOrderDiscount - lineDiscounts.reduce((sum, v) => sum + v, 0);
+                const allocationOrder = lineItems.map((li, index) => ({ index, remainder: rawSubtotal > 0 ? (BigInt(li.subtotal) * BigInt(effectiveOrderDiscount)) % BigInt(rawSubtotal) : 0n }))
+                    .sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1);
+                for (const { index } of allocationOrder) {
+                    if (remainder <= 0) break;
+                    if (lineDiscounts[index] < lineItems[index].subtotal) { lineDiscounts[index]++; remainder--; }
+                }
+
+                pricing.discountTotal = effectiveOrderDiscount;
+                pricing.finalTotal = Math.max(0, pricing.subtotal - effectiveOrderDiscount);
+                pricing.appliedPromotion = effectiveOrderDiscount > 0 ? {
+                    id: sessPromo.applied_promotion_id,
+                    title: sessPromo.title,
+                    code: sessPromo.code,
+                    discountType: sessPromo.discount_type,
+                    discountValue: discValue,
+                    discountAmount: effectiveOrderDiscount
+                } : null;
+
+                lineItems.forEach((li, idx) => {
+                    li.discountAmount = lineDiscounts[idx];
+                    li.finalPrice = Math.max(0, li.subtotal - lineDiscounts[idx]);
+                    li.appliedPromotionId = effectiveOrderDiscount > 0 ? effectiveOrderPromoId : null;
+                });
             }
 
-            const effectiveOrderPromoId = canApplyOrderPromo ? pricing.appliedPromotion!.id : null;
-            const effectiveOrderDiscount = canApplyOrderPromo ? pricing.discountTotal : 0;
+            // CRITICAL: Order creation MUST NOT call PricingService.recordPromotionRedemption!
+            // Redemptions are claimed ONLY at payment settlement time in confirmPaymentAndCloseSession (R2, BUS-06)
 
             // Determine next order_number
             const countRes = await client.query(`
@@ -443,18 +494,6 @@ export class GuestService {
             ]);
 
             const order = orderRes.rows[0];
-
-            // If a promotion was applied for this first order, record redemption
-            if (canApplyOrderPromo && effectiveOrderPromoId) {
-                await PricingService.recordPromotionRedemption(
-                    client,
-                    tenantId,
-                    effectiveOrderPromoId,
-                    order.id,
-                    sessionId,
-                    effectiveOrderDiscount
-                );
-            }
 
             const createdItems = [];
 
@@ -813,7 +852,11 @@ export class GuestService {
                 const closedBillTotal = parseInt(bill.total_amount, 10);
 
                 const promoRedemptionsRes = await query(`
-                    SELECT pr.promotion_id, pr.discount_amount, p.title, p.code, p.discount_type, p.discount_value
+                    SELECT pr.promotion_id, pr.discount_amount,
+                           COALESCE(pr.snapshot_title, p.title) as promo_title,
+                           COALESCE(pr.snapshot_code, p.code) as promo_code,
+                           COALESCE(pr.snapshot_discount_type, p.discount_type) as promo_type,
+                           COALESCE(pr.snapshot_discount_value, p.discount_value) as promo_value
                     FROM promotion_redemptions pr
                     LEFT JOIN promotions p ON p.id = pr.promotion_id
                     WHERE pr.session_id = $1
@@ -826,10 +869,10 @@ export class GuestService {
                     closedDiscountTotal += disc;
                     closedPromotions.push({
                         id: pr.promotion_id,
-                        title: pr.title || 'Khuyến mãi đã áp dụng',
-                        code: pr.code,
-                        discountType: pr.discount_type || 'FIXED_AMOUNT',
-                        discountValue: Number(pr.discount_value || 0),
+                        title: pr.promo_title || 'Khuyến mãi đã áp dụng',
+                        code: pr.promo_code,
+                        discountType: pr.promo_type || 'FIXED_AMOUNT',
+                        discountValue: Number(pr.promo_value || 0),
                         discountAmount: disc
                     });
                 }

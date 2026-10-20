@@ -101,12 +101,26 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
 
         if (tenantStatus === 'suspended') {
             const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
-            const isSettlementOrClosing = req.path.includes('/sessions/') && (req.path.endsWith('/pay') || req.path.endsWith('/cancel') || req.path.endsWith('/serve'));
-            if (isMutation && !isSettlementOrClosing) {
-                return res.status(403).json({
-                    error: 'SHOP_SUSPENDED',
-                    message: 'Quán đang tạm ngưng hoạt động. Thao tác tạo mới/sửa đổi bị tạm dừng (chỉ cho phép thu tiền và đóng bàn hiện hữu).'
-                });
+            if (isMutation) {
+                const pathToCheck = (req.originalUrl || req.path).split('?')[0];
+                const isExistingSessionResolution =
+                    // 1. Session payment, close, and bulk serving (Issue #26 / R4)
+                    /\/sessions\/[^/]+\/(confirm-payment-and-close|close-without-charge|serve-all|accept-all)$/.test(pathToCheck) ||
+                    // 2. Existing order item handling
+                    /\/order-items\/[^/]+\/(accept|serve|cancel)$/.test(pathToCheck) ||
+                    // 3. Service request handling
+                    /\/service-requests\/[^/]+\/(accept|complete|cancel)$/.test(pathToCheck) ||
+                    // 4. Marking table ready after session closed
+                    /\/tables\/[^/]+\/mark-ready$/.test(pathToCheck) ||
+                    // 5. Auth logout
+                    pathToCheck.endsWith('/auth/logout');
+
+                if (!isExistingSessionResolution) {
+                    return res.status(403).json({
+                        error: 'SHOP_SUSPENDED',
+                        message: 'Quán đang tạm ngưng hoạt động. Thao tác tạo mới/sửa đổi bị tạm dừng (chỉ cho phép thu tiền và xử lý các bàn hiện hữu).'
+                    });
+                }
             }
         }
 

@@ -47,9 +47,17 @@ app.get('/health/readiness', async (req: Request, res: Response) => {
         const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Database readiness check timed out')), 2000)
         );
-        const dbCheckPromise = query('SELECT 1 FROM schema_migrations LIMIT 1').catch(() => query('SELECT 1'));
+        const dbCheckPromise = query('SELECT COUNT(*) AS count FROM schema_migrations WHERE filename = $1', ['000_base_schema.sql']);
 
-        await Promise.race([dbCheckPromise, timeoutPromise]);
+        const result: any = await Promise.race([dbCheckPromise, timeoutPromise]);
+        if (!result || !result.rows || result.rows.length === 0 || Number(result.rows[0].count) === 0) {
+            return res.status(503).json({
+                status: 'error',
+                check: 'readiness',
+                database: 'schema_incomplete',
+                time: new Date().toISOString()
+            });
+        }
 
         return res.status(200).json({
             status: 'ok',

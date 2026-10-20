@@ -57,7 +57,7 @@ export const staffMutationLimiter = rateLimit({
     skip: req => ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
     keyGenerator: (req) => {
         const staff = (req as any).staff;
-        if (staff?.userId) return `staff_${staff.userId}`;
+        if (staff?.id) return `staff_${staff.tenantId || 'common'}_${staff.id}`;
         if (staff?.tenantId) return `tenant_${staff.tenantId}`;
         return req.ip || 'unknown';
     },

@@ -27,21 +27,28 @@ const SANG_BLOCKED_EXACT = [
 
 export function validateAuthorFiles(author, files) {
     const isSang = author && (author.toLowerCase().includes('sangvux') || author.toLowerCase().includes('cms-super-admin'));
-    if (!isSang) {
-        return { valid: true, violations: [] };
-    }
 
     const violations = [];
     for (const file of files) {
         const normalized = file.replace(/\\/g, '/');
-        if (SANG_BLOCKED_EXACT.includes(normalized)) {
-            violations.push(`Explicitly forbidden file: ${normalized}`);
-            continue;
-        }
 
-        const isAllowed = SANG_ALLOWED_PREFIXES.some(prefix => normalized.startsWith(prefix));
-        if (!isAllowed) {
-            violations.push(`File outside CMS Super Admin allowlist: ${normalized}`);
+        if (isSang) {
+            // Rules for Sang: only allowed to touch CMS Super Admin files
+            if (SANG_BLOCKED_EXACT.includes(normalized)) {
+                violations.push(`Sang lane violation: Explicitly forbidden core file: ${normalized}`);
+                continue;
+            }
+
+            const isAllowed = SANG_ALLOWED_PREFIXES.some(prefix => normalized.startsWith(prefix));
+            if (!isAllowed) {
+                violations.push(`Sang lane violation: File outside CMS Super Admin allowlist: ${normalized}`);
+            }
+        } else {
+            // Rules for Core / other authors: MUST NOT touch Sang's lane files
+            const isSangLaneFile = SANG_ALLOWED_PREFIXES.some(prefix => normalized.startsWith(prefix));
+            if (isSangLaneFile && !SANG_BLOCKED_EXACT.includes(normalized)) {
+                violations.push(`Core lane violation: Core cannot touch Super Admin lane file: ${normalized}`);
+            }
         }
     }
 

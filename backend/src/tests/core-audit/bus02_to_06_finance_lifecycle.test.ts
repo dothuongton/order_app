@@ -176,11 +176,95 @@ describe('Financial Lifecycle & Session Promotion Suite (BUS-02, BUS-03, BUS-04,
         );
     });
 
-    it('BUS-06: Atomic promotion claim enforces max_redemptions cap under concurrent settlements', async () => {
+    it('BUS-02b: Multi-round session with PERCENT promotion applies to total bill (2x120k @ 10% -> 216k)', async () => {
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
+        await query(`
+            INSERT INTO promotions (tenant_id, title, code, discount_type, discount_value, min_order_amount, is_active, priority)
+            VALUES ($1, 'Giảm 10% toàn phiên', 'GIAM10PCT', 'PERCENT', 10, 0, true, 100)
+        `, [tenantId]);
+
+        const openRes = await StaffService.openSession(tenantId, tableA01Id, waiterId);
+        const sessionId = openRes.sessionId;
+
+        // Round 1: 120,000đ (2 items @ 60k)
+        await query(`UPDATE menu_items SET price = 60000 WHERE id = $1`, [nemChuaId]);
+        await GuestService.createOrder(tenantId, sessionId, tableA01Id, {
+            idempotencyKey: 'bus02b-round-1',
+            items: [{ menuItemId: nemChuaId, quantity: 2 }]
+        });
+
+        // Round 2: 120,000đ (2 items @ 60k)
+        await GuestService.createOrder(tenantId, sessionId, tableA01Id, {
+            idempotencyKey: 'bus02b-round-2',
+            items: [{ menuItemId: nemChuaId, quantity: 2 }]
+        });
+
+        await StaffService.acceptAllPending(tenantId, sessionId, waiterId);
+        await StaffService.serveAllAccepted(tenantId, sessionId, waiterId);
+
+        const summary = await GuestService.getBillSummary(tenantId, sessionId);
+        expect(summary.rawBillTotal).toBe(240000);
+        expect(summary.totalDiscount).toBe(24000); // 10% of 240k
+        expect(summary.validBillTotal).toBe(216000); // 240k - 24k = 216k
+
+        await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            sessionId,
+            summary.settlementVersion,
+            waiterId,
+            'Settled BUS-02b',
+            undefined,
+            216000
+        );
+    });
+
+    it('BUS-02c: Multi-round session does not consume max_redemptions cap during order placement (2x60k @ 10%, cap 1 -> 108k)', async () => {
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
+        await query(`
+            INSERT INTO promotions (tenant_id, title, code, discount_type, discount_value, min_order_amount, max_redemptions, current_redemptions, is_active, priority)
+            VALUES ($1, 'Capped 10%', 'CAP10PCT', 'PERCENT', 10, 0, 1, 0, true, 100)
+        `, [tenantId]);
+
+        const openRes = await StaffService.openSession(tenantId, tableA02Id, waiterId);
+        const sessionId = openRes.sessionId;
+
+        // Round 1: 60k
+        await GuestService.createOrder(tenantId, sessionId, tableA02Id, {
+            idempotencyKey: 'bus02c-round-1',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        // Round 2: 60k
+        await GuestService.createOrder(tenantId, sessionId, tableA02Id, {
+            idempotencyKey: 'bus02c-round-2',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        await StaffService.acceptAllPending(tenantId, sessionId, waiterId);
+        await StaffService.serveAllAccepted(tenantId, sessionId, waiterId);
+
+        const summary = await GuestService.getBillSummary(tenantId, sessionId);
+        expect(summary.rawBillTotal).toBe(120000);
+        expect(summary.totalDiscount).toBe(12000);
+        expect(summary.validBillTotal).toBe(108000);
+
+        await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            sessionId,
+            summary.settlementVersion,
+            waiterId,
+            'Settled BUS-02c',
+            undefined,
+            108000
+        );
+    });
+
+    it('BUS-06: Atomic promotion claim enforces max_redemptions cap under concurrent settlements with Promise.all race', async () => {
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
         // Create promotion with max_redemptions = 1
         const capPromoRes = await query(`
             INSERT INTO promotions (tenant_id, title, code, discount_type, discount_value, min_order_amount, max_redemptions, current_redemptions, is_active, priority)
-            VALUES ($1, 'Flash Sale Cap 1', 'CAP1', 'FIXED_AMOUNT', 10000, 30000, 1, 0, true, 200)
+            VALUES ($1, 'Flash Sale Cap 1 Race', 'CAP1RACE', 'FIXED_AMOUNT', 10000, 30000, 1, 0, true, 200)
             RETURNING id
         `, [tenantId]);
         const promoId = capPromoRes.rows[0].id;
@@ -189,7 +273,7 @@ describe('Financial Lifecycle & Session Promotion Suite (BUS-02, BUS-03, BUS-04,
         const s1 = await StaffService.openSession(tenantId, tableA01Id, waiterId);
         await GuestService.createOrder(tenantId, s1.sessionId, tableA01Id, {
             idempotencyKey: 'bus06-s1',
-            items: [{ menuItemId: nemChuaId, quantity: 1 }] // 30,000đ
+            items: [{ menuItemId: nemChuaId, quantity: 1 }] // 60,000đ
         });
         await StaffService.acceptAllPending(tenantId, s1.sessionId, waiterId);
         await StaffService.serveAllAccepted(tenantId, s1.sessionId, waiterId);
@@ -199,38 +283,42 @@ describe('Financial Lifecycle & Session Promotion Suite (BUS-02, BUS-03, BUS-04,
         const s2 = await StaffService.openSession(tenantId, tableA02Id, waiterId);
         await GuestService.createOrder(tenantId, s2.sessionId, tableA02Id, {
             idempotencyKey: 'bus06-s2',
-            items: [{ menuItemId: nemChuaId, quantity: 1 }] // 30,000đ
+            items: [{ menuItemId: nemChuaId, quantity: 1 }] // 60,000đ
         });
         await StaffService.acceptAllPending(tenantId, s2.sessionId, waiterId);
         await StaffService.serveAllAccepted(tenantId, s2.sessionId, waiterId);
         const summary2 = await GuestService.getBillSummary(tenantId, s2.sessionId);
 
-        // Session 1 claims the 1 redemption and settles
-        await StaffService.confirmPaymentAndCloseSession(
-            tenantId,
-            s1.sessionId,
-            summary1.settlementVersion,
-            waiterId,
-            'Settled 1',
-            undefined,
-            20000 // 30k - 10k
-        );
+        // Concurrent settlement race: exactly 1 must succeed, exactly 1 must fail
+        const settleResults = await Promise.allSettled([
+            StaffService.confirmPaymentAndCloseSession(
+                tenantId,
+                s1.sessionId,
+                summary1.settlementVersion,
+                waiterId,
+                'Race 1',
+                undefined,
+                50000 // 60k - 10k
+            ),
+            StaffService.confirmPaymentAndCloseSession(
+                tenantId,
+                s2.sessionId,
+                summary2.settlementVersion,
+                waiterId,
+                'Race 2',
+                undefined,
+                50000 // 60k - 10k
+            )
+        ]);
 
-        // Check DB: current_redemptions is now 1 (cap reached)
+        const fulfilled = settleResults.filter(r => r.status === 'fulfilled');
+        const rejected = settleResults.filter(r => r.status === 'rejected');
+
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+
+        // Check DB: current_redemptions is exactly 1 (cap never exceeded)
         const checkPromo = await query(`SELECT current_redemptions, max_redemptions FROM promotions WHERE id = $1`, [promoId]);
         expect(checkPromo.rows[0].current_redemptions).toBe(1);
-
-        // Session 2 attempting to claim the exhausted promotion expecting 20,000đ must fail with PROMOTION_EXHAUSTED or PRICE_CHANGED
-        await expect(StaffService.confirmPaymentAndCloseSession(
-            tenantId,
-            s2.sessionId,
-            summary2.settlementVersion,
-            waiterId,
-            'Settled 2',
-            undefined,
-            20000 // expected discount, but cap is exhausted!
-        )).rejects.toMatchObject({
-            code: expect.stringMatching(/PROMOTION_EXHAUSTED|PRICE_CHANGED/)
-        });
     });
 });

@@ -693,12 +693,13 @@ export class StaffService {
                     oi.snapshot_price,
                     oi.quantity as original_quantity,
                     oi.discount_amount,
+                    oi.applied_promotion_id,
                     SUM(oip.quantity) as quantity_served
                 FROM order_item_parts oip
                 JOIN order_items oi ON oi.id = oip.order_item_id
                 JOIN orders o ON o.id = oi.order_id
                 WHERE o.session_id = $1 AND oip.status = 'SERVED'
-                GROUP BY oi.id, oi.snapshot_name, oi.snapshot_variant_name, oi.snapshot_price
+                GROUP BY oi.id, oi.snapshot_name, oi.snapshot_variant_name, oi.snapshot_price, oi.applied_promotion_id
             `, [sessionId]);
 
             const rawServedTotal = servedPartsRes.rows.reduce((sum, r) => sum + Number(r.snapshot_price) * parseInt(r.quantity_served, 10), 0);
@@ -770,29 +771,39 @@ export class StaffService {
                     });
                 });
 
-                if (bestPromo) {
-                    // Atomically claim promotion cap (BUS-06)
-                    const claimRes = await client.query(`
-                        UPDATE promotions
-                        SET current_redemptions = current_redemptions + 1, updated_at = NOW()
-                        WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
-                        RETURNING id
-                    `, [bestPromo.id]);
+                // Atomically claim promotion cap (BUS-06)
+                const claimRes = await client.query(`
+                    UPDATE promotions
+                    SET current_redemptions = current_redemptions + 1, updated_at = NOW()
+                    WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+                    RETURNING id
+                `, [bestPromo.id]);
 
-                    if (claimRes.rowCount === 0) {
-                        throw {
-                            status: 409,
-                            code: 'PROMOTION_EXHAUSTED',
-                            message: `Chương trình khuyến mãi "${bestPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
-                        };
-                    }
-
-                    // Record session-level promotion redemption (BUS-05)
-                    await client.query(`
-                        INSERT INTO promotion_redemptions (tenant_id, promotion_id, session_id, discount_amount)
-                        VALUES ($1, $2, $3, $4)
-                    `, [tenantId, bestPromo.id, sessionId, sessionDiscount]);
+                if (claimRes.rowCount === 0) {
+                    throw {
+                        status: 409,
+                        code: 'PROMOTION_EXHAUSTED',
+                        message: `Chương trình khuyến mãi "${bestPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                    };
                 }
+
+                // Record session-level promotion redemption with metadata snapshot (BUS-05, R7)
+                await client.query(`
+                    INSERT INTO promotion_redemptions (
+                        tenant_id, promotion_id, session_id, discount_amount,
+                        snapshot_title, snapshot_code, snapshot_discount_type, snapshot_discount_value
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `, [
+                    tenantId,
+                    bestPromo.id,
+                    sessionId,
+                    sessionDiscount,
+                    bestPromo.title,
+                    bestPromo.code,
+                    bestPromo.discount_type,
+                    bestPromo.discount_value
+                ]);
             } else {
                 for (const r of servedPartsRes.rows) {
                     const qty = parseInt(r.quantity_served, 10);
@@ -808,6 +819,49 @@ export class StaffService {
                         unitPrice: price,
                         subtotal
                     });
+                }
+
+                const itemPromoId = servedPartsRes.rows.find(r => r.applied_promotion_id)?.applied_promotion_id;
+                if (itemPromoId && confirmedItemDiscountTotal > 0) {
+                    const itemPromoRes = await client.query(`
+                        SELECT id, title, code, discount_type, discount_value, max_redemptions, current_redemptions
+                        FROM promotions WHERE id = $1
+                    `, [itemPromoId]);
+
+                    if (itemPromoRes.rows.length > 0) {
+                        const itemPromo = itemPromoRes.rows[0];
+                        const claimRes = await client.query(`
+                            UPDATE promotions
+                            SET current_redemptions = current_redemptions + 1, updated_at = NOW()
+                            WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+                            RETURNING id
+                        `, [itemPromoId]);
+
+                        if (claimRes.rowCount === 0) {
+                            throw {
+                                status: 409,
+                                code: 'PROMOTION_EXHAUSTED',
+                                message: `Chương trình khuyến mãi "${itemPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                            };
+                        }
+
+                        await client.query(`
+                            INSERT INTO promotion_redemptions (
+                                tenant_id, promotion_id, session_id, discount_amount,
+                                snapshot_title, snapshot_code, snapshot_discount_type, snapshot_discount_value
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        `, [
+                            tenantId,
+                            itemPromo.id,
+                            sessionId,
+                            confirmedItemDiscountTotal,
+                            itemPromo.title,
+                            itemPromo.code,
+                            itemPromo.discount_type,
+                            itemPromo.discount_value
+                        ]);
+                    }
                 }
             }
 

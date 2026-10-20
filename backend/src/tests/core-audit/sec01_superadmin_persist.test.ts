@@ -66,4 +66,27 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
             WHERE email = 'superadmin@qrorder.vn'
         `, [defaultHash]);
     });
+
+    it('does not create default superadmin user when running migrations on a database without admin', async () => {
+        // Temporarily delete superadmin account
+        await query(`DELETE FROM users WHERE email = 'superadmin@qrorder.vn'`);
+
+        // Remove 004 migration record from tracking table to simulate re-running migration
+        await query(`DELETE FROM schema_migrations WHERE filename = '004_superadmin_user.sql'`);
+
+        // Execute migration
+        await migrate();
+
+        // Verify superadmin was NOT automatically inserted with default credentials
+        const checkRes = await query(`SELECT 1 FROM users WHERE email = 'superadmin@qrorder.vn'`);
+        expect(checkRes.rowCount).toBe(0);
+
+        // Restore superadmin for subsequent test suites
+        const defaultHash = await bcrypt.hash('admin123', 10);
+        await query(`
+            INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
+            VALUES ('99999999-9999-9999-9999-999999999999', 'superadmin@qrorder.vn', $1, 'Hệ Thống Super Admin', '0999999999', true)
+            ON CONFLICT (email) DO NOTHING
+        `, [defaultHash]);
+    });
 });

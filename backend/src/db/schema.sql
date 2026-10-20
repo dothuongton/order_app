@@ -426,14 +426,18 @@ CREATE TABLE IF NOT EXISTS promotions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. Promotion Redemptions (Theo dõi lượt sử dụng khuyến mãi atomic)
+-- 7. Promotion Redemptions (Theo dõi lượt sử dụng khuyến mãi atomic & snapshot)
 CREATE TABLE IF NOT EXISTS promotion_redemptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+    promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL,
     order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
     session_id UUID NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
     discount_amount BIGINT NOT NULL,
+    snapshot_title VARCHAR(255),
+    snapshot_code VARCHAR(64),
+    snapshot_discount_type VARCHAR(32),
+    snapshot_discount_value BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -477,15 +481,3 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     filename VARCHAR(255) PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- 11. Default Platform Super Admin User (initial bootstrap only)
-INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
-VALUES (
-    '99999999-9999-9999-9999-999999999999',
-    'superadmin@qrorder.vn',
-    '$2a$10$cweMWdM3s.7gdRP1Mi5ulexKStDHK0qpYvk7mVeVKtHZaf1vU3Hva',
-    'Hệ Thống Super Admin',
-    '0999999999',
-    true
-)
-ON CONFLICT (email) DO NOTHING;

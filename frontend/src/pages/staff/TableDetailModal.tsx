@@ -177,11 +177,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
       // Re-fetch latest summary to get updated settlementVersion if items were served
       const latestSummary = await request<any>(`/staff/sessions/${table.active_session_id}/bill-summary`).catch(() => billSummary);
+      const expectedAmount = latestSummary?.validBillTotal ?? billSummary.validBillTotal;
+      const settlementVersion = latestSummary?.settlementVersion ?? billSummary.settlementVersion;
 
       await request(`/staff/sessions/${table.active_session_id}/confirm-payment-and-close`, {
         method: 'POST',
         body: JSON.stringify({
-          settlementVersion: latestSummary?.settlementVersion || billSummary.settlementVersion,
+          settlementVersion,
+          expectedAmount,
           note: settlementNote.trim() || undefined,
           requestId: `pay-${Date.now()}`
         })
@@ -190,7 +193,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       onRefresh();
       onClose();
     } catch (err: any) {
-      setActionError(err.message || 'Lỗi xác nhận thanh toán');
+      if (err.code === 'PRICE_CHANGED' || err.status === 409 || err.message?.includes('thay đổi')) {
+        loadSessionData();
+        setActionError(err.message || 'Số tiền thanh toán đã thay đổi. Vui lòng kiểm tra và xác nhận lại hóa đơn mới.');
+      } else {
+        setActionError(err.message || 'Lỗi xác nhận thanh toán');
+      }
       setIsSettling(false);
     }
   };

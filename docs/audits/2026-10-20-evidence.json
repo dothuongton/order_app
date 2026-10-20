@@ -1,0 +1,77 @@
+{
+  "head": "1a773f7a428ca8756c9bce3a6e388cdc4ea21312",
+  "date": "2026-10-20",
+  "scope": "isolated local DB + HTTP",
+  "cases": [
+    {
+      "id": "SEC-01",
+      "strongPasswordPreservedAfterBoot": false,
+      "strongPasswordPreservedAfterMigration": false
+    },
+    {
+      "id": "BUS-01",
+      "optionFromDifferentItemAccepted": true,
+      "missingRequiredOptionAccepted": true,
+      "twoChoicesForSingleGroupAccepted": true,
+      "unknownOptionIgnored": true,
+      "inactiveGroupAccepted": true
+    },
+    {
+      "id": "BUS-02",
+      "orderStillReceivesDiscount": 20000,
+      "rawSessionAmount": 240000,
+      "sessionBill": 200000,
+      "expectedSingleSessionDiscountBill": 220000
+    },
+    {
+      "id": "BUS-03",
+      "summaryBeforePayment": 100000,
+      "settledAmount": 100000,
+      "immutableBillLinesAmount": 100000,
+      "summaryAfterPayment": 120000,
+      "redemptionAuditRows": 0
+    },
+    {
+      "id": "BUS-04",
+      "displayedAmount": 100000,
+      "paidWithSameSettlementVersion": 120000,
+      "conflictRejected": false
+    },
+    {
+      "id": "BUS-05",
+      "recordedSettledRevenue": 220000,
+      "topItemNetTotals": [
+        {
+          "name": "Audit A",
+          "amount": 440000
+        }
+      ]
+    },
+    {
+      "id": "DATA-01",
+      "deleteClosedTableStatus": 200,
+      "billsRemainingForSettledSession": 0,
+      "revenueBeforeDelete": 220000,
+      "revenueAfterDelete": 120000,
+      "deletedSessionItemReportAmount": 120000,
+      "deletedSessionSettledAmount": 100000
+    },
+    {
+      "id": "BUS-06",
+      "maxRedemptions": 1,
+      "successfulSettlements": 2,
+      "currentRedemptions": 2
+    },
+    {
+      "id": "BASELINE",
+      "managerDashboardStatus": 200,
+      "reportsStatus": 200
+    },
+    {
+      "id": "OPS-01",
+      "databaseUnavailable": true,
+      "serverStarted": true,
+      "healthStatus": 200
+    }
+  ]
+}

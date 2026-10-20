@@ -54,4 +54,25 @@ describe('SEC-05: CI File Boundary & Hygiene Gate (Issue #5)', () => {
         expect(res.valid).toBe(true);
         expect(res.violations).toHaveLength(0);
     });
+
+    it('blocks Sang lane files for Core authors', () => {
+        const coreFilesWithSangLane = [
+            'backend/src/modules/guest/guest.service.ts',
+            'backend/src/modules/admin/shops.controller.ts'
+        ];
+        const res = validateAuthorFiles('Antigravity', coreFilesWithSangLane);
+        expect(res.valid).toBe(false);
+        expect(res.violations.some(v => v.includes('Core cannot touch Super Admin lane file'))).toBe(true);
+    });
+
+    it('allows Core authors to touch AdminLogin.tsx and core files', () => {
+        const coreAllowedFiles = [
+            'backend/src/modules/guest/guest.service.ts',
+            'frontend/src/pages/admin/AdminLogin.tsx',
+            'backend/src/middleware/auth.ts'
+        ];
+        const res = validateAuthorFiles('Antigravity', coreAllowedFiles);
+        expect(res.valid).toBe(true);
+        expect(res.violations).toHaveLength(0);
+    });
 });
