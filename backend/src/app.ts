@@ -15,6 +15,8 @@ import { securityHeaders, protectOrigin, isAllowedOrigin, loginLimiter, guestWri
 
 export const app = express();
 app.disable('x-powered-by');
+// Trust only the 1st reverse proxy hop (Render / Docker upstream proxy), preventing X-Forwarded-For spoofing (OPS-02)
+app.set('trust proxy', 1);
 app.use(securityHeaders);
 app.use(protectOrigin);
 
