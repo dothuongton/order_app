@@ -13,6 +13,7 @@ export const orderInputSchema = z.object({
         menuItemId: z.string().uuid(),
         variantId: z.string().uuid().optional(),
         variantIds: z.array(z.string().uuid()).optional(),
+        optionIds: z.array(z.string().uuid()).optional(),
         quantity: z.number().int().min(1).max(999),
         note: z.string().max(1000).optional()
     })).min(1).max(100)

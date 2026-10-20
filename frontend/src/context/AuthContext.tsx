@@ -14,6 +14,12 @@ export interface TenantInfo {
   slug: string;
   role: string;
   permissions: string[];
+  logoUrl?: string;
+  coverUrl?: string;
+  description?: string;
+  phone?: string;
+  address?: string;
+  openingHours?: string;
 }
 
 interface AuthContextType {
@@ -55,7 +61,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             name: res.user.tenantName || 'Quán của bạn',
             slug: res.user.tenantSlug || '',
             role: res.user.role,
-            permissions: res.user.permissions || []
+            permissions: res.user.permissions || [],
+            logoUrl: res.user.logoUrl || res.user.tenantLogoUrl,
+            coverUrl: res.user.coverUrl || res.user.tenantCoverUrl,
+            description: res.user.description || res.user.tenantDescription,
+            phone: res.user.phone || res.user.tenantPhone,
+            address: res.user.address || res.user.tenantAddress,
+            openingHours: res.user.openingHours || res.user.tenantOpeningHours
           });
         }
       } catch {

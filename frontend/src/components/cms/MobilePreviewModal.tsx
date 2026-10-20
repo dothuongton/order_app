@@ -12,6 +12,15 @@ interface MobilePreviewModalProps {
     promotions: Promotion[];
     categories: any[];
     menuItems: any[];
+    shopProfile?: {
+        name?: string;
+        logoUrl?: string;
+        coverUrl?: string;
+        description?: string;
+        phone?: string;
+        address?: string;
+        openingHours?: string;
+    } | null;
 }
 
 export const MobilePreviewModal: React.FC<MobilePreviewModalProps> = ({
@@ -22,7 +31,8 @@ export const MobilePreviewModal: React.FC<MobilePreviewModalProps> = ({
     banners,
     promotions,
     categories,
-    menuItems
+    menuItems,
+    shopProfile
 }) => {
     // Listen for Escape key to close
     React.useEffect(() => {
@@ -36,6 +46,7 @@ export const MobilePreviewModal: React.FC<MobilePreviewModalProps> = ({
 
     if (!isOpen) return null;
 
+    const displayName = shopProfile?.name || shopName || 'Tên Quán';
     const primaryColor = themeConfig.primaryColor || '#ea580c';
     const showBanner = themeConfig.showBanner !== false;
     const activeBanners = banners.filter(b => b.isActive !== false && (b as any).is_active !== false);
@@ -72,14 +83,63 @@ export const MobilePreviewModal: React.FC<MobilePreviewModalProps> = ({
                             className="px-4 py-3 sticky top-0 z-20 backdrop-blur-md border-b border-white/10 flex items-center justify-between"
                             style={{ backgroundColor: `${primaryColor}22` }}
                         >
-                            <div>
-                                <h4 className="font-extrabold text-sm text-white">{shopName}</h4>
-                                <span className="text-[10px] text-slate-400">Xem trước giao diện (Bàn mẫu A01)</span>
+                            <div className="flex items-center gap-2.5 min-w-0">
+                                {shopProfile?.logoUrl ? (
+                                    <img
+                                        src={shopProfile.logoUrl}
+                                        alt={displayName}
+                                        className="w-8 h-8 rounded-lg object-cover border border-white/20 shrink-0"
+                                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                    />
+                                ) : (
+                                    <div
+                                        className="w-8 h-8 rounded-lg text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs"
+                                        style={{ backgroundColor: primaryColor }}
+                                    >
+                                        {displayName[0] || '🍜'}
+                                    </div>
+                                )}
+                                <div className="min-w-0">
+                                    <h4 className="font-extrabold text-xs text-white truncate">{displayName}</h4>
+                                    <span className="text-[10px] text-slate-400 block truncate">Bàn A01 • Xem trước</span>
+                                </div>
                             </div>
                         </div>
 
+                        {/* Cover Image & Shop Description */}
+                        {shopProfile?.coverUrl && (
+                            <div className="w-full h-28 relative shrink-0 border-b border-white/10 overflow-hidden">
+                                <img
+                                    src={shopProfile.coverUrl}
+                                    alt={displayName}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                />
+                                {shopProfile?.description && (
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent flex items-end p-2.5">
+                                        <p className="text-white text-[11px] font-medium line-clamp-1 drop-shadow-sm">
+                                            {shopProfile.description}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* Storefront Content based on layout */}
                         <div className="p-3 space-y-3.5">
+                            {/* Contact & Hours strip if present */}
+                            {(shopProfile?.address || shopProfile?.phone || shopProfile?.openingHours) && (
+                                <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-[10px] text-slate-300 space-y-0.5">
+                                    {shopProfile.address && (
+                                        <div className="truncate text-slate-400">📍 {shopProfile.address}</div>
+                                    )}
+                                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                                        {shopProfile.phone && <span>📞 {shopProfile.phone}</span>}
+                                        {shopProfile.openingHours && <span>⏰ {shopProfile.openingHours}</span>}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Banners if enabled */}
                             {showBanner && activeBanners.length > 0 && (
                                 <BannerDisplay

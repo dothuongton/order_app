@@ -43,7 +43,10 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
         // Fetch memberships
         const memRes = await query(`
-            SELECT m.tenant_id, m.role, m.permissions, t.name as tenant_name, t.slug as tenant_slug
+            SELECT m.tenant_id, m.role, m.permissions, t.name as tenant_name, t.slug as tenant_slug,
+                   t.logo_url as tenant_logo_url, t.cover_url as tenant_cover_url,
+                   t.description as tenant_description, t.phone as tenant_phone,
+                   t.address as tenant_address, t.opening_hours as tenant_opening_hours
             FROM memberships m
             JOIN tenants t ON t.id = m.tenant_id
             WHERE m.user_id = $1 AND m.is_active = true
@@ -98,7 +101,13 @@ authRouter.post('/login', async (req: Request, res: Response) => {
                 name: defaultTenant.tenant_name,
                 slug: defaultTenant.tenant_slug,
                 role: defaultTenant.role,
-                permissions: defaultTenant.permissions
+                permissions: defaultTenant.permissions,
+                logoUrl: defaultTenant.tenant_logo_url,
+                coverUrl: defaultTenant.tenant_cover_url,
+                description: defaultTenant.tenant_description,
+                phone: defaultTenant.tenant_phone,
+                address: defaultTenant.tenant_address,
+                openingHours: defaultTenant.tenant_opening_hours
             } : null,
             memberships: memRes.rows
         });

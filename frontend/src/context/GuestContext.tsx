@@ -20,9 +20,9 @@ interface GuestContextType {
   promotions: any[];
   loadTableMenu: (qrId: string) => Promise<void>;
   joinSession: (qrId: string) => Promise<void>;
-  addToCart: (item: MenuItem, quantity?: number, note?: string, variant?: { id?: string; variantIds?: string[]; name: string; price_adjustment: number }) => void;
-  updateCartQuantity: (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string) => void;
-  removeFromCart: (menuItemId: string, note?: string, variantId?: string, variantName?: string) => void;
+  addToCart: (item: MenuItem, quantity?: number, note?: string, variant?: { id?: string; variantIds?: string[]; optionIds?: string[]; name: string; price_adjustment: number }) => void;
+  updateCartQuantity: (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => void;
+  removeFromCart: (menuItemId: string, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => void;
   clearCart: () => void;
   submitOrder: () => Promise<any>;
   requestAssistance: (note?: string) => Promise<any>;
@@ -210,14 +210,16 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     item: MenuItem,
     quantity: number = 1,
     note?: string,
-    variant?: { id?: string; variantIds?: string[]; name: string; price_adjustment: number }
+    variant?: { id?: string; variantIds?: string[]; optionIds?: string[]; name: string; price_adjustment: number }
   ) => {
     setCart(prev => {
       const itemPrice = Math.max(0, Number(item.price) + (variant?.price_adjustment ? Number(variant.price_adjustment) : 0));
+      const optKey = (variant?.optionIds || variant?.variantIds || []).slice().sort().join(',');
       const idx = prev.findIndex(c =>
         c.menuItemId === item.id &&
         (c.note || '') === (note || '') &&
-        (c.variantName || '') === (variant?.name || '')
+        (c.variantName || '') === (variant?.name || '') &&
+        ((c.optionIds || c.variantIds || []).slice().sort().join(',')) === optKey
       );
       if (idx > -1) {
         return prev.map((entry, index) => index === idx ? { ...entry, quantity: entry.quantity + quantity } : entry);
@@ -226,6 +228,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         menuItemId: item.id,
         variantId: variant?.id,
         variantIds: variant?.variantIds,
+        optionIds: variant?.optionIds,
         variantName: variant?.name,
         name: item.name,
         price: itemPrice,
@@ -235,26 +238,28 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
-  const updateCartQuantity = (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string) => {
+  const updateCartQuantity = (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => {
     if (quantity <= 0) {
-      removeFromCart(menuItemId, note, variantId, variantName);
+      removeFromCart(menuItemId, note, variantId, variantName, optionIds);
       return;
     }
-    setCart(prev => prev.map(c =>
-      c.menuItemId === menuItemId &&
-      (c.note || '') === (note || '') &&
-      (variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || ''))
-        ? { ...c, quantity }
-        : c
-    ));
+    const optKey = optionIds ? optionIds.slice().sort().join(',') : null;
+    setCart(prev => prev.map(c => {
+      const matchesBase = c.menuItemId === menuItemId && (c.note || '') === (note || '');
+      const matchesVariant = variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || '');
+      const matchesOptions = optKey !== null ? ((c.optionIds || c.variantIds || []).slice().sort().join(',')) === optKey : true;
+      return matchesBase && matchesVariant && matchesOptions ? { ...c, quantity } : c;
+    }));
   };
 
-  const removeFromCart = (menuItemId: string, note?: string, variantId?: string, variantName?: string) => {
-    setCart(prev => prev.filter(c =>
-      !(c.menuItemId === menuItemId &&
-        (c.note || '') === (note || '') &&
-        (variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || '')))
-    ));
+  const removeFromCart = (menuItemId: string, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => {
+    const optKey = optionIds ? optionIds.slice().sort().join(',') : null;
+    setCart(prev => prev.filter(c => {
+      const matchesBase = c.menuItemId === menuItemId && (c.note || '') === (note || '');
+      const matchesVariant = variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || '');
+      const matchesOptions = optKey !== null ? ((c.optionIds || c.variantIds || []).slice().sort().join(',')) === optKey : true;
+      return !(matchesBase && matchesVariant && matchesOptions);
+    }));
   };
 
   const clearCart = () => setCart([]);
@@ -268,7 +273,8 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       quantity: c.quantity,
       note: c.note,
       variantId: c.variantId,
-      variantIds: c.variantIds
+      variantIds: c.variantIds,
+      optionIds: c.optionIds
     })));
     if (pendingOrder.current?.payload !== payload) pendingOrder.current = { payload, key: crypto.randomUUID() };
     const idempotencyKey = pendingOrder.current.key;
@@ -285,7 +291,8 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             quantity: c.quantity,
             note: c.note,
             variantId: c.variantId,
-            variantIds: c.variantIds
+            variantIds: c.variantIds,
+            optionIds: c.optionIds
           }))
         })
       });

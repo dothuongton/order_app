@@ -3,6 +3,8 @@ import { PoolClient } from 'pg';
 export interface OrderItemInput {
     menuItemId: string;
     variantId?: string;
+    variantIds?: string[];
+    optionIds?: string[];
     quantity: number;
     note?: string;
 }
@@ -67,31 +69,57 @@ export class PricingService {
             });
         }
 
-        // Fetch variants if requested
-        const allVariantIds: string[] = [];
+        // Fetch variants / options if requested
+        const allOptionIds: string[] = [];
         for (const i of items) {
-            if (i.variantId) allVariantIds.push(i.variantId);
+            if (i.variantId) allOptionIds.push(i.variantId);
             if (Array.isArray((i as any).variantIds)) {
                 for (const vid of (i as any).variantIds) {
-                    if (vid) allVariantIds.push(vid);
+                    if (vid) allOptionIds.push(vid);
+                }
+            }
+            if (Array.isArray((i as any).optionIds)) {
+                for (const oid of (i as any).optionIds) {
+                    if (oid) allOptionIds.push(oid);
                 }
             }
         }
-        const uniqueRequestedVariantIds = Array.from(new Set(allVariantIds));
+        const uniqueRequestedOptionIds = Array.from(new Set(allOptionIds));
         const dbVariantMap = new Map<string, { id: string; name: string; priceAdjustment: number; isAvailable: boolean }>();
-        if (uniqueRequestedVariantIds.length > 0) {
-            const varRes = await client.query(`
-                SELECT id, menu_item_id, name, price_adjustment, is_available
-                FROM menu_item_variants
-                WHERE tenant_id = $1 AND id = ANY($2::uuid[])
-            `, [tenantId, uniqueRequestedVariantIds]);
-            for (const v of varRes.rows) {
-                dbVariantMap.set(v.id, {
-                    id: v.id,
-                    name: v.name,
-                    priceAdjustment: parseInt(v.price_adjustment, 10) || 0,
-                    isAvailable: v.is_available
+        if (uniqueRequestedOptionIds.length > 0) {
+            // First check item_options & item_option_groups
+            const optRes = await client.query(`
+                SELECT io.id, io.name, io.price_delta, io.is_available, iog.pricing_mode
+                FROM item_options io
+                JOIN item_option_groups iog ON iog.id = io.group_id
+                WHERE io.tenant_id = $1 AND io.id = ANY($2::uuid[])
+            `, [tenantId, uniqueRequestedOptionIds]);
+            for (const o of optRes.rows) {
+                const priceDelta = o.pricing_mode === 'FREE' ? 0 : (parseInt(o.price_delta, 10) || 0);
+                dbVariantMap.set(o.id, {
+                    id: o.id,
+                    name: o.name,
+                    priceAdjustment: priceDelta,
+                    isAvailable: o.is_available
                 });
+            }
+
+            // Fallback for any legacy variant IDs not yet in item_options
+            const missingIds = uniqueRequestedOptionIds.filter(id => !dbVariantMap.has(id));
+            if (missingIds.length > 0) {
+                const varRes = await client.query(`
+                    SELECT id, menu_item_id, name, price_adjustment, is_available
+                    FROM menu_item_variants
+                    WHERE tenant_id = $1 AND id = ANY($2::uuid[])
+                `, [tenantId, missingIds]);
+                for (const v of varRes.rows) {
+                    dbVariantMap.set(v.id, {
+                        id: v.id,
+                        name: v.name,
+                        priceAdjustment: parseInt(v.price_adjustment, 10) || 0,
+                        isAvailable: v.is_available
+                    });
+                }
             }
         }
 
@@ -123,7 +151,8 @@ export class PricingService {
             let itemPrice = dbItem.price;
             const itemVids = [
                 ...(item.variantId ? [item.variantId] : []),
-                ...(Array.isArray((item as any).variantIds) ? (item as any).variantIds : [])
+                ...(Array.isArray((item as any).variantIds) ? (item as any).variantIds : []),
+                ...(Array.isArray((item as any).optionIds) ? (item as any).optionIds : [])
             ];
             const uniqueItemVids = Array.from(new Set(itemVids.filter(Boolean)));
             const variantNames: string[] = [];

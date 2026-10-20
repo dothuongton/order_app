@@ -124,14 +124,6 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <label className="block text-slate-700 font-semibold text-xs">{label}</label>
-        <button
-          type="button"
-          onClick={() => setShowManualUrl(!showManualUrl)}
-          className="text-[11px] text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1 transition"
-        >
-          <Link2 className="w-3 h-3" />
-          <span>{showManualUrl ? 'Ẩn nhập URL' : 'Hoặc nhập link URL'}</span>
-        </button>
       </div>
 
       {helperText && <p className="text-[11px] text-slate-500">{helperText}</p>}
@@ -218,18 +210,6 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
           className="hidden"
         />
 
-        {/* Manual URL Input (Collapsible) */}
-        {showManualUrl && (
-          <div className="pt-1">
-            <input
-              type="text"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder="https://images.unsplash.com/... hoặc /api/v1/public/images/..."
-              className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-slate-900 text-xs font-mono focus:outline-hidden focus:border-orange-500"
-            />
-          </div>
-        )}
 
         {/* Error message */}
         {errorMsg && (

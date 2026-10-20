@@ -80,6 +80,51 @@ export class GuestService {
                 mi.price,
                 mi.image_url,
                 mi.is_available,
+                mi.sort_order,
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', iog.id,
+                                'name', iog.name,
+                                'selection_mode', iog.selection_mode,
+                                'selectionMode', iog.selection_mode,
+                                'min_selections', iog.min_selections,
+                                'minSelections', iog.min_selections,
+                                'max_selections', iog.max_selections,
+                                'maxSelections', iog.max_selections,
+                                'pricing_mode', iog.pricing_mode,
+                                'pricingMode', iog.pricing_mode,
+                                'sort_order', iog.sort_order,
+                                'sortOrder', iog.sort_order,
+                                'options', COALESCE(
+                                    (
+                                        SELECT json_agg(
+                                            json_build_object(
+                                                'id', io.id,
+                                                'name', io.name,
+                                                'price_delta', io.price_delta,
+                                                'priceDelta', io.price_delta,
+                                                'is_default', io.is_default,
+                                                'isDefault', io.is_default,
+                                                'is_available', io.is_available,
+                                                'isAvailable', io.is_available,
+                                                'sort_order', io.sort_order,
+                                                'sortOrder', io.sort_order
+                                            ) ORDER BY io.sort_order ASC, io.price_delta ASC, io.name ASC
+                                        )
+                                        FROM item_options io
+                                        WHERE io.group_id = iog.id AND io.is_available = true
+                                    ),
+                                    '[]'::json
+                                )
+                            ) ORDER BY iog.sort_order ASC, iog.created_at ASC
+                        )
+                        FROM item_option_groups iog
+                        WHERE iog.menu_item_id = mi.id AND iog.tenant_id = $1 AND iog.is_active = true
+                    ),
+                    '[]'::json
+                ) as option_groups,
                 COALESCE(
                     (
                         SELECT json_agg(
@@ -98,7 +143,7 @@ export class GuestService {
                 ) as variants
             FROM menu_items mi
             WHERE mi.tenant_id = $1
-            ORDER BY mi.is_available DESC, mi.name ASC
+            ORDER BY mi.is_available DESC, mi.sort_order ASC, mi.name ASC, mi.id ASC
         `, [table.tenant_id]);
 
         // Fetch active banners for this shop
@@ -170,11 +215,42 @@ export class GuestService {
                     name,
                     options
                 }));
+
+                const option_groups = (item.option_groups || []).map((g: any) => ({
+                    id: g.id,
+                    name: g.name,
+                    selection_mode: g.selection_mode || g.selectionMode || 'SINGLE',
+                    selectionMode: g.selection_mode || g.selectionMode || 'SINGLE',
+                    min_selections: parseInt(g.min_selections ?? g.minSelections ?? 0, 10),
+                    minSelections: parseInt(g.min_selections ?? g.minSelections ?? 0, 10),
+                    max_selections: parseInt(g.max_selections ?? g.maxSelections ?? 1, 10),
+                    maxSelections: parseInt(g.max_selections ?? g.maxSelections ?? 1, 10),
+                    pricing_mode: g.pricing_mode || g.pricingMode || 'ADDITIVE',
+                    pricingMode: g.pricing_mode || g.pricingMode || 'ADDITIVE',
+                    sort_order: parseInt(g.sort_order ?? g.sortOrder ?? 0, 10),
+                    sortOrder: parseInt(g.sort_order ?? g.sortOrder ?? 0, 10),
+                    options: (g.options || []).map((o: any) => ({
+                        id: o.id,
+                        name: o.name,
+                        price_delta: parseInt(o.price_delta ?? o.priceDelta ?? 0, 10),
+                        priceDelta: parseInt(o.price_delta ?? o.priceDelta ?? 0, 10),
+                        is_default: Boolean(o.is_default ?? o.isDefault),
+                        isDefault: Boolean(o.is_default ?? o.isDefault),
+                        is_available: Boolean(o.is_available ?? o.isAvailable ?? true),
+                        isAvailable: Boolean(o.is_available ?? o.isAvailable ?? true),
+                        sort_order: parseInt(o.sort_order ?? o.sortOrder ?? 0, 10),
+                        sortOrder: parseInt(o.sort_order ?? o.sortOrder ?? 0, 10)
+                    }))
+                }));
+
                 return {
                     ...item,
+                    sort_order: parseInt(item.sort_order || '0', 10),
                     price: parseInt(item.price, 10),
                     variants: rawVariants,
-                    variant_groups
+                    variant_groups,
+                    option_groups,
+                    optionGroups: option_groups
                 };
             }),
             banners: bannersRes.rows,

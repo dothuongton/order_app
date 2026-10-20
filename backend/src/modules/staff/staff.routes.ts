@@ -5,7 +5,7 @@ import { StaffService } from './staff.service.js';
 import { GuestService } from '../guest/guest.service.js';
 import { authenticateStaff, requirePermission } from '../../middleware/auth.js';
 import { config } from '../../config/index.js';
-import { query } from '../../db/pool.js';
+import { query, withTransaction } from '../../db/pool.js';
 
 export const staffRouter = Router();
 staffRouter.param('id', (req, res, next, id) => {
@@ -296,11 +296,295 @@ staffRouter.get('/menu/categories', async (req: Request, res: Response) => {
     } catch { return res.status(500).json({ error: 'SERVER_ERROR' }); }
 });
 
+// Helpers for menu items & option groups
+function normalizeOptionGroups(data: any): Array<{
+    id: string;
+    name: string;
+    selectionMode: 'SINGLE' | 'MULTIPLE';
+    minSelections: number;
+    maxSelections: number;
+    pricingMode: 'FREE' | 'ADDITIVE';
+    sortOrder: number;
+    options: Array<{
+        id: string;
+        name: string;
+        priceDelta: number;
+        isDefault: boolean;
+        isAvailable: boolean;
+        sortOrder: number;
+    }>;
+}> {
+    const rawGroups = data.option_groups || data.optionGroups || data.variant_groups;
+    if (rawGroups && Array.isArray(rawGroups)) {
+        return rawGroups.map((g: any, gIdx: number) => {
+            const pricingMode: 'FREE' | 'ADDITIVE' = (g.pricing_mode || g.pricingMode) === 'FREE' ? 'FREE' : 'ADDITIVE';
+            const selectionMode: 'SINGLE' | 'MULTIPLE' = (g.selection_mode || g.selectionMode) === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE';
+            const minSelections = g.min_selections !== undefined ? parseInt(g.min_selections, 10) : (g.minSelections !== undefined ? parseInt(g.minSelections, 10) : (selectionMode === 'SINGLE' ? 1 : 0));
+            const maxSelections = selectionMode === 'SINGLE' ? 1 : (g.max_selections !== undefined ? parseInt(g.max_selections, 10) : (g.maxSelections !== undefined ? parseInt(g.maxSelections, 10) : 10));
+            const grpId = (g.id && z.string().uuid().safeParse(g.id).success) ? g.id : crypto.randomUUID();
+
+            const options = (g.options || []).map((o: any, oIdx: number) => {
+                const optId = (o.id && z.string().uuid().safeParse(o.id).success) ? o.id : crypto.randomUUID();
+                const rawDelta = o.price_delta !== undefined ? o.price_delta : (o.priceDelta !== undefined ? o.priceDelta : (o.price_adjustment !== undefined ? o.price_adjustment : 0));
+                const priceDelta = pricingMode === 'FREE' ? 0 : Math.max(0, parseInt(rawDelta, 10) || 0);
+                const isDefault = Boolean(o.is_default ?? o.isDefault ?? false);
+                const isAvailable = o.is_available !== undefined ? Boolean(o.is_available) : (o.isAvailable !== undefined ? Boolean(o.isAvailable) : true);
+                const sortOrder = o.sort_order !== undefined ? parseInt(o.sort_order, 10) : (o.sortOrder !== undefined ? parseInt(o.sortOrder, 10) : oIdx);
+
+                return {
+                    id: optId,
+                    name: String(o.name || '').trim(),
+                    priceDelta,
+                    isDefault,
+                    isAvailable,
+                    sortOrder
+                };
+            });
+
+            return {
+                id: grpId,
+                name: String(g.name || '').trim(),
+                selectionMode,
+                minSelections,
+                maxSelections,
+                pricingMode,
+                sortOrder: g.sort_order !== undefined ? parseInt(g.sort_order, 10) : (g.sortOrder !== undefined ? parseInt(g.sortOrder, 10) : gIdx),
+                options
+            };
+        });
+    }
+
+    if (data.variants && Array.isArray(data.variants) && data.variants.length > 0) {
+        const grpId = crypto.randomUUID();
+        return [{
+            id: grpId,
+            name: 'Biến thể',
+            selectionMode: 'SINGLE',
+            minSelections: 0,
+            maxSelections: 1,
+            pricingMode: 'ADDITIVE',
+            sortOrder: 0,
+            options: data.variants.map((v: any, oIdx: number) => ({
+                id: (v.id && z.string().uuid().safeParse(v.id).success) ? v.id : crypto.randomUUID(),
+                name: String(v.name || '').trim(),
+                priceDelta: Math.max(0, parseInt(v.price_adjustment || v.price_delta || 0, 10)),
+                isDefault: false,
+                isAvailable: v.is_available ?? true,
+                sortOrder: oIdx
+            }))
+        }];
+    }
+
+    return [];
+}
+
+async function syncItemOptions(client: any, tenantId: string, itemId: string, groups: ReturnType<typeof normalizeOptionGroups>) {
+    await client.query('DELETE FROM item_options WHERE menu_item_id = $1 AND tenant_id = $2', [itemId, tenantId]);
+    await client.query('DELETE FROM item_option_groups WHERE menu_item_id = $1 AND tenant_id = $2', [itemId, tenantId]);
+    await client.query('DELETE FROM menu_item_variants WHERE menu_item_id = $1 AND tenant_id = $2', [itemId, tenantId]);
+
+    for (const g of groups) {
+        await client.query(`
+            INSERT INTO item_option_groups (
+                id, tenant_id, menu_item_id, name, selection_mode, min_selections, max_selections, pricing_mode, sort_order, is_active
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+        `, [g.id, tenantId, itemId, g.name, g.selectionMode, g.minSelections, g.maxSelections, g.pricingMode, g.sortOrder]);
+
+        for (const opt of g.options) {
+            await client.query(`
+                INSERT INTO item_options (
+                    id, tenant_id, group_id, menu_item_id, name, price_delta, is_default, is_available, sort_order
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [opt.id, tenantId, g.id, itemId, opt.name, opt.priceDelta, opt.isDefault, opt.isAvailable, opt.sortOrder]);
+
+            await client.query(`
+                INSERT INTO menu_item_variants (
+                    id, tenant_id, menu_item_id, group_name, name, price_adjustment, is_available
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [opt.id, tenantId, itemId, g.name, opt.name, opt.priceDelta, opt.isAvailable]);
+        }
+    }
+}
+
+async function fetchFullMenuItem(tenantId: string, itemId: string, client?: any) {
+    const q = client ? client.query.bind(client) : query;
+    const res = await q(`
+        SELECT mi.*, mc.name as category_name,
+            COALESCE(
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'id', iog.id,
+                            'name', iog.name,
+                            'selection_mode', iog.selection_mode,
+                            'selectionMode', iog.selection_mode,
+                            'min_selections', iog.min_selections,
+                            'minSelections', iog.min_selections,
+                            'max_selections', iog.max_selections,
+                            'maxSelections', iog.max_selections,
+                            'pricing_mode', iog.pricing_mode,
+                            'pricingMode', iog.pricing_mode,
+                            'sort_order', iog.sort_order,
+                            'sortOrder', iog.sort_order,
+                            'options', COALESCE(
+                                (
+                                    SELECT json_agg(
+                                        json_build_object(
+                                            'id', io.id,
+                                            'name', io.name,
+                                            'price_delta', io.price_delta,
+                                            'priceDelta', io.price_delta,
+                                            'is_default', io.is_default,
+                                            'isDefault', io.is_default,
+                                            'is_available', io.is_available,
+                                            'isAvailable', io.is_available,
+                                            'sort_order', io.sort_order,
+                                            'sortOrder', io.sort_order
+                                        ) ORDER BY io.sort_order ASC, io.price_delta ASC, io.name ASC
+                                    )
+                                    FROM item_options io
+                                    WHERE io.group_id = iog.id
+                                ),
+                                '[]'::json
+                            )
+                        ) ORDER BY iog.sort_order ASC, iog.created_at ASC
+                    )
+                    FROM item_option_groups iog
+                    WHERE iog.menu_item_id = mi.id AND iog.tenant_id = $1
+                ),
+                '[]'::json
+            ) as option_groups,
+            COALESCE(
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'id', miv.id,
+                            'group_name', COALESCE(miv.group_name, 'Biến thể'),
+                            'name', miv.name,
+                            'price_adjustment', miv.price_adjustment,
+                            'is_available', miv.is_available
+                        ) ORDER BY miv.group_name ASC, miv.price_adjustment ASC, miv.name ASC
+                    )
+                    FROM menu_item_variants miv
+                    WHERE miv.menu_item_id = mi.id AND miv.tenant_id = $1
+                ),
+                '[]'::json
+            ) as variants
+        FROM menu_items mi
+        LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+        WHERE mi.id = $2 AND mi.tenant_id = $1
+    `, [tenantId, itemId]);
+
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+
+    const rawVariants = (r.variants || []).map((v: any) => ({
+        ...v,
+        group_name: v.group_name || 'Biến thể',
+        price_adjustment: parseInt(v.price_adjustment, 10) || 0
+    }));
+    const groupsMap = new Map<string, any[]>();
+    for (const v of rawVariants) {
+        if (!groupsMap.has(v.group_name)) groupsMap.set(v.group_name, []);
+        groupsMap.get(v.group_name)!.push({
+            id: v.id,
+            name: v.name,
+            price_adjustment: v.price_adjustment,
+            is_available: v.is_available
+        });
+    }
+    const variant_groups = Array.from(groupsMap.entries()).map(([name, options]) => ({
+        name,
+        options
+    }));
+
+    const option_groups = (r.option_groups || []).map((g: any) => ({
+        id: g.id,
+        name: g.name,
+        selection_mode: g.selection_mode || g.selectionMode || 'SINGLE',
+        selectionMode: g.selection_mode || g.selectionMode || 'SINGLE',
+        min_selections: parseInt(g.min_selections ?? g.minSelections ?? 0, 10),
+        minSelections: parseInt(g.min_selections ?? g.minSelections ?? 0, 10),
+        max_selections: parseInt(g.max_selections ?? g.maxSelections ?? 1, 10),
+        maxSelections: parseInt(g.max_selections ?? g.maxSelections ?? 1, 10),
+        pricing_mode: g.pricing_mode || g.pricingMode || 'ADDITIVE',
+        pricingMode: g.pricing_mode || g.pricingMode || 'ADDITIVE',
+        sort_order: parseInt(g.sort_order ?? g.sortOrder ?? 0, 10),
+        sortOrder: parseInt(g.sort_order ?? g.sortOrder ?? 0, 10),
+        options: (g.options || []).map((o: any) => ({
+            id: o.id,
+            name: o.name,
+            price_delta: parseInt(o.price_delta ?? o.priceDelta ?? 0, 10),
+            priceDelta: parseInt(o.price_delta ?? o.priceDelta ?? 0, 10),
+            is_default: Boolean(o.is_default ?? o.isDefault),
+            isDefault: Boolean(o.is_default ?? o.isDefault),
+            is_available: Boolean(o.is_available ?? o.isAvailable ?? true),
+            isAvailable: Boolean(o.is_available ?? o.isAvailable ?? true),
+            sort_order: parseInt(o.sort_order ?? o.sortOrder ?? 0, 10),
+            sortOrder: parseInt(o.sort_order ?? o.sortOrder ?? 0, 10)
+        }))
+    }));
+
+    return {
+        ...r,
+        sort_order: parseInt(r.sort_order || '0', 10),
+        price: parseInt(r.price, 10),
+        variants: rawVariants,
+        variant_groups,
+        option_groups,
+        optionGroups: option_groups
+    };
+}
+
 staffRouter.get('/menu/items', async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;
         const items = await query(`
             SELECT mi.*, mc.name as category_name,
+                COALESCE(
+                    (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', iog.id,
+                                'name', iog.name,
+                                'selection_mode', iog.selection_mode,
+                                'selectionMode', iog.selection_mode,
+                                'min_selections', iog.min_selections,
+                                'minSelections', iog.min_selections,
+                                'max_selections', iog.max_selections,
+                                'maxSelections', iog.max_selections,
+                                'pricing_mode', iog.pricing_mode,
+                                'pricingMode', iog.pricing_mode,
+                                'sort_order', iog.sort_order,
+                                'sortOrder', iog.sort_order,
+                                'options', COALESCE(
+                                    (
+                                        SELECT json_agg(
+                                            json_build_object(
+                                                'id', io.id,
+                                                'name', io.name,
+                                                'price_delta', io.price_delta,
+                                                'priceDelta', io.price_delta,
+                                                'is_default', io.is_default,
+                                                'isDefault', io.is_default,
+                                                'is_available', io.is_available,
+                                                'isAvailable', io.is_available,
+                                                'sort_order', io.sort_order,
+                                                'sortOrder', io.sort_order
+                                            ) ORDER BY io.sort_order ASC, io.price_delta ASC, io.name ASC
+                                        )
+                                        FROM item_options io
+                                        WHERE io.group_id = iog.id
+                                    ),
+                                    '[]'::json
+                                )
+                            ) ORDER BY iog.sort_order ASC, iog.created_at ASC
+                        )
+                        FROM item_option_groups iog
+                        WHERE iog.menu_item_id = mi.id AND iog.tenant_id = $1
+                    ),
+                    '[]'::json
+                ) as option_groups,
                 COALESCE(
                     (
                         SELECT json_agg(
@@ -320,8 +604,9 @@ staffRouter.get('/menu/items', async (req: Request, res: Response) => {
             FROM menu_items mi
             LEFT JOIN menu_categories mc ON mc.id = mi.category_id
             WHERE mi.tenant_id = $1
-            ORDER BY mc.sort_order ASC, mi.name ASC
+            ORDER BY mc.sort_order ASC, mi.sort_order ASC, mi.name ASC, mi.id ASC
         `, [staff.tenantId]);
+
         return res.json({
             items: items.rows.map(r => {
                 const rawVariants = (r.variants || []).map((v: any) => ({
@@ -343,16 +628,110 @@ staffRouter.get('/menu/items', async (req: Request, res: Response) => {
                     name,
                     options
                 }));
+
+                const option_groups = (r.option_groups || []).map((g: any) => ({
+                    id: g.id,
+                    name: g.name,
+                    selection_mode: g.selection_mode || g.selectionMode || 'SINGLE',
+                    selectionMode: g.selection_mode || g.selectionMode || 'SINGLE',
+                    min_selections: parseInt(g.min_selections ?? g.minSelections ?? 0, 10),
+                    minSelections: parseInt(g.min_selections ?? g.minSelections ?? 0, 10),
+                    max_selections: parseInt(g.max_selections ?? g.maxSelections ?? 1, 10),
+                    maxSelections: parseInt(g.max_selections ?? g.maxSelections ?? 1, 10),
+                    pricing_mode: g.pricing_mode || g.pricingMode || 'ADDITIVE',
+                    pricingMode: g.pricing_mode || g.pricingMode || 'ADDITIVE',
+                    sort_order: parseInt(g.sort_order ?? g.sortOrder ?? 0, 10),
+                    sortOrder: parseInt(g.sort_order ?? g.sortOrder ?? 0, 10),
+                    options: (g.options || []).map((o: any) => ({
+                        id: o.id,
+                        name: o.name,
+                        price_delta: parseInt(o.price_delta ?? o.priceDelta ?? 0, 10),
+                        priceDelta: parseInt(o.price_delta ?? o.priceDelta ?? 0, 10),
+                        is_default: Boolean(o.is_default ?? o.isDefault),
+                        isDefault: Boolean(o.is_default ?? o.isDefault),
+                        is_available: Boolean(o.is_available ?? o.isAvailable ?? true),
+                        isAvailable: Boolean(o.is_available ?? o.isAvailable ?? true),
+                        sort_order: parseInt(o.sort_order ?? o.sortOrder ?? 0, 10),
+                        sortOrder: parseInt(o.sort_order ?? o.sortOrder ?? 0, 10)
+                    }))
+                }));
+
                 return {
                     ...r,
+                    sort_order: parseInt(r.sort_order || '0', 10),
                     price: parseInt(r.price, 10),
                     variants: rawVariants,
-                    variant_groups
+                    variant_groups,
+                    option_groups,
+                    optionGroups: option_groups
                 };
             })
         });
     } catch (err: any) {
         return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
+    }
+});
+
+// Single item details endpoint
+staffRouter.get('/menu/items/:id', async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const itemId = req.params.id;
+        const item = await fetchFullMenuItem(staff.tenantId, itemId);
+        if (!item) {
+            return res.status(404).json({ error: 'NOT_FOUND', message: 'Không tìm thấy món ăn' });
+        }
+        return res.json({ item });
+    } catch (err: any) {
+        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
+    }
+});
+
+// Category-scoped item reordering
+staffRouter.post('/menu/reorder', requirePermission('menu.manage'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const schema = z.object({
+            categoryId: z.string().uuid(),
+            itemIds: z.array(z.string().uuid()).min(1)
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message || 'Dữ liệu không hợp lệ' });
+        }
+        const { categoryId, itemIds } = parsed.data;
+
+        // Check duplicates
+        const uniqueIds = new Set(itemIds);
+        if (uniqueIds.size !== itemIds.length) {
+            return res.status(400).json({ error: 'DUPLICATE_ITEMS', message: 'Danh sách ID món bị trùng lặp' });
+        }
+
+        await withTransaction(async (client) => {
+            const cat = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [categoryId, staff.tenantId]);
+            if (cat.rows.length === 0) {
+                throw { status: 400, code: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' };
+            }
+
+            const itemsRes = await client.query(
+                'SELECT id FROM menu_items WHERE tenant_id = $1 AND category_id = $2 AND id = ANY($3::uuid[])',
+                [staff.tenantId, categoryId, itemIds]
+            );
+            if (itemsRes.rows.length !== itemIds.length) {
+                throw { status: 400, code: 'INVALID_ITEMS', message: 'Một số món không thuộc danh mục này hoặc không tồn tại' };
+            }
+
+            for (let i = 0; i < itemIds.length; i++) {
+                await client.query(
+                    'UPDATE menu_items SET sort_order = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3',
+                    [i, itemIds[i], staff.tenantId]
+                );
+            }
+        });
+
+        return res.json({ success: true, message: 'Đã cập nhật thứ tự món thành công' });
+    } catch (err: any) {
+        return res.status(err.status || 500).json({ error: err.code || 'SERVER_ERROR', message: err.message });
     }
 });
 
@@ -380,21 +759,41 @@ staffRouter.put('/menu/items/:id/toggle-available', requirePermission('menu.mana
     }
 });
 
-// 13. Create Menu Item (Supports up to 3 variant groups)
+// Common Option Group Schemas
+const optionItemSchema = z.object({
+    id: z.string().uuid().optional().nullable().or(z.literal('')),
+    name: z.string().trim().min(1, 'Tên tùy chọn không được để trống').max(255),
+    price_delta: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0).optional(),
+    priceDelta: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0).optional(),
+    price_adjustment: z.coerce.number().int().min(0).optional(),
+    is_default: z.boolean().optional().default(false),
+    isDefault: z.boolean().optional().default(false),
+    is_available: z.boolean().optional().default(true),
+    isAvailable: z.boolean().optional().default(true),
+    sort_order: z.coerce.number().int().default(0).optional(),
+    sortOrder: z.coerce.number().int().default(0).optional()
+});
+
+const optionGroupInputSchema = z.object({
+    id: z.string().uuid().optional().nullable().or(z.literal('')),
+    name: z.string().trim().min(1, 'Tên dạng biến thể không được để trống').max(100),
+    selection_mode: z.enum(['SINGLE', 'MULTIPLE']).optional(),
+    selectionMode: z.enum(['SINGLE', 'MULTIPLE']).optional(),
+    min_selections: z.coerce.number().int().min(0).max(30).optional(),
+    minSelections: z.coerce.number().int().min(0).max(30).optional(),
+    max_selections: z.coerce.number().int().min(1).max(30).optional(),
+    maxSelections: z.coerce.number().int().min(1).max(30).optional(),
+    pricing_mode: z.enum(['FREE', 'ADDITIVE']).optional(),
+    pricingMode: z.enum(['FREE', 'ADDITIVE']).optional(),
+    sort_order: z.coerce.number().int().default(0).optional(),
+    sortOrder: z.coerce.number().int().default(0).optional(),
+    options: z.array(optionItemSchema).min(1, 'Mỗi nhóm tùy chọn cần có ít nhất 1 lựa chọn').max(30, 'Tối đa 30 lựa chọn mỗi nhóm')
+});
+
+// 13. Create Menu Item (Supports up to 10 option groups, max 30 options per group)
 staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;
-        const variantOptionSchema = z.object({
-            id: z.string().uuid().optional().nullable().or(z.literal('')),
-            name: z.string().trim().min(1, 'Tên tùy chọn không được để trống').max(255),
-            price_adjustment: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0),
-            is_available: z.boolean().optional().default(true)
-        });
-
-        const variantGroupSchema = z.object({
-            name: z.string().trim().min(1, 'Tên dạng biến thể không được để trống').max(100),
-            options: z.array(variantOptionSchema).min(1, 'Mỗi biến thể cần có ít nhất 1 tùy chọn')
-        });
 
         const schema = z.object({
             name: z.string().trim().min(1, 'Tên món không được để trống').max(255),
@@ -403,8 +802,11 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
             description: z.string().max(2000).optional().nullable(),
             image_url: z.string().max(5000000).optional().nullable().or(z.literal('')),
             is_available: z.boolean().optional().default(true),
-            variant_groups: z.array(variantGroupSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional(),
-            variants: z.array(variantOptionSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
+            sort_order: z.coerce.number().int().optional(),
+            option_groups: z.array(optionGroupInputSchema).max(10, 'Tối đa 10 nhóm tùy chọn').optional(),
+            optionGroups: z.array(optionGroupInputSchema).max(10, 'Tối đa 10 nhóm tùy chọn').optional(),
+            variant_groups: z.array(optionGroupInputSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional(),
+            variants: z.array(optionItemSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
         });
 
         const parsed = schema.safeParse(req.body);
@@ -412,101 +814,54 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
             return res.status(400).json({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message || 'Dữ liệu không hợp lệ' });
         }
 
-        const { name, category_id, price, description, image_url, is_available, variant_groups, variants } = parsed.data;
+        const { name, category_id, price, description, image_url, is_available } = parsed.data;
 
-        // Verify category belongs to tenant
-        const catRes = await query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
-        if (catRes.rows.length === 0) {
-            return res.status(400).json({ error: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' });
-        }
+        const normalizedGroups = normalizeOptionGroups(parsed.data);
 
-        const insertRes = await query(`
-            INSERT INTO menu_items (tenant_id, category_id, name, description, price, image_url, is_available)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *
-        `, [staff.tenantId, category_id, name, description || null, price, image_url || null, is_available]);
-
-        const createdItem = insertRes.rows[0];
-
-        // Insert variants
-        if (variant_groups && variant_groups.length > 0) {
-            for (const grp of variant_groups) {
-                for (const opt of grp.options) {
-                    await query(`
-                        INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                    `, [staff.tenantId, createdItem.id, grp.name, opt.name, opt.price_adjustment || 0, opt.is_available ?? true]);
-                }
+        const createdItem = await withTransaction(async (client) => {
+            // Verify category
+            const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+            if (catRes.rows.length === 0) {
+                throw { status: 400, code: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' };
             }
-        } else if (variants && variants.length > 0) {
-            for (const v of variants) {
-                await query(`
-                    INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                `, [staff.tenantId, createdItem.id, (v as any).group_name || 'Biến thể', v.name, v.price_adjustment || 0, v.is_available ?? true]);
+
+            // Determine sort_order
+            let sortOrder = parsed.data.sort_order;
+            if (sortOrder === undefined) {
+                const sortRes = await client.query('SELECT COALESCE(MAX(sort_order), -1) + 1 as next_sort FROM menu_items WHERE category_id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+                sortOrder = parseInt(sortRes.rows[0].next_sort, 10);
             }
-        }
 
-        const variantsRes = await query(`
-            SELECT id, group_name, name, price_adjustment, is_available
-            FROM menu_item_variants
-            WHERE menu_item_id = $1 AND tenant_id = $2
-            ORDER BY group_name ASC, price_adjustment ASC, name ASC
-        `, [createdItem.id, staff.tenantId]);
+            const insertRes = await client.query(`
+                INSERT INTO menu_items (tenant_id, category_id, name, description, price, image_url, is_available, sort_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING *
+            `, [staff.tenantId, category_id, name, description || null, price, image_url || null, is_available, sortOrder]);
 
-        const rawVariants = variantsRes.rows.map(r => ({
-            ...r,
-            group_name: r.group_name || 'Biến thể',
-            price_adjustment: parseInt(r.price_adjustment, 10)
-        }));
+            const item = insertRes.rows[0];
 
-        const groupsMap = new Map<string, any[]>();
-        for (const v of rawVariants) {
-            if (!groupsMap.has(v.group_name)) groupsMap.set(v.group_name, []);
-            groupsMap.get(v.group_name)!.push({
-                id: v.id,
-                name: v.name,
-                price_adjustment: v.price_adjustment,
-                is_available: v.is_available
-            });
-        }
-        const createdVariantGroups = Array.from(groupsMap.entries()).map(([name, options]) => ({
-            name,
-            options
-        }));
+            if (normalizedGroups.length > 0) {
+                await syncItemOptions(client, staff.tenantId, item.id, normalizedGroups);
+            }
+
+            return await fetchFullMenuItem(staff.tenantId, item.id, client);
+        });
 
         return res.status(201).json({
-            item: {
-                ...createdItem,
-                price: parseInt(createdItem.price, 10),
-                variants: rawVariants,
-                variant_groups: createdVariantGroups
-            },
+            item: createdItem,
             message: 'Thêm món mới thành công'
         });
     } catch (err: any) {
         console.error('Staff create menu item error:', err);
-        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: err.code || 'SERVER_ERROR', message: err.message });
     }
 });
 
-// 14. Update Menu Item (Supports up to 3 variant groups)
+// 14. Update Menu Item (Supports up to 10 option groups, max 30 options per group)
 staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;
         const itemId = req.params.id;
-
-        const variantOptionSchema = z.object({
-            id: z.string().uuid().optional().nullable().or(z.literal('')),
-            name: z.string().trim().min(1, 'Tên tùy chọn không được để trống').max(255),
-            price_adjustment: z.coerce.number().int().min(0, 'Phụ thu không được âm').default(0),
-            is_available: z.boolean().optional().default(true)
-        });
-
-        const variantGroupSchema = z.object({
-            name: z.string().trim().min(1, 'Tên dạng biến thể không được để trống').max(100),
-            options: z.array(variantOptionSchema).min(1, 'Mỗi biến thể cần có ít nhất 1 tùy chọn')
-        });
 
         const schema = z.object({
             name: z.string().trim().min(1, 'Tên món không được để trống').max(255).optional(),
@@ -515,8 +870,11 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             description: z.string().max(2000).optional().nullable(),
             image_url: z.string().max(5000000).optional().nullable().or(z.literal('')),
             is_available: z.boolean().optional(),
-            variant_groups: z.array(variantGroupSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional(),
-            variants: z.array(variantOptionSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
+            sort_order: z.coerce.number().int().optional(),
+            option_groups: z.array(optionGroupInputSchema).max(10, 'Tối đa 10 nhóm tùy chọn').optional(),
+            optionGroups: z.array(optionGroupInputSchema).max(10, 'Tối đa 10 nhóm tùy chọn').optional(),
+            variant_groups: z.array(optionGroupInputSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional(),
+            variants: z.array(optionItemSchema).max(3, 'Một sản phẩm chỉ có tối đa 3 dạng biến thể').optional()
         });
 
         const parsed = schema.safeParse(req.body);
@@ -524,111 +882,74 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             return res.status(400).json({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message || 'Dữ liệu không hợp lệ' });
         }
 
-        // Check if item exists and belongs to tenant
-        const curRes = await query('SELECT * FROM menu_items WHERE id = $1 AND tenant_id = $2', [itemId, staff.tenantId]);
-        if (curRes.rows.length === 0) {
-            return res.status(404).json({ error: 'NOT_FOUND', message: 'Không tìm thấy món ăn' });
-        }
+        const { name, category_id, price, description, image_url, is_available, sort_order } = parsed.data;
+        const hasGroups = parsed.data.option_groups !== undefined || parsed.data.optionGroups !== undefined || parsed.data.variant_groups !== undefined || parsed.data.variants !== undefined;
+        const normalizedGroups = normalizeOptionGroups(parsed.data);
 
-        const { name, category_id, price, description, image_url, is_available, variant_groups, variants } = parsed.data;
-
-        if (category_id) {
-            const catRes = await query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
-            if (catRes.rows.length === 0) {
-                return res.status(400).json({ error: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' });
+        const updatedItem = await withTransaction(async (client) => {
+            const curRes = await client.query('SELECT * FROM menu_items WHERE id = $1 AND tenant_id = $2', [itemId, staff.tenantId]);
+            if (curRes.rows.length === 0) {
+                throw { status: 404, code: 'NOT_FOUND', message: 'Không tìm thấy món ăn' };
             }
-        }
+            const current = curRes.rows[0];
 
-        const updateRes = await query(`
-            UPDATE menu_items
-            SET category_id = COALESCE($1::uuid, category_id),
-                name = COALESCE($2::varchar, name),
-                description = CASE WHEN $3::boolean THEN $4::text ELSE description END,
-                price = COALESCE($5::bigint, price),
-                image_url = CASE WHEN $6::boolean THEN $7::text ELSE image_url END,
-                is_available = COALESCE($8::boolean, is_available),
-                updated_at = NOW()
-            WHERE id = $9::uuid AND tenant_id = $10::uuid
-            RETURNING *
-        `, [
-            category_id || null,
-            name || null,
-            description !== undefined,
-            description || null,
-            price !== undefined ? price : null,
-            image_url !== undefined,
-            image_url || null,
-            is_available !== undefined ? is_available : null,
-            itemId,
-            staff.tenantId
-        ]);
-
-        if (updateRes.rows.length === 0) {
-            return res.status(404).json({ error: 'NOT_FOUND', message: 'Không tìm thấy món ăn' });
-        }
-
-        // If variant_groups provided, replace existing variants
-        if (variant_groups !== undefined) {
-            await query('DELETE FROM menu_item_variants WHERE menu_item_id = $1 AND tenant_id = $2', [itemId, staff.tenantId]);
-            for (const grp of variant_groups) {
-                for (const opt of grp.options) {
-                    await query(`
-                        INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                    `, [staff.tenantId, itemId, grp.name, opt.name, opt.price_adjustment || 0, opt.is_available ?? true]);
+            let newSortOrder = sort_order;
+            if (category_id && category_id !== current.category_id) {
+                const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+                if (catRes.rows.length === 0) {
+                    throw { status: 400, code: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' };
+                }
+                // When moving to new category, put at the end if not explicitly specified
+                if (newSortOrder === undefined) {
+                    const sortRes = await client.query('SELECT COALESCE(MAX(sort_order), -1) + 1 as next_sort FROM menu_items WHERE category_id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+                    newSortOrder = parseInt(sortRes.rows[0].next_sort, 10);
                 }
             }
-        } else if (variants !== undefined) {
-            await query('DELETE FROM menu_item_variants WHERE menu_item_id = $1 AND tenant_id = $2', [itemId, staff.tenantId]);
-            for (const v of variants) {
-                await query(`
-                    INSERT INTO menu_item_variants (tenant_id, menu_item_id, group_name, name, price_adjustment, is_available)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                `, [staff.tenantId, itemId, (v as any).group_name || 'Biến thể', v.name, v.price_adjustment || 0, v.is_available ?? true]);
+
+            const updateRes = await client.query(`
+                UPDATE menu_items
+                SET category_id = COALESCE($1::uuid, category_id),
+                    name = COALESCE($2::varchar, name),
+                    description = CASE WHEN $3::boolean THEN $4::text ELSE description END,
+                    price = COALESCE($5::bigint, price),
+                    image_url = CASE WHEN $6::boolean THEN $7::text ELSE image_url END,
+                    is_available = COALESCE($8::boolean, is_available),
+                    sort_order = COALESCE($9::int, sort_order),
+                    updated_at = NOW()
+                WHERE id = $10::uuid AND tenant_id = $11::uuid
+                RETURNING *
+            `, [
+                category_id || null,
+                name || null,
+                description !== undefined,
+                description || null,
+                price !== undefined ? price : null,
+                image_url !== undefined,
+                image_url || null,
+                is_available !== undefined ? is_available : null,
+                newSortOrder !== undefined ? newSortOrder : null,
+                itemId,
+                staff.tenantId
+            ]);
+
+            if (updateRes.rows.length === 0) {
+                throw { status: 404, code: 'NOT_FOUND', message: 'Không tìm thấy món ăn' };
             }
-        }
 
-        const updatedItem = updateRes.rows[0];
-        const variantsRes = await query(`
-            SELECT id, group_name, name, price_adjustment, is_available
-            FROM menu_item_variants
-            WHERE menu_item_id = $1 AND tenant_id = $2
-            ORDER BY group_name ASC, price_adjustment ASC, name ASC
-        `, [itemId, staff.tenantId]);
+            if (hasGroups) {
+                await syncItemOptions(client, staff.tenantId, itemId, normalizedGroups);
+            }
 
-        const rawVariants = variantsRes.rows.map(r => ({
-            ...r,
-            group_name: r.group_name || 'Biến thể',
-            price_adjustment: parseInt(r.price_adjustment, 10)
-        }));
-
-        const groupsMap = new Map<string, any[]>();
-        for (const v of rawVariants) {
-            if (!groupsMap.has(v.group_name)) groupsMap.set(v.group_name, []);
-            groupsMap.get(v.group_name)!.push({
-                id: v.id,
-                name: v.name,
-                price_adjustment: v.price_adjustment,
-                is_available: v.is_available
-            });
-        }
-        const updatedVariantGroups = Array.from(groupsMap.entries()).map(([name, options]) => ({
-            name,
-            options
-        }));
+            return await fetchFullMenuItem(staff.tenantId, itemId, client);
+        });
 
         return res.json({
-            item: {
-                ...updatedItem,
-                price: parseInt(updatedItem.price, 10),
-                variants: rawVariants,
-                variant_groups: updatedVariantGroups
-            },
+            item: updatedItem,
             message: 'Cập nhật món thành công'
         });
     } catch (err: any) {
         console.error('Staff update menu item error:', err);
-        return res.status(err.status || 500).json({ error: 'SERVER_ERROR', message: err.message });
+        return res.status(err.status || 500).json({ error: err.code || 'SERVER_ERROR', message: err.message });
     }
 });
 

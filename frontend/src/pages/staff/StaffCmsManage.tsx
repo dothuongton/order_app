@@ -119,8 +119,16 @@ export const StaffCmsManage: React.FC = () => {
                 })
             });
 
-            if (shopProfile.name) {
-                updateCurrentTenant({ name: shopProfile.name });
+            if (shopProfile) {
+                updateCurrentTenant({
+                    name: shopProfile.name,
+                    logoUrl: shopProfile.logoUrl,
+                    coverUrl: shopProfile.coverUrl,
+                    description: shopProfile.description,
+                    phone: shopProfile.phone,
+                    address: shopProfile.address,
+                    openingHours: shopProfile.openingHours
+                });
             }
 
             setActionMsg({ type: 'success', text: 'Cập nhật và lưu thông tin quán thành công!' });
@@ -161,9 +169,15 @@ export const StaffCmsManage: React.FC = () => {
                     })
                 });
 
-                if (shopProfile.name) {
-                    updateCurrentTenant({ name: shopProfile.name });
-                }
+                updateCurrentTenant({
+                    name: shopProfile.name,
+                    logoUrl: shopProfile.logoUrl,
+                    coverUrl: shopProfile.coverUrl,
+                    description: shopProfile.description,
+                    phone: shopProfile.phone,
+                    address: shopProfile.address,
+                    openingHours: shopProfile.openingHours
+                });
             }
 
             setActionMsg({ type: 'success', text: 'Đã lưu bản nháp CMS thành công' });
@@ -1126,6 +1140,7 @@ export const StaffCmsManage: React.FC = () => {
                 isOpen={showPreview}
                 onClose={() => setShowPreview(false)}
                 shopName={shopProfile?.name || 'Tên Quán'}
+                shopProfile={shopProfile}
                 themeConfig={draftTheme}
                 banners={banners}
                 promotions={promotions}

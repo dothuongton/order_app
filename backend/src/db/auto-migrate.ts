@@ -6,9 +6,80 @@ export async function ensureSchemaOnBoot() {
     try {
         client = await pool.connect();
 
-        // 1. group_name in menu_item_variants
+        // 1. group_name in menu_item_variants & product sort_order
         await client.query(`
             ALTER TABLE menu_item_variants ADD COLUMN IF NOT EXISTS group_name VARCHAR(100) DEFAULT 'Biến thể';
+            ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;
+            CREATE INDEX IF NOT EXISTS idx_menu_items_tenant_cat_sort ON menu_items(tenant_id, category_id, sort_order);
+        `);
+
+        // 1b. Option Groups (Nhóm tùy chọn) & Options (Lựa chọn)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS item_option_groups (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                menu_item_id UUID NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+                name VARCHAR(255) NOT NULL,
+                selection_mode VARCHAR(32) NOT NULL DEFAULT 'SINGLE', -- 'SINGLE' | 'MULTIPLE'
+                min_selections INT NOT NULL DEFAULT 0,
+                max_selections INT NOT NULL DEFAULT 1,
+                pricing_mode VARCHAR(32) NOT NULL DEFAULT 'ADDITIVE', -- 'FREE' | 'ADDITIVE'
+                sort_order INT NOT NULL DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_item_option_groups_item ON item_option_groups(tenant_id, menu_item_id, sort_order);
+
+            CREATE TABLE IF NOT EXISTS item_options (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                group_id UUID NOT NULL REFERENCES item_option_groups(id) ON DELETE CASCADE,
+                menu_item_id UUID NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+                name VARCHAR(255) NOT NULL,
+                price_delta BIGINT NOT NULL DEFAULT 0,
+                is_default BOOLEAN NOT NULL DEFAULT FALSE,
+                is_available BOOLEAN NOT NULL DEFAULT TRUE,
+                sort_order INT NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_item_options_group ON item_options(tenant_id, group_id, sort_order);
+            CREATE INDEX IF NOT EXISTS idx_item_options_item ON item_options(tenant_id, menu_item_id);
+
+            -- Backfill existing groups from menu_item_variants if any
+            INSERT INTO item_option_groups (tenant_id, menu_item_id, name, selection_mode, min_selections, max_selections, pricing_mode, sort_order)
+            SELECT 
+                v.tenant_id, 
+                v.menu_item_id, 
+                COALESCE(NULLIF(TRIM(v.group_name), ''), 'Biến thể') as name,
+                'SINGLE' as selection_mode,
+                0 as min_selections,
+                1 as max_selections,
+                CASE WHEN MAX(v.price_adjustment) > 0 THEN 'ADDITIVE' ELSE 'FREE' END as pricing_mode,
+                0 as sort_order
+            FROM menu_item_variants v
+            WHERE NOT EXISTS (
+                SELECT 1 FROM item_option_groups g 
+                WHERE g.tenant_id = v.tenant_id AND g.menu_item_id = v.menu_item_id AND g.name = COALESCE(NULLIF(TRIM(v.group_name), ''), 'Biến thể')
+            )
+            GROUP BY v.tenant_id, v.menu_item_id, COALESCE(NULLIF(TRIM(v.group_name), ''), 'Biến thể')
+            ON CONFLICT DO NOTHING;
+
+            -- Backfill existing options preserving option ID = variant ID
+            INSERT INTO item_options (id, tenant_id, group_id, menu_item_id, name, price_delta, is_available, sort_order)
+            SELECT 
+                v.id,
+                v.tenant_id,
+                g.id as group_id,
+                v.menu_item_id,
+                v.name,
+                GREATEST(0, v.price_adjustment) as price_delta,
+                v.is_available,
+                0 as sort_order
+            FROM menu_item_variants v
+            JOIN item_option_groups g ON g.tenant_id = v.tenant_id AND g.menu_item_id = v.menu_item_id AND g.name = COALESCE(NULLIF(TRIM(v.group_name), ''), 'Biến thể')
+            ON CONFLICT (id) DO NOTHING;
         `);
 
         // 2. uploaded_images table for database-persisted media storage

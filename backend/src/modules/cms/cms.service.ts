@@ -118,7 +118,25 @@ export class CmsService {
                 VALUES ($1, $2, 'SHOP_UPDATE_PROFILE', 'tenant', $3, $4)
             `, [tenantId, userId, tenantId.toString(), JSON.stringify(input)]);
 
-            return res.rows[0];
+            const r = res.rows[0];
+            return {
+                id: r.id,
+                slug: r.slug,
+                name: r.name,
+                description: r.description,
+                logoUrl: r.logo_url,
+                logo_url: r.logo_url,
+                coverUrl: r.cover_url,
+                cover_url: r.cover_url,
+                phone: r.phone,
+                address: r.address,
+                openingHours: r.opening_hours,
+                opening_hours: r.opening_hours,
+                activeTemplateId: r.active_template_id,
+                activeThemeConfig: r.active_theme_config,
+                activePublishedVersion: r.active_published_version,
+                status: r.status
+            };
         });
     }
 

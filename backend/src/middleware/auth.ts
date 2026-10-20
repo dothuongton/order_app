@@ -11,6 +11,12 @@ export interface StaffUser {
     tenantId: string;
     tenantName?: string;
     tenantSlug?: string;
+    logoUrl?: string | null;
+    coverUrl?: string | null;
+    description?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    openingHours?: string | null;
     role: string;
     permissions: string[];
     isPlatformAdmin?: boolean;
@@ -64,7 +70,10 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             SELECT 
                 u.id, u.email, u.full_name, u.is_platform_admin,
                 m.tenant_id, m.role, m.permissions, m.is_active,
-                t.name as tenant_name, t.slug as tenant_slug
+                t.name as tenant_name, t.slug as tenant_slug,
+                t.logo_url as tenant_logo_url, t.cover_url as tenant_cover_url,
+                t.description as tenant_description, t.phone as tenant_phone,
+                t.address as tenant_address, t.opening_hours as tenant_opening_hours
             FROM users u
             JOIN memberships m ON m.user_id = u.id
             LEFT JOIN tenants t ON t.id = m.tenant_id
@@ -86,6 +95,12 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             tenantId: row.tenant_id,
             tenantName: row.tenant_name,
             tenantSlug: row.tenant_slug,
+            logoUrl: row.tenant_logo_url || null,
+            coverUrl: row.tenant_cover_url || null,
+            description: row.tenant_description || null,
+            phone: row.tenant_phone || null,
+            address: row.tenant_address || null,
+            openingHours: row.tenant_opening_hours || null,
             role: row.role,
             permissions: row.permissions || []
         };

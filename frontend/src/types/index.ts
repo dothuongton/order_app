@@ -31,16 +31,49 @@ export interface MenuItemVariant extends VariantOption {
   group_name?: string;
 }
 
+export interface ItemOption {
+  id?: string;
+  name: string;
+  price_delta?: number;
+  priceDelta?: number;
+  is_default?: boolean;
+  isDefault?: boolean;
+  is_available?: boolean;
+  isAvailable?: boolean;
+  sort_order?: number;
+  sortOrder?: number;
+}
+
+export interface ItemOptionGroup {
+  id?: string;
+  name: string;
+  selection_mode?: 'SINGLE' | 'MULTIPLE';
+  selectionMode?: 'SINGLE' | 'MULTIPLE';
+  min_selections?: number;
+  minSelections?: number;
+  max_selections?: number;
+  maxSelections?: number;
+  pricing_mode?: 'FREE' | 'ADDITIVE';
+  pricingMode?: 'FREE' | 'ADDITIVE';
+  sort_order?: number;
+  sortOrder?: number;
+  options: ItemOption[];
+}
+
 export interface MenuItem {
   id: string;
   category_id: string;
+  category_name?: string;
   name: string;
   description: string | null;
   price: number;
   image_url: string | null;
   is_available: boolean;
+  sort_order?: number;
   variants?: MenuItemVariant[];
   variant_groups?: VariantGroup[];
+  option_groups?: ItemOptionGroup[];
+  optionGroups?: ItemOptionGroup[];
 }
 
 export interface MenuCategory {
@@ -181,6 +214,7 @@ export interface CartItem {
   menuItemId: string;
   variantId?: string;
   variantIds?: string[];
+  optionIds?: string[];
   variantName?: string;
   name: string;
   price: number;

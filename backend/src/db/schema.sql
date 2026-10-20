@@ -105,11 +105,12 @@ CREATE TABLE IF NOT EXISTS menu_items (
     price BIGINT NOT NULL, -- Số nguyên VND
     image_url TEXT,
     is_available BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 9. Menu Item Variants
+-- 9. Menu Item Variants (Legacy)
 CREATE TABLE IF NOT EXISTS menu_item_variants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -118,6 +119,36 @@ CREATE TABLE IF NOT EXISTS menu_item_variants (
     name VARCHAR(255) NOT NULL,
     price_adjustment BIGINT NOT NULL DEFAULT 0,
     is_available BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- 9b. Item Option Groups & Options (Flexible Options System)
+CREATE TABLE IF NOT EXISTS item_option_groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    menu_item_id UUID NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    selection_mode VARCHAR(20) NOT NULL DEFAULT 'SINGLE',
+    min_selections INT NOT NULL DEFAULT 0,
+    max_selections INT NOT NULL DEFAULT 1,
+    pricing_mode VARCHAR(20) NOT NULL DEFAULT 'ADDITIVE',
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS item_options (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    group_id UUID NOT NULL REFERENCES item_option_groups(id) ON DELETE CASCADE,
+    menu_item_id UUID NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    price_delta BIGINT NOT NULL DEFAULT 0,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    is_available BOOLEAN NOT NULL DEFAULT true,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 10. Orders (Mỗi lần khách bấm gửi món là 1 order riêng, đánh số trong phiên: Lần 1, Lần 2...)

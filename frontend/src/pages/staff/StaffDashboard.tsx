@@ -410,8 +410,12 @@ export const StaffDashboard: React.FC = () => {
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-slate-900 text-white px-3 py-2.5 shadow-md flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <div className="w-8 h-8 rounded-xl bg-orange-600 flex items-center justify-center font-black shrink-0">
-            <Store className="w-4 h-4 text-white" />
+          <div className="w-8 h-8 rounded-xl bg-orange-600 flex items-center justify-center font-black shrink-0 overflow-hidden">
+            {currentTenant?.logoUrl ? (
+              <img src={currentTenant.logoUrl} alt={currentTenant.name} className="w-full h-full object-cover" />
+            ) : (
+              <Store className="w-4 h-4 text-white" />
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="font-extrabold text-xs sm:text-sm leading-tight truncate">{currentTenant?.name || 'Nhà Hàng'}</h1>

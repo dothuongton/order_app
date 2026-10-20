@@ -12,6 +12,7 @@ export const GuestMenu: React.FC = () => {
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
   const [selectedGroupOptions, setSelectedGroupOptions] = useState<Record<string, any>>({});
+  const [selectedOptionItems, setSelectedOptionItems] = useState<Record<string, any[]>>({});
   const [quantity, setQuantity] = useState<number>(1);
   const [note, setNote] = useState<string>('');
 
@@ -31,39 +32,78 @@ export const GuestMenu: React.FC = () => {
     if (!item.is_available || !session || isSessionClosed) return;
     setActiveItem(item);
     setSelectedVariant(null);
-    const initialGroups: Record<string, any> = {};
-    if (item.variant_groups && item.variant_groups.length > 0) {
-      item.variant_groups.forEach(g => {
-        if (g.options && g.options.length > 0) {
-          initialGroups[g.name] = g.options[0];
+    setSelectedGroupOptions({});
+
+    const optGroups = item.option_groups || (item as any).optionGroups;
+    if (optGroups && optGroups.length > 0) {
+      const initial: Record<string, any[]> = {};
+      optGroups.forEach((g: any) => {
+        if (g.selection_mode === 'SINGLE') {
+          const defaultOpt = g.options?.find((o: any) => o.is_default) || (g.min_selections > 0 && g.options?.length > 0 ? g.options[0] : null);
+          initial[g.id] = defaultOpt ? [defaultOpt] : [];
+        } else {
+          const defaultOpts = g.options?.filter((o: any) => o.is_default) || [];
+          initial[g.id] = defaultOpts;
         }
       });
+      setSelectedOptionItems(initial);
+    } else {
+      setSelectedOptionItems({});
+      const initialGroups: Record<string, any> = {};
+      if (item.variant_groups && item.variant_groups.length > 0) {
+        item.variant_groups.forEach(g => {
+          if (g.options && g.options.length > 0) {
+            initialGroups[g.name] = g.options[0];
+          }
+        });
+      }
+      setSelectedGroupOptions(initialGroups);
     }
-    setSelectedGroupOptions(initialGroups);
+
     setQuantity(1);
     setNote('');
   };
 
   const handleConfirmAdd = () => {
-    if (activeItem) {
-      if (activeItem.variant_groups && activeItem.variant_groups.length > 0) {
-        const selectedList = Object.values(selectedGroupOptions).filter(Boolean);
-        const variantName = selectedList.map(o => o.name).join(', ');
-        const priceAdj = selectedList.reduce((sum, o) => sum + (Number(o.price_adjustment) || 0), 0);
-        const variantIds = selectedList.map(o => o.id).filter(Boolean);
-        addToCart(activeItem, quantity, note.trim() || undefined, {
-          id: variantIds[0],
-          variantIds,
-          name: variantName,
-          price_adjustment: priceAdj
-        });
-      } else {
-        addToCart(activeItem, quantity, note.trim() || undefined, selectedVariant || undefined);
-      }
-      setActiveItem(null);
-      setSelectedVariant(null);
-      setSelectedGroupOptions({});
+    if (!activeItem) return;
+    const optGroups = activeItem.option_groups || (activeItem as any).optionGroups;
+
+    if (optGroups && optGroups.length > 0) {
+      const allSelectedOptions = optGroups.flatMap((g: any) => selectedOptionItems[g.id] || []);
+      const optionIds = allSelectedOptions.map((o: any) => o.id).filter(Boolean);
+      const variantName = allSelectedOptions.map((o: any) => o.name).join(', ');
+      const priceAdj = optGroups.reduce((sum: number, g: any) => {
+        if (g.pricing_mode !== 'ADDITIVE') return sum;
+        const chosen = selectedOptionItems[g.id] || [];
+        return sum + chosen.reduce((s: number, o: any) => s + (Math.max(0, Number(o.price_delta) || 0)), 0);
+      }, 0);
+
+      addToCart(activeItem, quantity, note.trim() || undefined, {
+        id: optionIds[0],
+        variantIds: optionIds,
+        optionIds,
+        name: variantName,
+        price_adjustment: priceAdj
+      });
+    } else if (activeItem.variant_groups && activeItem.variant_groups.length > 0) {
+      const selectedList = Object.values(selectedGroupOptions).filter(Boolean);
+      const variantName = selectedList.map(o => o.name).join(', ');
+      const priceAdj = selectedList.reduce((sum, o) => sum + (Number(o.price_adjustment) || 0), 0);
+      const variantIds = selectedList.map(o => o.id).filter(Boolean);
+      addToCart(activeItem, quantity, note.trim() || undefined, {
+        id: variantIds[0],
+        variantIds,
+        name: variantName,
+        price_adjustment: priceAdj
+      });
+    } else {
+      addToCart(activeItem, quantity, note.trim() || undefined, selectedVariant || undefined);
     }
+
+    setActiveItem(null);
+    setSelectedVariant(null);
+    setSelectedGroupOptions({});
+    setSelectedOptionItems({});
   };
 
   return (
@@ -230,10 +270,38 @@ export const GuestMenu: React.FC = () => {
 
       {/* Customize Item Bottom Sheet */}
       {activeItem && (() => {
-        const hasVariantGroups = !!(activeItem.variant_groups && activeItem.variant_groups.length > 0);
+        const optGroups = activeItem.option_groups || (activeItem as any).optionGroups;
+        const hasOptionGroups = !!(optGroups && optGroups.length > 0);
+        const hasVariantGroups = !hasOptionGroups && !!(activeItem.variant_groups && activeItem.variant_groups.length > 0);
+
+        let optionGroupAdj = 0;
+        const allSelectedOptionNames: string[] = [];
+        if (hasOptionGroups) {
+          optGroups.forEach((g: any) => {
+            const chosen = selectedOptionItems[g.id] || [];
+            chosen.forEach((o: any) => {
+              allSelectedOptionNames.push(o.name);
+              if (g.pricing_mode === 'ADDITIVE') {
+                optionGroupAdj += Math.max(0, Number(o.price_delta) || 0);
+              }
+            });
+          });
+        }
+
         const selectedList = Object.values(selectedGroupOptions).filter(Boolean);
         const groupAdj = selectedList.reduce((sum, o) => sum + (Number(o.price_adjustment) || 0), 0);
-        const currentPrice = Number(activeItem.price) + (hasVariantGroups ? groupAdj : (selectedVariant ? Number(selectedVariant.price_adjustment || 0) : 0));
+        const currentPrice = Number(activeItem.price) + (
+          hasOptionGroups ? optionGroupAdj :
+          hasVariantGroups ? groupAdj :
+          (selectedVariant ? Number(selectedVariant.price_adjustment || 0) : 0)
+        );
+
+        // Validation for required option groups
+        const missingRequiredGroups = hasOptionGroups ? optGroups.filter((g: any) => {
+          const chosen = selectedOptionItems[g.id] || [];
+          return (g.min_selections || 0) > 0 && chosen.length < g.min_selections;
+        }) : [];
+        const canSubmit = missingRequiredGroups.length === 0;
 
         return (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
@@ -241,7 +309,13 @@ export const GuestMenu: React.FC = () => {
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">{activeItem.name}</h3>
-                  {hasVariantGroups ? (
+                  {hasOptionGroups ? (
+                    allSelectedOptionNames.length > 0 && (
+                      <span className="inline-block mt-0.5 text-xs text-orange-600 font-semibold">
+                        Đã chọn: {allSelectedOptionNames.join(' • ')}
+                      </span>
+                    )
+                  ) : hasVariantGroups ? (
                     selectedList.length > 0 && (
                       <span className="inline-block mt-0.5 text-xs text-orange-600 font-semibold">
                         Đã chọn: {selectedList.map(o => o.name).join(' • ')}
@@ -256,7 +330,7 @@ export const GuestMenu: React.FC = () => {
                   )}
                 </div>
                 <button
-                  onClick={() => { setActiveItem(null); setSelectedVariant(null); setSelectedGroupOptions({}); }}
+                  onClick={() => { setActiveItem(null); setSelectedVariant(null); setSelectedGroupOptions({}); setSelectedOptionItems({}); }}
                   className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400"
                 >
                   <X className="w-5 h-5" />
@@ -268,8 +342,101 @@ export const GuestMenu: React.FC = () => {
                   {currentPrice.toLocaleString('vi-VN')}đ
                 </div>
 
-                {/* Multi-Group Variants Selector */}
-                {hasVariantGroups ? (
+                {/* Option Groups Selector */}
+                {hasOptionGroups ? (
+                  <div className="space-y-4 mb-4">
+                    {optGroups.map((group: any) => {
+                      const chosen = selectedOptionItems[group.id] || [];
+                      const isSingle = group.selection_mode === 'SINGLE';
+                      const isFree = group.pricing_mode === 'FREE';
+
+                      const toggleOption = (opt: any) => {
+                        setSelectedOptionItems(prev => {
+                          const currentChosen = prev[group.id] || [];
+                          if (isSingle) {
+                            if (group.min_selections > 0) {
+                              return { ...prev, [group.id]: [opt] };
+                            } else {
+                              const isAlready = currentChosen.some((c: any) => c.id === opt.id);
+                              return { ...prev, [group.id]: isAlready ? [] : [opt] };
+                            }
+                          } else {
+                            const isAlready = currentChosen.some((c: any) => c.id === opt.id);
+                            if (isAlready) {
+                              return { ...prev, [group.id]: currentChosen.filter((c: any) => c.id !== opt.id) };
+                            } else {
+                              if (group.max_selections > 0 && currentChosen.length >= group.max_selections) {
+                                return prev;
+                              }
+                              return { ...prev, [group.id]: [...currentChosen, opt] };
+                            }
+                          }
+                        });
+                      };
+
+                      return (
+                        <div key={group.id} className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-100 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                                {group.name}
+                              </label>
+                              {group.min_selections > 0 ? (
+                                <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
+                                  Bắt buộc
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md">
+                                  Tùy chọn
+                                </span>
+                              )}
+                              {isFree && (
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                                  Miễn phí
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              {isSingle
+                                ? 'Chọn 1'
+                                : group.max_selections > 0
+                                  ? `Tối đa ${group.max_selections}`
+                                  : 'Chọn nhiều'}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {group.options?.map((opt: any) => {
+                              const isSelected = chosen.some((c: any) => c.id === opt.id);
+                              const priceDelta = Number(opt.price_delta) || 0;
+                              const priceLabel = isFree || priceDelta === 0
+                                ? '0đ'
+                                : `+${priceDelta.toLocaleString('vi-VN')}đ`;
+
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => toggleOption(opt)}
+                                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <span>{opt.name}</span>
+                                  <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                                    ({priceLabel})
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : hasVariantGroups ? (
                   <div className="space-y-4 mb-4">
                     {activeItem.variant_groups!.map((group, gIdx) => (
                       <div key={group.name || gIdx} className="bg-slate-50/70 p-3 rounded-2xl border border-slate-100">
@@ -389,9 +556,17 @@ export const GuestMenu: React.FC = () => {
                 </div>
               </div>
 
+              {missingRequiredGroups.length > 0 && (
+                <div className="p-2.5 mb-2 bg-amber-50 border border-amber-200 rounded-xl text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                  <span>Vui lòng chọn: {missingRequiredGroups.map((g: any) => g.name).join(', ')}</span>
+                </div>
+              )}
+
               <button
                 onClick={handleConfirmAdd}
-                className="w-full min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white font-bold rounded-xl py-3 px-4 shadow-md flex items-center justify-between transition mt-2 cursor-pointer"
+                disabled={!canSubmit}
+                className="w-full min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-40 text-white font-bold rounded-xl py-3 px-4 shadow-md flex items-center justify-between transition mt-2 cursor-pointer"
               >
                 <span>Thêm vào đơn</span>
                 <span>{(currentPrice * quantity).toLocaleString('vi-VN')}đ</span>
