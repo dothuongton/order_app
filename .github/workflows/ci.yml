@@ -29,7 +29,13 @@ jobs:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            node scripts/check-file-boundaries.mjs "origin/$BASE_REF"
+            if git cat-file -e "origin/$BASE_REF:scripts/check-file-boundaries.mjs" 2>/dev/null; then
+              echo "Executing trusted boundary check script from origin/$BASE_REF"
+              git show "origin/$BASE_REF:scripts/check-file-boundaries.mjs" | node - "origin/$BASE_REF"
+            else
+              echo "Bootstrap mode: executing local boundary check script"
+              node scripts/check-file-boundaries.mjs "origin/$BASE_REF"
+            fi
           else
             echo "Direct push to main, skipping PR boundary check."
           fi

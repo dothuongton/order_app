@@ -916,7 +916,6 @@ export class GuestService {
             WHERE tenant_id = $1 AND is_active = true
               AND (start_time IS NULL OR NOW() >= start_time)
               AND (end_time IS NULL OR NOW() <= end_time)
-              AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
             ORDER BY priority DESC, created_at DESC
         `, [tenantId]);
 
@@ -928,70 +927,13 @@ export class GuestService {
                 .map(r => r.applied_promotion_id)
                 .filter((id): id is string => Boolean(id))
         ));
-        let selectedPromo: any = null;
-        let sessionDiscount = 0;
 
-        if (attachedPromoIds.length > 0) {
-            // Find the first attached promotion that is still active and valid in promosRes
-            let validAttached: any = null;
-            for (const promoId of attachedPromoIds) {
-                const found = promosRes.rows.find(p => p.id === promoId);
-                if (found) {
-                    validAttached = found;
-                    break;
-                }
-            }
+        // Use unified promotion evaluation (matches settlement exactly)
+        const promoEval = PricingService.evaluateSessionPromotion(rawConfirmedTotal, attachedPromoIds, promosRes.rows);
+        const selectedPromo = promoEval.selectedPromo;
+        const effectiveDiscount = promoEval.discountAmount;
 
-            if (validAttached) {
-                const minOrder = parseInt(validAttached.min_order_amount || '0', 10);
-                if (rawConfirmedTotal >= minOrder) {
-                    const discValue = parseInt(validAttached.discount_value, 10);
-                    let calc = 0;
-                    if (validAttached.discount_type === 'PERCENT') {
-                        calc = Math.floor((rawConfirmedTotal * discValue) / 100);
-                        if (validAttached.max_discount_amount) {
-                            calc = Math.min(calc, parseInt(validAttached.max_discount_amount, 10));
-                        }
-                    } else if (validAttached.discount_type === 'FIXED_AMOUNT') {
-                        calc = Math.min(discValue, rawConfirmedTotal);
-                    }
-                    sessionDiscount = Math.max(0, Math.min(calc, rawConfirmedTotal));
-                    if (sessionDiscount > 0) {
-                        selectedPromo = validAttached;
-                    }
-                }
-            }
-            // If attached promo is exhausted (not in promosRes), sessionDiscount remains 0
-        } else {
-            // Find best qualifying tenant promotion for the session
-            for (const promo of promosRes.rows) {
-                const minOrder = parseInt(promo.min_order_amount || '0', 10);
-                if (rawConfirmedTotal < minOrder) continue;
-
-                const discValue = parseInt(promo.discount_value, 10);
-                let calculated = 0;
-                if (promo.discount_type === 'PERCENT') {
-                    calculated = Math.floor((rawConfirmedTotal * discValue) / 100);
-                    if (promo.max_discount_amount) {
-                        calculated = Math.min(calculated, parseInt(promo.max_discount_amount, 10));
-                    }
-                } else if (promo.discount_type === 'FIXED_AMOUNT') {
-                    calculated = Math.min(discValue, rawConfirmedTotal);
-                }
-                calculated = Math.max(0, Math.min(calculated, rawConfirmedTotal));
-
-                if (
-                    calculated > sessionDiscount ||
-                    (calculated === sessionDiscount && calculated > 0 && promo.priority > (selectedPromo?.priority || 0))
-                ) {
-                    sessionDiscount = calculated;
-                    selectedPromo = promo;
-                }
-            }
-        }
-
-        const effectiveDiscount = sessionDiscount;
-        const effectivePromotions = (sessionDiscount > 0 && selectedPromo) ? [{
+        const effectivePromotions = (effectiveDiscount > 0 && selectedPromo) ? [{
             id: selectedPromo.id,
             title: selectedPromo.title,
             code: selectedPromo.code,

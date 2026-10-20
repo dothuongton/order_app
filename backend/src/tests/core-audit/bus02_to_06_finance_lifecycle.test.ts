@@ -511,6 +511,87 @@ describe('Financial Lifecycle & Session Promotion Suite (BUS-02, BUS-03, BUS-04,
         expect(targetStatus.rows[0].status).toBe('CLOSED');
     });
 
+    it('BUS-06d: Multiple attached promotions where earlier promo threshold increases evaluates subsequent promo in both quote and settlement (Issue #28)', async () => {
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
+
+        // 1. Create promo A: fixed 10k, min_order = 0
+        const promoARes = await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, is_active, priority)
+            VALUES ($1, 'MULTI-MIN-A', 'Promo A Threshold', 'FIXED_AMOUNT', 10000, 0, true, 1)
+            RETURNING id
+        `, [tenantId]);
+        const promoAId = promoARes.rows[0].id;
+
+        const tableRes = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-MMIN-1', 'qr-mmin-1') RETURNING id`, [tenantId]);
+        const tableId = tableRes.rows[0].id;
+
+        const s = await StaffService.openSession(tenantId, tableId, waiterId);
+
+        // Round 1 (60k) with Promo A
+        await GuestService.createOrder(tenantId, s.sessionId, tableId, {
+            idempotencyKey: 'mmin-target-round-1',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        // Turn off Promo A, create Promo B: fixed 20k, min_order = 0
+        await query(`UPDATE promotions SET is_active = false WHERE id = $1`, [promoAId]);
+        const promoBRes = await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, is_active, priority)
+            VALUES ($1, 'MULTI-MIN-B', 'Promo B Qualifies', 'FIXED_AMOUNT', 20000, 0, true, 2)
+            RETURNING id
+        `, [tenantId]);
+        const promoBId = promoBRes.rows[0].id;
+
+        // Round 2 (60k) with Promo B
+        await GuestService.createOrder(tenantId, s.sessionId, tableId, {
+            idempotencyKey: 'mmin-target-round-2',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        // Update Promo A: re-enable but increase min_order_amount to 200,000đ
+        await query(`UPDATE promotions SET is_active = true, min_order_amount = 200000 WHERE id = $1`, [promoAId]);
+
+        // Accept and serve all
+        await StaffService.acceptAllPending(tenantId, s.sessionId, waiterId);
+        await StaffService.serveAllAccepted(tenantId, s.sessionId, waiterId);
+
+        // Quote evaluation:
+        // Promo A requires 200k (fails since served total is 120k).
+        // Promo B requires 0k (succeeds -> 20k off).
+        // Valid bill total must be 100k!
+        const quote = await GuestService.getBillSummary(tenantId, s.sessionId);
+        expect(quote.rawBillTotal).toBe(120000);
+        expect(quote.totalDiscount).toBe(20000);
+        expect(quote.validBillTotal).toBe(100000);
+        expect(quote.appliedPromotions).toHaveLength(1);
+        expect(quote.appliedPromotions[0].id).toBe(promoBId);
+
+        // Settlement evaluation:
+        // Must settle cleanly at 100k with Promo B, without throwing 409 PRICE_CHANGED
+        const settled = await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            s.sessionId,
+            quote.settlementVersion,
+            waiterId,
+            undefined,
+            undefined,
+            quote.validBillTotal
+        );
+        expect(settled.totalAmount).toBe(100000);
+
+        // Verify bill lines and redemptions
+        const billRes = await query(`SELECT id FROM bills WHERE session_id = $1`, [s.sessionId]);
+        const billLinesRes = await query(`SELECT subtotal FROM bill_lines WHERE bill_id = $1`, [billRes.rows[0].id]);
+        const totalLineAmount = billLinesRes.rows.reduce((sum, r) => sum + parseInt(r.subtotal, 10), 0);
+        expect(totalLineAmount).toBe(100000);
+
+        const redemptionsB = await query(`SELECT COUNT(*) FROM promotion_redemptions WHERE promotion_id = $1`, [promoBId]);
+        expect(parseInt(redemptionsB.rows[0].count, 10)).toBe(1);
+
+        const sessionStatus = await query(`SELECT status FROM table_sessions WHERE id = $1`, [s.sessionId]);
+        expect(sessionStatus.rows[0].status).toBe('CLOSED');
+    });
+
     it('BUS-02d: Session discount re-evaluates against remaining served total after partial cancellation (Issue #28)', async () => {
         await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
 

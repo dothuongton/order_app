@@ -38,7 +38,101 @@ export interface CalculatedOrderPricing {
     } | null;
 }
 
+export interface SessionPromotionEvaluation {
+    selectedPromo: any | null;
+    discountAmount: number;
+    hadExhaustedAttachedPromo: any | null;
+}
+
 export class PricingService {
+    /**
+     * Unified session-level promotion evaluation used by both quote (getBillSummary)
+     * and settlement (confirmPaymentAndCloseSession).
+     * 
+     * Enforces identical eligibility and selection order:
+     * 1. If attachedPromoIds are present: iterates in order of attached promotions,
+     *    skipping promotions that fail time/min_order, tracking exhausted caps,
+     *    and selecting the first eligible promotion with non-zero discount.
+     * 2. If attachedPromoIds is empty: selects the single best deal among active promotions
+     *    where cap is not reached, breaking ties by priority.
+     */
+    static evaluateSessionPromotion(
+        rawTotal: number,
+        attachedPromoIds: string[],
+        promotions: any[]
+    ): SessionPromotionEvaluation {
+        let selectedPromo: any = null;
+        let discountAmount = 0;
+        let hadExhaustedAttachedPromo: any = null;
+
+        if (attachedPromoIds.length > 0) {
+            // Find first eligible attached promotion
+            for (const promoId of attachedPromoIds) {
+                const promo = promotions.find(p => p.id === promoId);
+                if (!promo) continue;
+
+                const isExhausted = promo.max_redemptions !== null && 
+                    Number(promo.current_redemptions) >= Number(promo.max_redemptions);
+                if (isExhausted) {
+                    if (!hadExhaustedAttachedPromo) {
+                        hadExhaustedAttachedPromo = promo;
+                    }
+                    continue; // Check subsequent attached promotions
+                }
+
+                const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                if (rawTotal >= minOrder) {
+                    const discValue = parseInt(promo.discount_value, 10);
+                    let calc = 0;
+                    if (promo.discount_type === 'PERCENT') {
+                        calc = Math.floor((rawTotal * discValue) / 100);
+                        if (promo.max_discount_amount) {
+                            calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+                        }
+                    } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                        calc = Math.min(discValue, rawTotal);
+                    }
+                    const calculatedDiscount = Math.max(0, Math.min(calc, rawTotal));
+                    if (calculatedDiscount > 0) {
+                        discountAmount = calculatedDiscount;
+                        selectedPromo = promo;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Find best qualifying tenant promotion where cap is not reached
+            for (const promo of promotions) {
+                if (promo.max_redemptions !== null && Number(promo.current_redemptions) >= Number(promo.max_redemptions)) {
+                    continue;
+                }
+                const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                if (rawTotal < minOrder) continue;
+
+                const discValue = parseInt(promo.discount_value, 10);
+                let calc = 0;
+                if (promo.discount_type === 'PERCENT') {
+                    calc = Math.floor((rawTotal * discValue) / 100);
+                    if (promo.max_discount_amount) {
+                        calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+                    }
+                } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                    calc = Math.min(discValue, rawTotal);
+                }
+                calc = Math.max(0, Math.min(calc, rawTotal));
+                if (calc > discountAmount || (calc === discountAmount && calc > 0 && promo.priority > (selectedPromo?.priority || 0))) {
+                    discountAmount = calc;
+                    selectedPromo = promo;
+                }
+            }
+        }
+
+        return {
+            selectedPromo,
+            discountAmount,
+            hadExhaustedAttachedPromo
+        };
+    }
     /**
      * Calculate order prices and promotions safely on server-side.
      * Uses single best-deal policy (non-stacking).

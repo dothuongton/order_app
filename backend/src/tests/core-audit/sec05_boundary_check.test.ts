@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync } from 'child_process';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import {
     validateAuthorFiles,
@@ -202,38 +204,134 @@ A\tbackend/src/modules/admin/new.ts
         expect(res4.violations.some(v => v.includes('Unknown or unauthorized author'))).toBe(true);
     });
 
-    it('enforces boundaries when executed via CLI using process.env (PR_AUTHOR, PR_LABELS) without argv override', () => {
-        let baseRef = 'origin/main';
-        try {
-            execSync('git rev-parse --verify origin/main', { cwd: repoRoot, stdio: 'ignore' });
-        } catch {
-            try {
-                execSync('git rev-parse --verify HEAD~1', { cwd: repoRoot, stdio: 'ignore' });
-                baseRef = 'HEAD~1';
-            } catch {
-                baseRef = 'HEAD';
-            }
-        }
+    describe('Git CLI Execution & Fixture Suite (Issue #29)', () => {
+        let fixtureDir: string;
 
-        // 1. SangVuxx with lane:core attempting to touch core diff via env must exit with non-zero
-        try {
-            execSync(`node "${scriptPath}" ${baseRef}`, {
-                cwd: repoRoot,
-                env: { ...process.env, PR_AUTHOR: 'SangVuxx', PR_LABELS: 'lane:core' },
-                stdio: 'pipe'
-            });
-            expect.unreachable('Should have thrown');
-        } catch (err: any) {
-            expect(err.status).toBe(1);
-            expect(err.stderr.toString()).toContain('conflicting label "lane:core"');
-        }
+        beforeAll(() => {
+            fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-boundary-fixture-'));
+            execSync('git init -b main', { cwd: fixtureDir });
+            execSync('git config user.name "Tester"', { cwd: fixtureDir });
+            execSync('git config user.email "test@example.com"', { cwd: fixtureDir });
 
-        // 2. dothuongton with ordinary label priority:P1 via env must exit 0
-        const out = execSync(`node "${scriptPath}" ${baseRef}`, {
-            cwd: repoRoot,
-            env: { ...process.env, PR_AUTHOR: 'dothuongton', PR_LABELS: 'priority:P1 bug' },
-            encoding: 'utf-8'
+            // Create initial baseline on main
+            fs.writeFileSync(path.join(fixtureDir, 'README.md'), '# Initial');
+            fs.mkdirSync(path.join(fixtureDir, 'backend/src/modules/admin'), { recursive: true });
+            fs.mkdirSync(path.join(fixtureDir, 'backend/src/modules/guest'), { recursive: true });
+            fs.writeFileSync(path.join(fixtureDir, 'backend/src/modules/admin/admin.service.ts'), '// admin');
+            fs.writeFileSync(path.join(fixtureDir, 'backend/src/modules/guest/guest.service.ts'), '// guest');
+            execSync('git add . && git commit -m "Baseline commit"', { cwd: fixtureDir });
         });
-        expect(out).toContain('passed successfully');
+
+        afterAll(() => {
+            if (fixtureDir && fs.existsSync(fixtureDir)) {
+                fs.rmSync(fixtureDir, { recursive: true, force: true });
+            }
+        });
+
+        it('fails closed when trusted base reference cannot be resolved in git (no silent fallback to HEAD~1 or HEAD)', () => {
+            try {
+                execSync(`node "${scriptPath}" non-existent-base-ref`, {
+                    cwd: fixtureDir,
+                    env: { ...process.env, PR_AUTHOR: 'dothuongton' },
+                    stdio: 'pipe'
+                });
+                expect.unreachable('Should fail on unresolvable base ref');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                const stderr = err.stderr.toString();
+                expect(stderr).toContain('Base reference "non-existent-base-ref" cannot be resolved');
+                expect(stderr).toContain('git fetch origin <base_branch>');
+            }
+        });
+
+        it('inspects full multi-commit diff against base and catches violations in earlier commits (not masked by later clean commits)', () => {
+            // Checkout feature branch
+            execSync('git checkout -b feature-multi-commit', { cwd: fixtureDir });
+
+            // Commit 1: Core author touches Sang\'s lane file (VIOLATION)
+            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/admin/admin.service.ts'), '\n// core edited this');
+            execSync('git commit -am "Core touched Sang admin file"', { cwd: fixtureDir });
+
+            // Commit 2: Core author edits clean doc file
+            fs.appendFileSync(path.join(fixtureDir, 'README.md'), '\n// doc update');
+            execSync('git commit -am "Core updated doc only"', { cwd: fixtureDir });
+
+            // Running against base "main" must catch the violation from commit 1!
+            try {
+                execSync(`node "${scriptPath}" main`, {
+                    cwd: fixtureDir,
+                    env: { ...process.env, PR_AUTHOR: 'dothuongton' },
+                    stdio: 'pipe'
+                });
+                expect.unreachable('Should fail because commit 1 touched Sang file');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                expect(err.stderr.toString()).toContain('Core cannot touch Super Admin lane file');
+            }
+        });
+
+        it('detects violations on renamed files in multi-commit branch', () => {
+            execSync('git checkout -b feature-rename', { cwd: fixtureDir });
+
+            // Core author renames guest file to admin file
+            fs.renameSync(
+                path.join(fixtureDir, 'backend/src/modules/guest/guest.service.ts'),
+                path.join(fixtureDir, 'backend/src/modules/admin/renamed.service.ts')
+            );
+            execSync('git add -A && git commit -m "Rename to admin path"', { cwd: fixtureDir });
+
+            try {
+                execSync(`node "${scriptPath}" main`, {
+                    cwd: fixtureDir,
+                    env: { ...process.env, PR_AUTHOR: 'dothuongton' },
+                    stdio: 'pipe'
+                });
+                expect.unreachable('Should fail because destination is in Sang lane');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                expect(err.stderr.toString()).toContain('Core cannot touch Super Admin lane file');
+            }
+        });
+
+        it('enforces author vs label separation via CLI (fails closed on conflicting labels, ignores ordinary labels)', () => {
+            execSync('git checkout main', { cwd: fixtureDir });
+            execSync('git checkout -b feature-clean-core', { cwd: fixtureDir });
+            fs.appendFileSync(path.join(fixtureDir, 'backend/src/modules/guest/guest.service.ts'), '\n// clean guest edit');
+            execSync('git commit -am "Clean core change"', { cwd: fixtureDir });
+
+            // 1. Sang author claiming lane:core on core diff -> FAIL CLOSED
+            try {
+                execSync(`node "${scriptPath}" main`, {
+                    cwd: fixtureDir,
+                    env: { ...process.env, PR_AUTHOR: 'SangVuxx', PR_LABELS: 'lane:core' },
+                    stdio: 'pipe'
+                });
+                expect.unreachable('Sang author with lane:core must fail closed');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                expect(err.stderr.toString()).toContain('conflicting label "lane:core"');
+            }
+
+            // 2. Core author with ordinary labels priority:P1 bug -> PASS
+            const out = execSync(`node "${scriptPath}" main`, {
+                cwd: fixtureDir,
+                env: { ...process.env, PR_AUTHOR: 'dothuongton', PR_LABELS: 'priority:P1 bug' },
+                encoding: 'utf-8'
+            });
+            expect(out).toContain('passed successfully');
+
+            // 3. Unknown author -> FAIL CLOSED
+            try {
+                execSync(`node "${scriptPath}" main`, {
+                    cwd: fixtureDir,
+                    env: { ...process.env, PR_AUTHOR: 'random-unauthorized-user' },
+                    stdio: 'pipe'
+                });
+                expect.unreachable('Unknown author must fail closed');
+            } catch (err: any) {
+                expect(err.status).toBe(1);
+                expect(err.stderr.toString()).toContain('Unknown or unauthorized lane identifier');
+            }
+        });
     });
 });

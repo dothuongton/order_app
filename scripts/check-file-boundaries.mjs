@@ -22,15 +22,29 @@ import path from 'path';
  *   - Shared auth, middleware, database, types, routes, configs
  * 
  * Enforcement Boundary & Policy Protection Architecture:
- * 1. Script/Policy Ownership:
- *    - scripts/check-file-boundaries.mjs and .github/workflows/** are strictly owned by Core (dothuongton).
- *    - SANG_ALLOWED_PREFIXES strictly excludes scripts/ and .github/. Any attempt by Sang to modify
- *      the boundary check script or CI workflows is immediately rejected as a boundary violation.
- * 2. Repository Branch Protection:
- *    - GitHub branch protection on `main` enforces required PR reviews and status checks.
- *    - PR execution runs in an isolated ephemeral VM; modifying the local script in a PR cannot
- *      bypass protected branch checks on GitHub because only Core maintainers have merge authority.
- *    - When a PR modifies scripts/ or CI, Core review is mandatory per AGENTS.md and CODEOWNERS.
+ * 
+ * 1. Code-Level Enforcement:
+ *    - scripts/check-file-boundaries.mjs maps authorized authors strictly to their respective lanes.
+ *    - SangVuxx is restricted to SANG_ALLOWED_PREFIXES and SANG_ALLOWED_EXACT, and blocked from SANG_BLOCKED_EXACT.
+ *    - Core authors (dothuongton, codex, antigravity) are blocked from Sang's lane files.
+ *    - Unknown authors fail closed.
+ *    - Conflicting lane labels fail closed.
+ *    - Diff inspection rejects debugger statements and known leaked keys.
+ * 
+ * 2. CI Pipeline Integrity:
+ *    - In .github/workflows/ci.yml, the boundary check step executes the trusted version of this script
+ *      from the target base branch (e.g. origin/main) so that an unreviewed PR branch cannot bypass checks
+ *      by tampering with the local script file.
+ *    - fetch-depth: 0 is enforced in all CI checkout steps so the base reference is always available.
+ * 
+ * 3. Required GitHub Repository Configuration (Must be configured by Repository Owner @dothuongton):
+ *    - Branch Protection on `main`:
+ *      * "Require a pull request before merging" (at least 1 approving review).
+ *      * "Require status checks to pass before merging" with check `File Boundary & Hygiene Gate`.
+ *      * "Require branches to be up to date before merging".
+ *    - CODEOWNERS file (optional enhancement): Assign .github/ and scripts/ to @dothuongton.
+ *    NOTE: Code checks running inside a PR branch cannot enforce repository-level settings;
+ *    these branch protection rules must be applied in GitHub repository settings.
  */
 
 export const SANG_ALLOWED_PREFIXES = [
@@ -270,18 +284,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
     const author = process.argv[3] || process.env.PR_AUTHOR || process.env.GITHUB_ACTOR || '';
     const labels = process.env.PR_LABELS || '';
 
-    // If baseRef defaulted to origin/main but cannot be resolved (e.g. shallow clone), fall back gracefully
+    // Verify that the requested baseRef exists. Fail closed if untrusted or missing!
     try {
         execSync(`git rev-parse --verify ${baseRef}`, { stdio: 'ignore' });
     } catch {
-        if (!process.argv[2]) {
-            try {
-                execSync('git rev-parse --verify HEAD~1', { stdio: 'ignore' });
-                baseRef = 'HEAD~1';
-            } catch {
-                baseRef = 'HEAD';
-            }
-        }
+        console.error(`❌ Base reference "${baseRef}" cannot be resolved in local git repository.`);
+        console.error(`To perform a trusted file boundary check, ensure the target base branch is fetched:`);
+        console.error(`  git fetch origin <base_branch>`);
+        console.error(`or pass a valid base reference:`);
+        console.error(`  node scripts/check-file-boundaries.mjs <trusted_base_ref> [author]`);
+        process.exit(1);
     }
 
     try {
