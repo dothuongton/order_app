@@ -200,7 +200,7 @@ describe('Security and critical flow regression', () => {
         await StaffService.serveOrderItem(tenant, line, 1, manager);
         await StaffService.cancelOrderItem(tenant, line, 1, 'out of stock', manager);
         const summary = await GuestService.getBillSummary(tenant, discountedSession);
-        const expected = price * 2 - 67;
+        const expected = price * 2 - 101;
         expect(summary.validBillTotal).toBe(expected);
         expect(summary.rounds[0].items.filter((item: any) => item.status === 'CANCELLED')[0].subtotal).toBe(0);
         const payments = await Promise.allSettled([

@@ -906,7 +906,7 @@ export class GuestService {
 
         // Evaluate session-level promotion on the whole table session (rawConfirmedTotal)
         const promosRes = await query(`
-            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority
+            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority, max_redemptions, current_redemptions
             FROM promotions
             WHERE tenant_id = $1 AND is_active = true
               AND (start_time IS NULL OR NOW() >= start_time)
@@ -915,47 +915,69 @@ export class GuestService {
             ORDER BY priority DESC, created_at DESC
         `, [tenantId]);
 
-        let bestSessionPromo: any = null;
-        let bestSessionDiscount = 0;
+        const attachedPromoId = partsRes.rows.find(r => r.applied_promotion_id)?.applied_promotion_id;
+        let selectedPromo: any = null;
+        let sessionDiscount = 0;
 
-        for (const promo of promosRes.rows) {
-            const minOrder = parseInt(promo.min_order_amount || '0', 10);
-            if (rawConfirmedTotal < minOrder) continue;
-
-            const discValue = parseInt(promo.discount_value, 10);
-            let calculated = 0;
-            if (promo.discount_type === 'PERCENT') {
-                calculated = Math.floor((rawConfirmedTotal * discValue) / 100);
-                if (promo.max_discount_amount) {
-                    calculated = Math.min(calculated, parseInt(promo.max_discount_amount, 10));
+        if (attachedPromoId) {
+            // If session had a promotion attached, verify it is still valid and not exhausted
+            const validAttached = promosRes.rows.find(p => p.id === attachedPromoId);
+            if (validAttached) {
+                const minOrder = parseInt(validAttached.min_order_amount || '0', 10);
+                if (rawConfirmedTotal >= minOrder) {
+                    const discValue = parseInt(validAttached.discount_value, 10);
+                    let calc = 0;
+                    if (validAttached.discount_type === 'PERCENT') {
+                        calc = Math.floor((rawConfirmedTotal * discValue) / 100);
+                        if (validAttached.max_discount_amount) {
+                            calc = Math.min(calc, parseInt(validAttached.max_discount_amount, 10));
+                        }
+                    } else if (validAttached.discount_type === 'FIXED_AMOUNT') {
+                        calc = Math.min(discValue, rawConfirmedTotal);
+                    }
+                    sessionDiscount = Math.max(0, Math.min(calc, rawConfirmedTotal));
+                    if (sessionDiscount > 0) {
+                        selectedPromo = validAttached;
+                    }
                 }
-            } else if (promo.discount_type === 'FIXED_AMOUNT') {
-                calculated = Math.min(discValue, rawConfirmedTotal);
             }
-            calculated = Math.max(0, Math.min(calculated, rawConfirmedTotal));
+            // If attached promo is exhausted (not in promosRes), sessionDiscount remains 0
+        } else {
+            // Find best qualifying tenant promotion for the session
+            for (const promo of promosRes.rows) {
+                const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                if (rawConfirmedTotal < minOrder) continue;
 
-            if (
-                calculated > bestSessionDiscount ||
-                (calculated === bestSessionDiscount && calculated > 0 && promo.priority > (bestSessionPromo?.priority || 0))
-            ) {
-                bestSessionDiscount = calculated;
-                bestSessionPromo = promo;
+                const discValue = parseInt(promo.discount_value, 10);
+                let calculated = 0;
+                if (promo.discount_type === 'PERCENT') {
+                    calculated = Math.floor((rawConfirmedTotal * discValue) / 100);
+                    if (promo.max_discount_amount) {
+                        calculated = Math.min(calculated, parseInt(promo.max_discount_amount, 10));
+                    }
+                } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                    calculated = Math.min(discValue, rawConfirmedTotal);
+                }
+                calculated = Math.max(0, Math.min(calculated, rawConfirmedTotal));
+
+                if (
+                    calculated > sessionDiscount ||
+                    (calculated === sessionDiscount && calculated > 0 && promo.priority > (selectedPromo?.priority || 0))
+                ) {
+                    sessionDiscount = calculated;
+                    selectedPromo = promo;
+                }
             }
         }
 
-        let effectiveDiscount = confirmedDiscountTotal;
-        let effectivePromotions = Array.from(appliedPromotionsMap.values());
-
-        if (confirmedDiscountTotal === 0 && bestSessionDiscount > 0) {
-            effectiveDiscount = bestSessionDiscount;
-            effectivePromotions = [{
-                id: bestSessionPromo.id,
-                title: bestSessionPromo.title,
-                code: bestSessionPromo.code,
-                discountType: bestSessionPromo.discount_type,
-                discountValue: Number(bestSessionPromo.discount_value || 0)
-            }];
-        }
+        const effectiveDiscount = sessionDiscount;
+        const effectivePromotions = (sessionDiscount > 0 && selectedPromo) ? [{
+            id: selectedPromo.id,
+            title: selectedPromo.title,
+            code: selectedPromo.code,
+            discountType: selectedPromo.discount_type,
+            discountValue: Number(selectedPromo.discount_value || 0)
+        }] : [];
 
         const effectiveValidBillTotal = Math.max(0, rawConfirmedTotal - effectiveDiscount);
 

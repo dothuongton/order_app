@@ -321,4 +321,143 @@ describe('Financial Lifecycle & Session Promotion Suite (BUS-02, BUS-03, BUS-04,
         const checkPromo = await query(`SELECT current_redemptions, max_redemptions FROM promotions WHERE id = $1`, [promoId]);
         expect(checkPromo.rows[0].current_redemptions).toBe(1);
     });
+
+    it('BUS-06b: Cap exhaustion recovery allows reloading new quote and settling cleanly without infinite 409 stuck session (Issue #28)', async () => {
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
+
+        // Create promo with max_redemptions = 1
+        const promoRes = await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, max_redemptions, is_active)
+            VALUES ($1, 'CAP-RECOVER', 'Cap Recover Promo', 'FIXED_AMOUNT', 10000, 0, 1, true)
+            RETURNING id
+        `, [tenantId]);
+
+        const tableT1Res = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-CAP1', 'qr-cap1') RETURNING id`, [tenantId]);
+        const tableT2Res = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-CAP2', 'qr-cap2') RETURNING id`, [tenantId]);
+        const t1Id = tableT1Res.rows[0].id;
+        const t2Id = tableT2Res.rows[0].id;
+
+        const s1 = await StaffService.openSession(tenantId, t1Id, waiterId);
+        const s2 = await StaffService.openSession(tenantId, t2Id, waiterId);
+
+        await GuestService.createOrder(tenantId, s1.sessionId, t1Id, {
+            idempotencyKey: 'cap-rec-ord-1',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+        await GuestService.createOrder(tenantId, s2.sessionId, t2Id, {
+            idempotencyKey: 'cap-rec-ord-2',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        await StaffService.acceptAllPending(tenantId, s1.sessionId, waiterId);
+        await StaffService.serveAllAccepted(tenantId, s1.sessionId, waiterId);
+        await StaffService.acceptAllPending(tenantId, s2.sessionId, waiterId);
+        await StaffService.serveAllAccepted(tenantId, s2.sessionId, waiterId);
+
+        const preview1 = await GuestService.getBillSummary(tenantId, s1.sessionId);
+        const preview2 = await GuestService.getBillSummary(tenantId, s2.sessionId);
+
+        // Session 1 settles and claims the 1 redemption
+        await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            s1.sessionId,
+            preview1.settlementVersion,
+            waiterId,
+            undefined,
+            undefined,
+            preview1.validBillTotal
+        );
+
+        // Session 2 attempts to settle with stale preview (expected 50,000đ) -> fails with 409 PROMOTION_EXHAUSTED
+        await expect(
+            StaffService.confirmPaymentAndCloseSession(
+                tenantId,
+                s2.sessionId,
+                preview2.settlementVersion,
+                waiterId,
+                undefined,
+                undefined,
+                preview2.validBillTotal
+            )
+        ).rejects.toMatchObject({
+            status: 409,
+            code: 'PROMOTION_EXHAUSTED'
+        });
+
+        // Session 2 reloads bill summary: exhausted promo must NOT be quoted (validBillTotal = 60,000đ)
+        const reloaded2 = await GuestService.getBillSummary(tenantId, s2.sessionId);
+        expect(reloaded2.rawBillTotal).toBe(60000);
+        expect(reloaded2.totalDiscount).toBe(0);
+        expect(reloaded2.validBillTotal).toBe(60000);
+
+        // Session 2 settles cleanly at 60,000đ
+        const settled2 = await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            s2.sessionId,
+            reloaded2.settlementVersion,
+            waiterId,
+            undefined,
+            undefined,
+            reloaded2.validBillTotal
+        );
+
+        expect(settled2.totalAmount).toBe(60000);
+
+        const session2Status = await query(`SELECT status FROM table_sessions WHERE id = $1`, [s2.sessionId]);
+        expect(session2Status.rows[0].status).toBe('CLOSED');
+    });
+
+    it('BUS-02d: Session discount re-evaluates against remaining served total after partial cancellation (Issue #28)', async () => {
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
+
+        // Promo: Fixed 20,000đ on min_order_amount >= 100,000đ
+        await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, is_active)
+            VALUES ($1, 'PARTIAL-CANCEL', 'Partial Cancel Promo', 'FIXED_AMOUNT', 20000, 100000, true)
+        `, [tenantId]);
+
+        const tablePCRes = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-PC', 'qr-pc') RETURNING id`, [tenantId]);
+        const tPCId = tablePCRes.rows[0].id;
+
+        const session = await StaffService.openSession(tenantId, tPCId, waiterId);
+
+        // Round 1: 2 items of 60k = 120k
+        const round1 = await GuestService.createOrder(tenantId, session.sessionId, tPCId, {
+            idempotencyKey: 'partial-ord-1',
+            items: [{ menuItemId: nemChuaId, quantity: 2 }]
+        });
+
+        // Round 2: 1 item of 60k = 60k
+        await GuestService.createOrder(tenantId, session.sessionId, tPCId, {
+            idempotencyKey: 'partial-ord-2',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        await StaffService.acceptAllPending(tenantId, session.sessionId, waiterId);
+
+        // Cancel 1 item (60k) from round 1
+        const item1Res = await query(`SELECT id FROM order_items WHERE order_id = $1 LIMIT 1`, [round1.orderId]);
+        await StaffService.cancelOrderItem(tenantId, item1Res.rows[0].id, 1, 'Customer changed mind', waiterId, false);
+
+        await StaffService.serveAllAccepted(tenantId, session.sessionId, waiterId);
+
+        // Remaining served total: 60k (round 1) + 60k (round 2) = 120,000đ >= 100,000đ min_order_amount
+        // Expected discount: 20,000đ (validBillTotal = 100,000đ)
+        const summary = await GuestService.getBillSummary(tenantId, session.sessionId);
+        expect(summary.rawBillTotal).toBe(120000);
+        expect(summary.totalDiscount).toBe(20000);
+        expect(summary.validBillTotal).toBe(100000);
+
+        const settled = await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            session.sessionId,
+            summary.settlementVersion,
+            waiterId,
+            undefined,
+            undefined,
+            summary.validBillTotal
+        );
+
+        expect(settled.totalAmount).toBe(100000);
+    });
 });

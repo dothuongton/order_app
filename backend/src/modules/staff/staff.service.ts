@@ -710,44 +710,117 @@ export class StaffService {
                 return sum + Math.max(0, price * qty - sub);
             }, 0);
 
-            // Check best promotion for rawServedTotal on the session
+            // Fetch active promotions for tenant
             const promoRes = await client.query(`
-                SELECT id, code, title, discount_type, discount_value, min_order_amount, max_discount_amount, priority
+                SELECT id, code, title, discount_type, discount_value, min_order_amount, max_discount_amount, priority, max_redemptions, current_redemptions
                 FROM promotions
                 WHERE tenant_id = $1 AND is_active = true
                   AND (start_time IS NULL OR NOW() >= start_time)
                   AND (end_time IS NULL OR NOW() <= end_time)
-                  AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
                 ORDER BY priority DESC, created_at DESC
             `, [tenantId]);
 
-            let bestPromo: any = null;
+            const attachedPromoId = servedPartsRes.rows.find(r => r.applied_promotion_id)?.applied_promotion_id;
+            let selectedPromo: any = null;
             let sessionDiscount = 0;
-            for (const promo of promoRes.rows) {
-                const minOrder = parseInt(promo.min_order_amount || '0', 10);
-                if (rawServedTotal < minOrder) continue;
-                const discValue = parseInt(promo.discount_value, 10);
-                let calc = 0;
-                if (promo.discount_type === 'PERCENT') {
-                    calc = Math.floor((rawServedTotal * discValue) / 100);
-                    if (promo.max_discount_amount) {
-                        calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+
+            if (attachedPromoId) {
+                const attachedPromo = promoRes.rows.find(p => p.id === attachedPromoId);
+                if (attachedPromo) {
+                    const isExhausted = attachedPromo.max_redemptions !== null && Number(attachedPromo.current_redemptions) >= Number(attachedPromo.max_redemptions);
+                    if (isExhausted) {
+                        // If staff expected a discounted bill, throw 409 PROMOTION_EXHAUSTED so they reload the new quote
+                        if (expectedAmount !== undefined && expectedAmount < rawServedTotal) {
+                            throw {
+                                status: 409,
+                                code: 'PROMOTION_EXHAUSTED',
+                                message: `Chương trình khuyến mãi "${attachedPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                            };
+                        }
+                    } else {
+                        const minOrder = parseInt(attachedPromo.min_order_amount || '0', 10);
+                        if (rawServedTotal >= minOrder) {
+                            const discValue = parseInt(attachedPromo.discount_value, 10);
+                            let calc = 0;
+                            if (attachedPromo.discount_type === 'PERCENT') {
+                                calc = Math.floor((rawServedTotal * discValue) / 100);
+                                if (attachedPromo.max_discount_amount) {
+                                    calc = Math.min(calc, parseInt(attachedPromo.max_discount_amount, 10));
+                                }
+                            } else if (attachedPromo.discount_type === 'FIXED_AMOUNT') {
+                                calc = Math.min(discValue, rawServedTotal);
+                            }
+                            sessionDiscount = Math.max(0, Math.min(calc, rawServedTotal));
+                            if (sessionDiscount > 0) {
+                                selectedPromo = attachedPromo;
+                            }
+                        }
                     }
-                } else if (promo.discount_type === 'FIXED_AMOUNT') {
-                    calc = Math.min(discValue, rawServedTotal);
                 }
-                calc = Math.max(0, Math.min(calc, rawServedTotal));
-                if (calc > sessionDiscount || (calc === sessionDiscount && calc > 0 && promo.priority > (bestPromo?.priority || 0))) {
-                    sessionDiscount = calc;
-                    bestPromo = promo;
+            } else {
+                // Find best qualifying tenant promotion where cap is not reached
+                for (const promo of promoRes.rows) {
+                    if (promo.max_redemptions !== null && Number(promo.current_redemptions) >= Number(promo.max_redemptions)) {
+                        continue;
+                    }
+                    const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                    if (rawServedTotal < minOrder) continue;
+                    const discValue = parseInt(promo.discount_value, 10);
+                    let calc = 0;
+                    if (promo.discount_type === 'PERCENT') {
+                        calc = Math.floor((rawServedTotal * discValue) / 100);
+                        if (promo.max_discount_amount) {
+                            calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+                        }
+                    } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                        calc = Math.min(discValue, rawServedTotal);
+                    }
+                    calc = Math.max(0, Math.min(calc, rawServedTotal));
+                    if (calc > sessionDiscount || (calc === sessionDiscount && calc > 0 && promo.priority > (selectedPromo?.priority || 0))) {
+                        sessionDiscount = calc;
+                        selectedPromo = promo;
+                    }
                 }
             }
 
-            let finalAmount = 0;
+            let finalAmount = Math.max(0, rawServedTotal - sessionDiscount);
             const billLinesToInsert: any[] = [];
 
-            if (confirmedItemDiscountTotal === 0 && sessionDiscount > 0) {
-                finalAmount = Math.max(0, rawServedTotal - sessionDiscount);
+            if (sessionDiscount > 0 && selectedPromo) {
+                // Atomically claim promotion cap (BUS-06)
+                const claimRes = await client.query(`
+                    UPDATE promotions
+                    SET current_redemptions = current_redemptions + 1, updated_at = NOW()
+                    WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+                    RETURNING id
+                `, [selectedPromo.id]);
+
+                if (claimRes.rowCount === 0) {
+                    throw {
+                        status: 409,
+                        code: 'PROMOTION_EXHAUSTED',
+                        message: `Chương trình khuyến mãi "${selectedPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                    };
+                }
+
+                // Record session-level promotion redemption with metadata snapshot (BUS-05, R7)
+                await client.query(`
+                    INSERT INTO promotion_redemptions (
+                        tenant_id, promotion_id, session_id, discount_amount,
+                        snapshot_title, snapshot_code, snapshot_discount_type, snapshot_discount_value
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `, [
+                    tenantId,
+                    selectedPromo.id,
+                    sessionId,
+                    sessionDiscount,
+                    selectedPromo.title,
+                    selectedPromo.code,
+                    selectedPromo.discount_type,
+                    selectedPromo.discount_value
+                ]);
+
                 const lineRaw = servedPartsRes.rows.map(r => Number(r.snapshot_price) * parseInt(r.quantity_served, 10));
                 const lineDiscounts = lineRaw.map(amt => rawServedTotal > 0 ? Number(BigInt(amt) * BigInt(sessionDiscount) / BigInt(rawServedTotal)) : 0);
                 let rem = sessionDiscount - lineDiscounts.reduce((s, v) => s + v, 0);
@@ -770,47 +843,11 @@ export class StaffService {
                         subtotal
                     });
                 });
-
-                // Atomically claim promotion cap (BUS-06)
-                const claimRes = await client.query(`
-                    UPDATE promotions
-                    SET current_redemptions = current_redemptions + 1, updated_at = NOW()
-                    WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
-                    RETURNING id
-                `, [bestPromo.id]);
-
-                if (claimRes.rowCount === 0) {
-                    throw {
-                        status: 409,
-                        code: 'PROMOTION_EXHAUSTED',
-                        message: `Chương trình khuyến mãi "${bestPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
-                    };
-                }
-
-                // Record session-level promotion redemption with metadata snapshot (BUS-05, R7)
-                await client.query(`
-                    INSERT INTO promotion_redemptions (
-                        tenant_id, promotion_id, session_id, discount_amount,
-                        snapshot_title, snapshot_code, snapshot_discount_type, snapshot_discount_value
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                `, [
-                    tenantId,
-                    bestPromo.id,
-                    sessionId,
-                    sessionDiscount,
-                    bestPromo.title,
-                    bestPromo.code,
-                    bestPromo.discount_type,
-                    bestPromo.discount_value
-                ]);
             } else {
-                for (const r of servedPartsRes.rows) {
+                servedPartsRes.rows.forEach(r => {
                     const qty = parseInt(r.quantity_served, 10);
                     const price = Number(r.snapshot_price);
-                    const subtotal = partAmount(price, qty, r.original_quantity, Number(r.discount_amount || 0));
-                    finalAmount += subtotal;
-
+                    const subtotal = price * qty;
                     billLinesToInsert.push({
                         orderItemId: r.order_item_id,
                         itemName: r.snapshot_name,
@@ -819,50 +856,7 @@ export class StaffService {
                         unitPrice: price,
                         subtotal
                     });
-                }
-
-                const itemPromoId = servedPartsRes.rows.find(r => r.applied_promotion_id)?.applied_promotion_id;
-                if (itemPromoId && confirmedItemDiscountTotal > 0) {
-                    const itemPromoRes = await client.query(`
-                        SELECT id, title, code, discount_type, discount_value, max_redemptions, current_redemptions
-                        FROM promotions WHERE id = $1
-                    `, [itemPromoId]);
-
-                    if (itemPromoRes.rows.length > 0) {
-                        const itemPromo = itemPromoRes.rows[0];
-                        const claimRes = await client.query(`
-                            UPDATE promotions
-                            SET current_redemptions = current_redemptions + 1, updated_at = NOW()
-                            WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
-                            RETURNING id
-                        `, [itemPromoId]);
-
-                        if (claimRes.rowCount === 0) {
-                            throw {
-                                status: 409,
-                                code: 'PROMOTION_EXHAUSTED',
-                                message: `Chương trình khuyến mãi "${itemPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
-                            };
-                        }
-
-                        await client.query(`
-                            INSERT INTO promotion_redemptions (
-                                tenant_id, promotion_id, session_id, discount_amount,
-                                snapshot_title, snapshot_code, snapshot_discount_type, snapshot_discount_value
-                            )
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        `, [
-                            tenantId,
-                            itemPromo.id,
-                            sessionId,
-                            confirmedItemDiscountTotal,
-                            itemPromo.title,
-                            itemPromo.code,
-                            itemPromo.discount_type,
-                            itemPromo.discount_value
-                        ]);
-                    }
-                }
+                });
             }
 
             // Protect against unexpected price change / race condition (BUS-04)
