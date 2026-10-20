@@ -3,7 +3,7 @@ import { pool, withTransaction } from './pool.js';
 import { fileURLToPath } from 'url';
 import { config } from '../config/index.js';
 
-export async function seed(force: boolean = true) {
+export async function seed(force: boolean = process.env.NODE_ENV === 'test') {
     if (process.env.NODE_ENV === 'test' && !new URL(config.databaseUrl).pathname.startsWith('/qr_order_test_')) {
         throw new Error('Tests may only seed an isolated qr_order_test_ database');
     }

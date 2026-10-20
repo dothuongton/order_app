@@ -66,4 +66,21 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
             WHERE email = 'superadmin@qrorder.vn'
         `, [defaultHash]);
     });
+    it('does not recreate a default platform admin when the account is absent during migration', async () => {
+        const original = await query(`SELECT * FROM users WHERE is_platform_admin = true`);
+        expect(original.rows).toHaveLength(1);
+        const user = original.rows[0];
+        await query('DELETE FROM users WHERE id = $1', [user.id]);
+        try {
+            await migrate();
+            await ensureSchemaOnBoot();
+            const result = await query('SELECT id FROM users WHERE is_platform_admin = true');
+            expect(result.rows).toHaveLength(0);
+        } finally {
+            await query(`INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
+                VALUES ($1, $2, $3, $4, $5, true)`,
+                [user.id, user.email, user.password_hash, user.full_name, user.phone]);
+        }
+    });
+
 });
