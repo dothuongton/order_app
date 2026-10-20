@@ -44,7 +44,11 @@ export const StaffCmsManage: React.FC = () => {
 
     // Promo Modal state
     const [showPromoModal, setShowPromoModal] = useState<boolean>(false);
-    const [editingPromo, setEditingPromo] = useState<Partial<Promotion> | null>(null);
+    const [editingPromo, setEditingPromo] = useState<(Omit<Partial<Promotion>, 'discountValue' | 'minOrderAmount' | 'maxDiscountAmount'> & {
+        discountValue?: number | string;
+        minOrderAmount?: number | string;
+        maxDiscountAmount?: number | string;
+    }) | null>(null);
 
     // Publish Changelog Modal
     const [showPublishModal, setShowPublishModal] = useState<boolean>(false);
@@ -273,19 +277,76 @@ export const StaffCmsManage: React.FC = () => {
     // Promo Save handler
     const handleSavePromo = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!editingPromo?.title || !editingPromo?.discountValue) return;
+        if (!editingPromo) return;
+
+        if (!editingPromo.title?.trim()) {
+            setActionMsg({ type: 'error', text: 'Vui lòng nhập tên chương trình khuyến mãi' });
+            return;
+        }
+
+        const rawDiscountStr = String(editingPromo.discountValue ?? '').trim();
+        if (rawDiscountStr === '') {
+            setActionMsg({ type: 'error', text: 'Vui lòng nhập mức giảm giá' });
+            return;
+        }
+
+        const parsedDiscount = parseInt(rawDiscountStr, 10);
+        if (isNaN(parsedDiscount) || parsedDiscount <= 0) {
+            setActionMsg({ type: 'error', text: 'Mức giảm giá phải là số nguyên lớn hơn 0' });
+            return;
+        }
+
+        if (editingPromo.discountType === 'PERCENT' && parsedDiscount > 100) {
+            setActionMsg({ type: 'error', text: 'Tỷ lệ giảm phần trăm không được vượt quá 100%' });
+            return;
+        }
+
+        const rawMinOrderStr = String(editingPromo.minOrderAmount ?? '').trim();
+        const minOrder = rawMinOrderStr === '' ? 0 : Math.max(0, parseInt(rawMinOrderStr, 10) || 0);
+
+        let maxDisc: number | undefined = undefined;
+        const rawMaxDiscStr = String(editingPromo.maxDiscountAmount ?? '').trim();
+        if (rawMaxDiscStr !== '') {
+            const parsed = parseInt(rawMaxDiscStr, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+                maxDisc = parsed;
+            }
+        }
+
+        const payload: Record<string, any> = {
+            code: editingPromo.code?.trim() || undefined,
+            title: editingPromo.title.trim(),
+            description: editingPromo.description?.trim() || undefined,
+            discountType: editingPromo.discountType || 'PERCENT',
+            discountValue: parsedDiscount,
+            minOrderAmount: minOrder,
+            priority: editingPromo.priority ?? 1,
+            isActive: editingPromo.isActive ?? true
+        };
+        if (maxDisc !== undefined) {
+            payload.maxDiscountAmount = maxDisc;
+        }
+        if (editingPromo.maxRedemptions) {
+            payload.maxRedemptions = editingPromo.maxRedemptions;
+        }
+        if (editingPromo.startTime) {
+            payload.startTime = editingPromo.startTime;
+        }
+        if (editingPromo.endTime) {
+            payload.endTime = editingPromo.endTime;
+        }
 
         try {
             if (editingPromo.id) {
                 await request(`/cms/promotions/${editingPromo.id}`, {
                     method: 'PATCH',
-                    body: JSON.stringify(Object.fromEntries(Object.entries(editingPromo).filter(([key, value]) => ['code','title','description','discountType','discountValue','minOrderAmount','maxDiscountAmount','maxRedemptions','priority','isActive','startTime','endTime'].includes(key) && value != null)))
+                    body: JSON.stringify(payload)
                 });
                 setActionMsg({ type: 'success', text: 'Cập nhật khuyến mãi thành công' });
             } else {
                 await request('/cms/promotions', {
                     method: 'POST',
-                    body: JSON.stringify(Object.fromEntries(Object.entries(editingPromo).filter(([key, value]) => ['code','title','description','discountType','discountValue','minOrderAmount','maxDiscountAmount','maxRedemptions','priority','isActive','startTime','endTime'].includes(key) && value != null)))
+                    body: JSON.stringify(payload)
                 });
                 setActionMsg({ type: 'success', text: 'Tạo khuyến mãi mới thành công' });
             }
@@ -1039,7 +1100,7 @@ export const StaffCmsManage: React.FC = () => {
                         </div>
 
                         {/* Scrollable Form Body */}
-                        <form onSubmit={handleSavePromo} className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-3.5 text-xs">
+                        <form onSubmit={handleSavePromo} noValidate className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-3.5 text-xs">
                             <div className="grid grid-cols-3 gap-2">
                                 <div>
                                     <label className="block text-slate-700 font-semibold mb-1">Mã Code (Tùy chọn)</label>
@@ -1079,13 +1140,29 @@ export const StaffCmsManage: React.FC = () => {
 
                                 <div>
                                     <label className="block text-slate-700 font-semibold mb-1">
-                                        {editingPromo.discountType === 'PERCENT' ? 'Giá Trị Giảm (%)' : 'Số Tiền Giảm (đ)'}
+                                        {editingPromo.discountType === 'PERCENT' ? 'Giá Trị Giảm (%) *' : 'Số Tiền Giảm (đ) *'}
                                     </label>
                                     <input
                                         type="number"
                                         required
-                                        value={editingPromo.discountValue || ''}
-                                        onChange={(e) => setEditingPromo({ ...editingPromo, discountValue: parseInt(e.target.value, 10) })}
+                                        min={1}
+                                        step={1}
+                                        value={editingPromo.discountValue !== undefined && editingPromo.discountValue !== null && editingPromo.discountValue !== '' ? editingPromo.discountValue : ''}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '' || /^\d+$/.test(val)) {
+                                                setEditingPromo({ ...editingPromo, discountValue: val });
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            const val = String(editingPromo.discountValue ?? '').trim();
+                                            if (val !== '') {
+                                                const num = parseInt(val, 10);
+                                                if (!isNaN(num) && num > 0) {
+                                                    setEditingPromo(prev => prev ? { ...prev, discountValue: num } : null);
+                                                }
+                                            }
+                                        }}
                                         placeholder={editingPromo.discountType === 'PERCENT' ? '10' : '20000'}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:outline-hidden focus:border-orange-500 font-bold"
                                     />
@@ -1094,21 +1171,59 @@ export const StaffCmsManage: React.FC = () => {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-slate-700 font-semibold mb-1">Đơn Tối Thiểu (đ)</label>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="block text-slate-700 font-semibold text-xs">Đơn Tối Thiểu (đ)</label>
+                                        <span className="text-[10px] text-slate-400">0: Không yêu cầu</span>
+                                    </div>
                                     <input
                                         type="number"
-                                        value={editingPromo.minOrderAmount || 0}
-                                        onChange={(e) => setEditingPromo({ ...editingPromo, minOrderAmount: parseInt(e.target.value, 10) })}
+                                        min={0}
+                                        step={1}
+                                        value={editingPromo.minOrderAmount !== undefined && editingPromo.minOrderAmount !== null && editingPromo.minOrderAmount !== '' ? editingPromo.minOrderAmount : ''}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '' || /^\d+$/.test(val)) {
+                                                setEditingPromo({ ...editingPromo, minOrderAmount: val });
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            const val = String(editingPromo.minOrderAmount ?? '').trim();
+                                            if (val === '') {
+                                                setEditingPromo(prev => prev ? { ...prev, minOrderAmount: 0 } : null);
+                                            } else {
+                                                const num = parseInt(val, 10);
+                                                setEditingPromo(prev => prev ? { ...prev, minOrderAmount: isNaN(num) ? 0 : Math.max(0, num) } : null);
+                                            }
+                                        }}
+                                        placeholder="0"
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:outline-hidden focus:border-orange-500"
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="block text-slate-700 font-semibold mb-1">Giảm Tối Đa (nếu là %)</label>
+                                    <label className="block text-slate-700 font-semibold mb-1 text-xs">Giảm Tối Đa (nếu là %)</label>
                                     <input
                                         type="number"
-                                        value={editingPromo.maxDiscountAmount || ''}
-                                        onChange={(e) => setEditingPromo({ ...editingPromo, maxDiscountAmount: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                                        min={0}
+                                        step={1}
+                                        value={editingPromo.maxDiscountAmount !== undefined && editingPromo.maxDiscountAmount !== null && editingPromo.maxDiscountAmount !== '' ? editingPromo.maxDiscountAmount : ''}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === '' || /^\d+$/.test(val)) {
+                                                setEditingPromo({ ...editingPromo, maxDiscountAmount: val === '' ? '' : val });
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            const val = String(editingPromo.maxDiscountAmount ?? '').trim();
+                                            if (val === '') {
+                                                setEditingPromo(prev => prev ? { ...prev, maxDiscountAmount: undefined } : null);
+                                            } else {
+                                                const num = parseInt(val, 10);
+                                                if (!isNaN(num) && num > 0) {
+                                                    setEditingPromo(prev => prev ? { ...prev, maxDiscountAmount: num } : null);
+                                                }
+                                            }
+                                        }}
                                         placeholder="Để trống nếu không giới hạn"
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:outline-hidden focus:border-orange-500"
                                     />
