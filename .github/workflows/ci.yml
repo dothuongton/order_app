@@ -2,9 +2,9 @@ name: CI & File Boundary Gate
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/gaeru-flow-experiment]
   pull_request:
-    branches: [main]
+    branches: [main, codex/gaeru-flow-experiment]
 
 jobs:
   boundary-check:
