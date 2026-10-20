@@ -42,11 +42,23 @@ export const RecentActivityTimeline: React.FC<RecentActivityTimelineProps> = ({
         }
     };
 
+    const formatDateTimeVN = (isoString: string) => {
+        try {
+            const date = new Date(isoString);
+            if (isNaN(date.getTime())) return isoString;
+            return date.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) + ' (UTC+7)';
+        } catch {
+            return isoString;
+        }
+    };
+
     const formatRelativeTime = (isoString: string) => {
         try {
             const date = new Date(isoString);
+            if (isNaN(date.getTime())) return isoString;
             const now = new Date();
             const diffMs = now.getTime() - date.getTime();
+            if (diffMs <= 0) return 'Vừa xong';
             const diffMins = Math.floor(diffMs / 60000);
             if (diffMins < 1) return 'Vừa xong';
             if (diffMins < 60) return `${diffMins} phút trước`;
@@ -54,7 +66,8 @@ export const RecentActivityTimeline: React.FC<RecentActivityTimelineProps> = ({
             if (diffHours < 24) return `${diffHours} giờ trước`;
             const diffDays = Math.floor(diffHours / 24);
             if (diffDays === 1) return 'Hôm qua';
-            return `${diffDays} ngày trước`;
+            if (diffDays < 30) return `${diffDays} ngày trước`;
+            return date.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
         } catch {
             return isoString;
         }
@@ -102,7 +115,7 @@ export const RecentActivityTimeline: React.FC<RecentActivityTimelineProps> = ({
                                     <Icon className="w-4 h-4" />
                                 </div>
 
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1 min-w-0" title={formatDateTimeVN(log.createdAt)}>
                                     <div className="flex items-center justify-between gap-1">
                                         <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition">
                                             {info.title}
@@ -113,7 +126,7 @@ export const RecentActivityTimeline: React.FC<RecentActivityTimelineProps> = ({
                                     </div>
                                     <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
                                         {log.tenantName ? `Quán: ${log.tenantName}` : log.resourceType}
-                                        {log.userName && ` bởi ${log.userName}`}
+                                        {log.userName ? ` bởi ${log.userName}` : (log.userId ? ` bởi Người dùng (${log.userId.slice(0, 8)}...)` : ' bởi Hệ thống')}
                                     </p>
                                 </div>
                             </div>

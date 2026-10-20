@@ -10,6 +10,7 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
     let superAdminToken: string;
     let staffToken: string;
     let seedTenantId: string;
+    let superAdminUserId: string;
 
     beforeAll(async () => {
         await seed(true);
@@ -32,6 +33,7 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
         expect(superRes.status).toBe(200);
         const superData: any = await superRes.json();
         superAdminToken = superData.token;
+        superAdminUserId = superData.user.id;
 
         // 2. Staff (Pho Co) Login for RBAC negative tests
         const staffRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
@@ -543,10 +545,10 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
     });
 
     // =========================================================================
-    // 7. AUDIT LOGS
+    // 7. AUDIT LOGS (Issue #84 [Admin audit])
     // =========================================================================
     describe('GET /api/v1/admin/audit-logs', () => {
-        it('returns paginated audit logs with actor and details', async () => {
+        it('returns paginated audit logs with mapped actor (userId, email, name)', async () => {
             const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs?page=1&limit=20`, {
                 headers: { 'Authorization': `Bearer ${superAdminToken}` }
             });
@@ -563,6 +565,10 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(firstLog).toHaveProperty('action');
             expect(firstLog).toHaveProperty('resourceType');
             expect(firstLog).toHaveProperty('details');
+            expect(firstLog).toHaveProperty('userId');
+            expect(firstLog).toHaveProperty('userEmail');
+            expect(firstLog).toHaveProperty('userName');
+            expect(firstLog).toHaveProperty('createdAt');
         });
 
         it('filters audit logs by action', async () => {
@@ -576,6 +582,126 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             data.logs.forEach((log: any) => {
                 expect(log.action).toBe('SUPER_ADMIN_CREATE_SHOP');
             });
+        });
+
+        it('handles actor variants: deleted user and legacy null user (Issue #84)', async () => {
+            const dummyDeletedUserId = '00000000-0000-0000-0000-000000000099';
+            // 1. Insert audit log with deleted user ID not in users table
+            await query(
+                `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                 VALUES ($1::uuid, $2::uuid, 'SUPER_ADMIN_TEST_DELETED_USER', 'tenant', $3, '{"change":"test_deleted"}')`,
+                [seedTenantId, dummyDeletedUserId, String(seedTenantId)]
+            );
+
+            // 2. Insert audit log with NULL user_id (system/legacy action)
+            await query(
+                `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                 VALUES ($1::uuid, NULL, 'SUPER_ADMIN_TEST_NULL_USER', 'tenant', $2, '{"change":"test_null"}')`,
+                [seedTenantId, String(seedTenantId)]
+            );
+
+            const resDeleted = await fetch(`${baseUrl}/api/v1/admin/audit-logs?action=SUPER_ADMIN_TEST_DELETED_USER`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resDeleted.status).toBe(200);
+            const dataDeleted: any = await resDeleted.json();
+            expect(dataDeleted.logs.length).toBeGreaterThanOrEqual(1);
+            expect(dataDeleted.logs[0].userId).toBe(dummyDeletedUserId);
+            expect(dataDeleted.logs[0].userEmail).toBeNull();
+            expect(dataDeleted.logs[0].userName).toBeNull();
+
+            const resNull = await fetch(`${baseUrl}/api/v1/admin/audit-logs?action=SUPER_ADMIN_TEST_NULL_USER`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resNull.status).toBe(200);
+            const dataNull: any = await resNull.json();
+            expect(dataNull.logs.length).toBeGreaterThanOrEqual(1);
+            expect(dataNull.logs[0].userId).toBeNull();
+            expect(dataNull.logs[0].userEmail).toBeNull();
+            expect(dataNull.logs[0].userName).toBeNull();
+        });
+
+        it('filters audit logs by userId', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs?userId=${superAdminUserId}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+            expect(Array.isArray(data.logs)).toBe(true);
+            data.logs.forEach((log: any) => {
+                expect(log.userId).toBe(superAdminUserId);
+            });
+        });
+
+        it('filters audit logs by date range and rejects invalid dates', async () => {
+            // Future date returns empty
+            const resFuture = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2099-01-01`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resFuture.status).toBe(200);
+            const dataFuture: any = await resFuture.json();
+            expect(dataFuture.logs).toEqual([]);
+            expect(dataFuture.pagination.total).toBe(0);
+
+            // Invalid date format returns 400
+            const resInvalid = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=not-a-valid-date`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resInvalid.status).toBe(400);
+            const errorData: any = await resInvalid.json();
+            expect(errorData.error).toBe('BAD_REQUEST');
+        });
+
+        it('guarantees stable pagination with identical timestamps (Issue #84 deterministic order)', async () => {
+            const fixedTime = new Date('2026-10-20T12:00:00.000Z');
+            const tieBreakerAction = 'SUPER_ADMIN_TIE_BREAKER';
+
+            // Insert 3 logs with exact same created_at
+            for (let i = 0; i < 3; i++) {
+                await query(
+                    `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, created_at)
+                     VALUES ($1::uuid, $2::uuid, $3, 'tenant', $4, $5, $6)`,
+                    [seedTenantId, superAdminUserId, tieBreakerAction, String(seedTenantId), JSON.stringify({ index: i }), fixedTime]
+                );
+            }
+
+            // Fetch page 1 (limit 2)
+            const resP1 = await fetch(`${baseUrl}/api/v1/admin/audit-logs?action=${tieBreakerAction}&limit=2&page=1`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resP1.status).toBe(200);
+            const dataP1: any = await resP1.json();
+            expect(dataP1.logs.length).toBe(2);
+
+            // Fetch page 2 (limit 2)
+            const resP2 = await fetch(`${baseUrl}/api/v1/admin/audit-logs?action=${tieBreakerAction}&limit=2&page=2`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resP2.status).toBe(200);
+            const dataP2: any = await resP2.json();
+            expect(dataP2.logs.length).toBe(1);
+
+            // Verify no overlaps across pages (stable sort ORDER BY created_at DESC, id DESC)
+            const page1Ids = dataP1.logs.map((l: any) => l.id);
+            const page2Ids = dataP2.logs.map((l: any) => l.id);
+            expect(page1Ids).not.toContain(page2Ids[0]);
+        });
+
+        it('verifies deterministic UTC+7 clock calculations without timezone jumps (Issue #84)', async () => {
+            const testUtcDate = new Date('2026-10-20T08:00:00.000Z');
+            // Asia/Ho_Chi_Minh is UTC+7 -> 15:00:00
+            const vnTime = testUtcDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
+            expect(vnTime).toContain('3:00:00 PM');
+
+            // Verify difference between UTC and ICT hours is exactly 7 hours
+            const utcHours = testUtcDate.getUTCHours(); // 8
+            const formattedVnHour = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Ho_Chi_Minh',
+                hour: 'numeric',
+                hour12: false
+            }).format(testUtcDate);
+            const vnHours = parseInt(formattedVnHour, 10); // 15
+            expect((vnHours - utcHours + 24) % 24).toBe(7);
         });
     });
 

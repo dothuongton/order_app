@@ -201,6 +201,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     const [shopStatus, setShopStatus] = useState('all');
     const [page, setPage] = useState(1);
     const [auditPage, setAuditPage] = useState(1);
+    const [auditAction, setAuditAction] = useState<string>('');
+    const [auditStartDate, setAuditStartDate] = useState<string>('');
+    const [auditEndDate, setAuditEndDate] = useState<string>('');
 
     // Data States
     const [stats, setStats] = useState<PlatformStats | null>(null);
@@ -269,16 +272,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             setLoadingLogs(true);
             const data = await AdminApi.getAuditLogs({
                 page: auditPage,
-                limit: 15
+                limit: 15,
+                action: auditAction || undefined,
+                startDate: auditStartDate || undefined,
+                endDate: auditEndDate || undefined
             });
             setAuditLogs(data.logs || []);
             setAuditPagination(data.pagination || null);
-        } catch (err: any) {
-            console.error('Failed to load audit logs', err);
+        } catch {
+            setAuditLogs([]);
         } finally {
             setLoadingLogs(false);
         }
-    }, [auditPage]);
+    }, [auditPage, auditAction, auditStartDate, auditEndDate]);
 
     // Initial Load
     useEffect(() => {
@@ -575,6 +581,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                             onPageChange={(p) => setAuditPage(p)}
                             onSelectLog={handleOpenAuditDetail}
                             isLoading={loadingLogs}
+                            selectedAction={auditAction}
+                            onActionChange={(act) => {
+                                setAuditAction(act);
+                                setAuditPage(1);
+                            }}
+                            startDate={auditStartDate}
+                            onStartDateChange={(d) => {
+                                setAuditStartDate(d);
+                                setAuditPage(1);
+                            }}
+                            endDate={auditEndDate}
+                            onEndDateChange={(d) => {
+                                setAuditEndDate(d);
+                                setAuditPage(1);
+                            }}
+                            onResetFilters={() => {
+                                setAuditAction('');
+                                setAuditStartDate('');
+                                setAuditEndDate('');
+                                setAuditPage(1);
+                            }}
                         />
                     )}
 

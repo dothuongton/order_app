@@ -17,7 +17,7 @@ export class AdminService {
      */
     static async getPlatformStats() {
         const shopsRes = await query(`
-            SELECT 
+            SELECT
                 COUNT(*) as total_shops,
                 COUNT(*) FILTER (WHERE status = 'active') as active_shops,
                 COUNT(*) FILTER (WHERE status = 'suspended') as suspended_shops,
@@ -26,7 +26,7 @@ export class AdminService {
         `);
 
         const revenueRes = await query(`
-            SELECT 
+            SELECT
                 COALESCE(SUM(amount), 0) as total_confirmed_revenue,
                 COUNT(*) as total_settlements
             FROM manual_settlement_confirmations
@@ -109,7 +109,7 @@ export class AdminService {
         const offsetParamIndex = dataParams.length;
 
         const dataSql = `
-            SELECT 
+            SELECT
                 t.id, t.name, t.slug, t.status, t.phone, t.address,
                 t.active_template_id, t.active_published_version,
                 t.created_at, t.updated_at,
@@ -179,7 +179,7 @@ export class AdminService {
      */
     static async getShopDetail(tenantId: string) {
         const sql = `
-            SELECT 
+            SELECT
                 t.id, t.name, t.slug, t.status, t.phone, t.address, t.description,
                 t.active_template_id, t.active_published_version,
                 t.created_at, t.updated_at,
@@ -342,7 +342,7 @@ export class AdminService {
             // 6. Create default categories
             await client.query(`
                 INSERT INTO menu_categories (tenant_id, name, sort_order)
-                VALUES 
+                VALUES
                     ($1, 'Món Ăn Nổi Bật', 1),
                     ($1, 'Đồ Uống & Tráng Miệng', 2)
             `, [tenantId]);
@@ -490,9 +490,29 @@ export class AdminService {
             whereClauses.push(`al.tenant_id = $${params.length}`);
         }
 
+        if (input.userId) {
+            params.push(input.userId);
+            whereClauses.push(`al.user_id = $${params.length}`);
+        }
+
         if (input.action && input.action.trim()) {
             params.push(input.action.trim());
             whereClauses.push(`al.action = $${params.length}`);
+        }
+
+        const fromDateStr = input.startDate || input.from;
+        if (fromDateStr) {
+            const fromDate = new Date(fromDateStr);
+            params.push(fromDate.toISOString());
+            whereClauses.push(`al.created_at >= $${params.length}`);
+        }
+
+        const toDateStr = input.endDate || input.to;
+        if (toDateStr) {
+            const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(toDateStr);
+            const toDate = isDateOnly ? new Date(`${toDateStr}T23:59:59.999Z`) : new Date(toDateStr);
+            params.push(toDate.toISOString());
+            whereClauses.push(`al.created_at <= $${params.length}`);
         }
 
         const whereSql = whereClauses.join(' AND ');
@@ -509,8 +529,8 @@ export class AdminService {
         const offsetParamIndex = dataParams.length;
 
         const dataSql = `
-            SELECT 
-                al.id, al.tenant_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
+            SELECT
+                al.id, al.tenant_id, al.user_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
                 u.email as user_email, u.full_name as user_name,
                 t.name as tenant_name
             FROM audit_logs al
@@ -525,10 +545,10 @@ export class AdminService {
         const logs = dataRes.rows.map(row => ({
             id: row.id,
             tenantId: row.tenant_id,
-            tenantName: row.tenant_name,
-            userId: row.user_id,
-            userName: row.user_name,
-            userEmail: row.user_email,
+            tenantName: row.tenant_name || null,
+            userId: row.user_id || null,
+            userName: row.user_name || null,
+            userEmail: row.user_email || null,
             action: row.action,
             resourceType: row.resource_type,
             resourceId: row.resource_id,

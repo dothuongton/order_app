@@ -48,8 +48,23 @@ export const listAuditLogsQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(50),
     tenantId: z.string().uuid('ID quán không hợp lệ').optional(),
+    userId: z.string().uuid('ID người dùng không hợp lệ').optional(),
     action: z.string().trim().max(64).optional(),
+    startDate: z.string().trim().optional(),
+    endDate: z.string().trim().optional(),
+    from: z.string().trim().optional(),
+    to: z.string().trim().optional(),
     _t: z.any().optional()
+}).refine(data => {
+    const dates = [data.startDate, data.endDate, data.from, data.to].filter(Boolean) as string[];
+    for (const d of dates) {
+        if (isNaN(Date.parse(d))) {
+            return false;
+        }
+    }
+    return true;
+}, {
+    message: 'Định dạng ngày lọc không hợp lệ'
 });
 
 export type ListAuditLogsQueryInput = z.infer<typeof listAuditLogsQuerySchema>;

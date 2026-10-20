@@ -337,63 +337,153 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
                 {/* =========================================================================
                     3. AUDIT DIFF DETAIL MODE
                    ========================================================================= */}
-                {content.type === 'audit-detail' && (
-                    <>
-                        <div className="p-6 border-b border-slate-100 flex items-start justify-between">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-900">Chi tiết Thao tác</h3>
-                                <p className="text-xs text-slate-500 font-mono mt-0.5">{content.log.action}</p>
-                            </div>
-                            <button
-                                onClick={onClose}
-                                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
+                {content.type === 'audit-detail' && (() => {
+                    const log = content.log;
+                    const actorName = log.userName || (log.userId ? `Người dùng (${log.userId.slice(0, 8)}...)` : 'Hệ thống / Tự động');
+                    const actorEmail = log.userEmail || (log.userId ? 'Tài khoản không có email hoặc đã xoá' : '—');
+                    const formattedDate = (() => {
+                        try {
+                            const d = new Date(log.createdAt);
+                            return isNaN(d.getTime()) ? log.createdAt : d.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) + ' (UTC+7)';
+                        } catch {
+                            return log.createdAt;
+                        }
+                    })();
 
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
+                    // Recursive redaction for sensitive fields
+                    const redactSensitive = (val: any): any => {
+                        if (!val || typeof val !== 'object') return val;
+                        if (Array.isArray(val)) return val.map(redactSensitive);
+                        const sanitized: Record<string, any> = {};
+                        for (const [k, v] of Object.entries(val)) {
+                            if (/password|token|secret|hash|credential|auth|p256dh|private/i.test(k)) {
+                                sanitized[k] = '[ĐÃ ẨN / REDACTED]';
+                            } else if (typeof v === 'object' && v !== null) {
+                                sanitized[k] = redactSensitive(v);
+                            } else {
+                                sanitized[k] = v;
+                            }
+                        }
+                        return sanitized;
+                    };
+
+                    const sanitizedDetails = redactSensitive(log.details);
+                    const hasBeforeAfter = sanitizedDetails && typeof sanitizedDetails === 'object' && ('previous' in sanitizedDetails || 'updated' in sanitizedDetails);
+
+                    return (
+                        <>
+                            <div className="p-6 border-b border-slate-100 flex items-start justify-between">
                                 <div>
-                                    <span className="text-slate-400 font-medium">Người thực hiện:</span>
-                                    <p className="font-bold text-slate-800">
-                                        {content.log.userName || 'Super Admin'} ({content.log.userEmail || 'Hệ thống'})
-                                    </p>
+                                    <h3 className="text-lg font-bold text-slate-900">Chi tiết Thao tác</h3>
+                                    <p className="text-xs text-blue-600 font-mono mt-0.5">{log.action}</p>
                                 </div>
-                                <div>
-                                    <span className="text-slate-400 font-medium">Thời gian:</span>
-                                    <p className="font-medium text-slate-700">
-                                        {new Date(content.log.createdAt).toLocaleString('vi-VN')}
-                                    </p>
-                                </div>
-                                {content.log.tenantName && (
+                                <button
+                                    onClick={onClose}
+                                    className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
                                     <div>
-                                        <span className="text-slate-400 font-medium">Quán áp dụng:</span>
-                                        <p className="font-bold text-blue-600">{content.log.tenantName}</p>
+                                        <span className="text-slate-400 font-medium">Người thực hiện:</span>
+                                        <p className="font-bold text-slate-800">{actorName}</p>
+                                        <p className="text-[11px] font-mono text-slate-500">{actorEmail}</p>
+                                    </div>
+                                    <div>
+                                        <span className="text-slate-400 font-medium">Thời gian:</span>
+                                        <p className="font-medium text-slate-700 font-mono text-[11px]">{formattedDate}</p>
+                                    </div>
+                                    {log.tenantName && (
+                                        <div>
+                                            <span className="text-slate-400 font-medium">Quán áp dụng:</span>
+                                            <p className="font-bold text-blue-600">{log.tenantName}</p>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <span className="text-slate-400 font-medium">Đối tượng:</span>
+                                        <p className="font-mono text-slate-600">{log.resourceType}: {log.resourceId}</p>
+                                    </div>
+                                </div>
+
+                                {hasBeforeAfter ? (() => {
+                                    const prev = sanitizedDetails.previous || {};
+                                    const curr = sanitizedDetails.updated || {};
+                                    const allKeys = Array.from(new Set([...Object.keys(prev), ...Object.keys(curr)]));
+
+                                    return (
+                                        <div className="space-y-3">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                                                So sánh Thay đổi (Before / After)
+                                            </h4>
+                                            <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white text-xs">
+                                                {allKeys.map(key => {
+                                                    const prevVal = prev[key];
+                                                    const currVal = curr[key];
+                                                    const isChanged = JSON.stringify(prevVal) !== JSON.stringify(currVal);
+
+                                                    return (
+                                                        <div key={key} className={`p-3 space-y-1.5 ${isChanged ? 'bg-amber-50/40' : 'bg-slate-50/30'}`}>
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="font-mono font-bold text-slate-700">{key}</span>
+                                                                {isChanged ? (
+                                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                                                        Đã đổi
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-slate-400">Không đổi</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                                                                <div className="p-2 rounded-xl bg-rose-50/80 text-rose-800 border border-rose-100 min-w-0">
+                                                                    <span className="block text-[9px] uppercase font-bold text-rose-500 mb-0.5">Trước:</span>
+                                                                    <span className="break-all whitespace-pre-wrap">{prevVal !== undefined ? JSON.stringify(prevVal) : '—'}</span>
+                                                                </div>
+                                                                <div className="p-2 rounded-xl bg-emerald-50/80 text-emerald-800 border border-emerald-100 min-w-0">
+                                                                    <span className="block text-[9px] uppercase font-bold text-emerald-500 mb-0.5">Sau:</span>
+                                                                    <span className="break-all whitespace-pre-wrap">{currVal !== undefined ? JSON.stringify(currVal) : '—'}</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            <details className="text-xs text-slate-500 pt-1 group">
+                                                <summary className="cursor-pointer font-semibold hover:text-slate-800 select-none">
+                                                    Xem dữ liệu JSON gốc (đã bảo mật)
+                                                </summary>
+                                                <pre className="mt-2 p-3 bg-slate-900 text-slate-200 rounded-xl text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
+                                                    {JSON.stringify(sanitizedDetails, null, 2)}
+                                                </pre>
+                                            </details>
+                                        </div>
+                                    );
+                                })() : (
+                                    <div>
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                                            Dữ liệu Chi tiết (JSON)
+                                        </h4>
+                                        <pre className="p-4 bg-slate-950 text-slate-200 rounded-2xl text-xs font-mono whitespace-pre-wrap break-all max-h-96 overflow-y-auto">
+                                            {JSON.stringify(sanitizedDetails, null, 2)}
+                                        </pre>
                                     </div>
                                 )}
                             </div>
 
-                            <div>
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                                    Dữ liệu Before / After (JSON Diff)
-                                </h4>
-                                <pre className="p-4 bg-slate-950 text-slate-200 rounded-2xl text-xs font-mono overflow-x-auto max-h-96">
-                                    {JSON.stringify(content.log.details, null, 2)}
-                                </pre>
+                            <div className="p-6 border-t border-slate-100 bg-white">
+                                <button
+                                    onClick={onClose}
+                                    className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                                >
+                                    Đóng
+                                </button>
                             </div>
-                        </div>
-
-                        <div className="p-6 border-t border-slate-100 bg-white">
-                            <button
-                                onClick={onClose}
-                                className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
-                            >
-                                Đóng
-                            </button>
-                        </div>
-                    </>
-                )}
+                        </>
+                    );
+                })()}
             </aside>
         </div>
     );
