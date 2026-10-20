@@ -232,6 +232,24 @@ export async function ensureSchemaOnBoot() {
             );
         `);
 
+        // 6. Protect table_sessions against CASCADE deletion of financial history (DATA-01)
+        await client.query(`
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints 
+                    WHERE constraint_name = 'table_sessions_table_id_fkey'
+                ) THEN
+                    ALTER TABLE table_sessions DROP CONSTRAINT table_sessions_table_id_fkey;
+                END IF;
+                ALTER TABLE table_sessions
+                    ADD CONSTRAINT table_sessions_table_id_fkey
+                    FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE RESTRICT;
+            EXCEPTION WHEN OTHERS THEN
+                NULL;
+            END $$;
+        `);
+
         console.log('✅ Auto-migrations completed successfully.');
     } catch (err) {
         console.error('⚠️ Auto-migration error:', err);

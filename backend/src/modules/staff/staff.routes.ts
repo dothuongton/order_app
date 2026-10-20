@@ -1079,6 +1079,15 @@ staffRouter.delete('/tables/:id', requirePermission('table.manage'), async (req:
             });
         }
 
+        // Check if this table has historical sessions, bills or settlements (DATA-01)
+        const historyCheck = await query('SELECT id FROM table_sessions WHERE table_id = $1 LIMIT 1', [tableId]);
+        if (historyCheck.rows.length > 0) {
+            return res.status(400).json({
+                error: 'TABLE_HAS_HISTORY',
+                message: `Bàn "${checkRes.rows[0].table_number}" đã có lịch sử phục vụ và hóa đơn. Để bảo toàn doanh thu và sổ sách kế toán, không thể xóa vĩnh viễn bàn này. Vui lòng chuyển trạng thái sang "Ngừng phục vụ" (Tắt hoạt động).`
+            });
+        }
+
         await query('DELETE FROM tables WHERE id = $1 AND tenant_id = $2', [tableId, staff.tenantId]);
 
         return res.json({ success: true, message: `Đã xóa bàn "${checkRes.rows[0].table_number}" thành công` });
