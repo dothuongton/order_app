@@ -5,7 +5,8 @@ import { ImageUploadField } from '../../components/ImageUploadField.js';
 import {
   Search, Check, AlertCircle, Plus, Edit3, Trash2, X,
   Utensils, Image as ImageIcon, Loader2, HelpCircle,
-  ArrowUp, ArrowDown, Sliders, CheckCircle2
+  ArrowUp, ArrowDown, Sliders, CheckCircle2,
+  FolderTree, FolderPlus, Info
 } from 'lucide-react';
 
 export interface FormOption {
@@ -45,6 +46,8 @@ interface MenuCategory {
   id: string;
   name: string;
   sort_order: number;
+  is_active?: boolean;
+  item_count?: number;
 }
 
 const SUGGESTED_GROUP_NAMES = [
@@ -91,6 +94,15 @@ export const StaffMenuManage: React.FC = () => {
   const [deletingItem, setDeletingItem] = useState<MenuItemData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Category Management State
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [catActionLoading, setCatActionLoading] = useState(false);
+  const [catError, setCatError] = useState<string | null>(null);
+  const [deletingCategory, setDeletingCategory] = useState<MenuCategory | null>(null);
+
   const fetchMenuData = async () => {
     setIsLoading(true);
     try {
@@ -111,6 +123,22 @@ export const StaffMenuManage: React.FC = () => {
   useEffect(() => {
     fetchMenuData();
   }, []);
+
+  // Synchronize category selection in open form with current categories (R2 / Issue #100)
+  useEffect(() => {
+    setEditingItem(prev => {
+      if (!prev) return null;
+      if (categories.length === 0) {
+        return prev.category_id ? { ...prev, category_id: '' } : prev;
+      }
+      const categoryStillValid = categories.some(c => c.id === prev.category_id);
+      if (!categoryStillValid) {
+        // Fallback to the first available category if category_id was empty or deleted
+        return { ...prev, category_id: categories[0].id };
+      }
+      return prev;
+    });
+  }, [categories]);
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setMsg({ type, text });
@@ -434,6 +462,116 @@ export const StaffMenuManage: React.FC = () => {
     }
   };
 
+  // Category management handlers
+  const handleCreateCategory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!canManage) {
+      alert('Bạn không có quyền quản lý thực đơn');
+      return;
+    }
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) {
+      setCatError('Vui lòng nhập tên danh mục');
+      return;
+    }
+    setCatActionLoading(true);
+    setCatError(null);
+    try {
+      const res = await request<{ category: MenuCategory }>('/staff/menu/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name: trimmed })
+      });
+      setNewCategoryName('');
+      showNotification(`Đã tạo danh mục "${res.category?.name || trimmed}" thành công`);
+
+      // If item creation/edit modal is open and has no selected category, bind the newly created category
+      if (res.category?.id) {
+        setEditingItem(prev => {
+          if (!prev) return null;
+          if (!prev.category_id) {
+            return { ...prev, category_id: res.category.id };
+          }
+          return prev;
+        });
+      }
+
+      await fetchMenuData();
+    } catch (err: any) {
+      const msg = err.code === 'CATEGORY_NAME_EXISTS'
+        ? 'Tên danh mục đã tồn tại trong quán'
+        : (err.message || 'Lỗi tạo danh mục');
+      setCatError(msg);
+      showNotification(msg, 'error');
+    } finally {
+      setCatActionLoading(false);
+    }
+  };
+
+  const handleUpdateCategory = async (id: string, name: string) => {
+    if (!canManage) {
+      alert('Bạn không có quyền quản lý thực đơn');
+      return;
+    }
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setCatError('Tên danh mục không được để trống');
+      return;
+    }
+    setCatActionLoading(true);
+    setCatError(null);
+    try {
+      const res = await request<{ category: MenuCategory }>(`/staff/menu/categories/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: trimmed })
+      });
+      setEditingCatId(null);
+      setEditingCatName('');
+      showNotification(`Đã đổi tên danh mục thành "${res.category?.name || trimmed}"`);
+      await fetchMenuData();
+    } catch (err: any) {
+      const msg = err.code === 'CATEGORY_NAME_EXISTS'
+        ? 'Tên danh mục đã tồn tại trong quán'
+        : (err.message || 'Lỗi đổi tên danh mục');
+      setCatError(msg);
+      showNotification(msg, 'error');
+    } finally {
+      setCatActionLoading(false);
+    }
+  };
+
+  const handleDeleteCategory = async (cat: MenuCategory) => {
+    if (!canManage) {
+      alert('Bạn không có quyền quản lý thực đơn');
+      return;
+    }
+    const count = cat.item_count ?? items.filter(i => i.category_id === cat.id).length;
+    if (count > 0) {
+      setCatError(`Không thể xóa danh mục "${cat.name}" vì đang có ${count} món ăn. Vui lòng chuyển hoặc xóa hết các món trong danh mục trước.`);
+      return;
+    }
+    setCatActionLoading(true);
+    setCatError(null);
+    try {
+      await request(`/staff/menu/categories/${cat.id}`, {
+        method: 'DELETE'
+      });
+      showNotification(`Đã xóa danh mục "${cat.name}" thành công`);
+      if (selectedCategoryFilter === cat.id) {
+        setSelectedCategoryFilter('all');
+      }
+      setDeletingCategory(null);
+      await fetchMenuData();
+    } catch (err: any) {
+      const msg = err.code === 'CATEGORY_NOT_EMPTY'
+        ? 'Không thể xóa danh mục vì đang chứa món ăn.'
+        : (err.message || 'Lỗi xóa danh mục');
+      setCatError(msg);
+      showNotification(msg, 'error');
+    } finally {
+      setCatActionLoading(false);
+    }
+  };
+
   // Reorder items within category
   const handleMoveItem = async (catId: string, itemIndex: number, direction: 'up' | 'down') => {
     const catItems = items.filter(i => i.category_id === catId);
@@ -504,6 +642,18 @@ export const StaffMenuManage: React.FC = () => {
           {canManage && (
             <button
               type="button"
+              onClick={() => { setCatError(null); setShowCategoryModal(true); }}
+              className="px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer min-h-[44px]"
+              title="Quản lý danh mục món ăn"
+            >
+              <FolderTree className="w-4 h-4 text-orange-600" />
+              <span>Danh mục món</span>
+            </button>
+          )}
+
+          {canManage && (
+            <button
+              type="button"
               onClick={handleOpenAdd}
               className="px-3.5 py-2 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-1.5 shrink-0 cursor-pointer min-h-[44px]"
             >
@@ -549,7 +699,7 @@ export const StaffMenuManage: React.FC = () => {
         </div>
 
         {/* Category Filter Pills */}
-        {categories.length > 0 && (
+        {categories.length > 0 ? (
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 text-xs">
             <button
               type="button"
@@ -563,7 +713,7 @@ export const StaffMenuManage: React.FC = () => {
               Tất cả ({items.length})
             </button>
             {categories.map((c) => {
-              const count = items.filter(i => i.category_id === c.id).length;
+              const count = c.item_count ?? items.filter(i => i.category_id === c.id).length;
               return (
                 <button
                   key={c.id}
@@ -579,6 +729,23 @@ export const StaffMenuManage: React.FC = () => {
                 </button>
               );
             })}
+          </div>
+        ) : (
+          <div className="p-3.5 bg-orange-50/70 border border-orange-200/80 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-xs text-orange-950">
+              <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
+              <span>Quán chưa có danh mục món nào. Hãy tạo danh mục trước khi thêm món ăn.</span>
+            </div>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => { setCatError(null); setShowCategoryModal(true); }}
+                className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer min-h-[36px]"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>Tạo danh mục ngay</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -795,16 +962,41 @@ export const StaffMenuManage: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Danh Mục *</label>
-                  <select
-                    value={editingItem.category_id}
-                    onChange={(e) => setEditingItem({ ...editingItem, category_id: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-medium focus:bg-white focus:outline-none focus:border-orange-500 text-xs"
-                  >
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-bold">Danh Mục *</label>
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => { setCatError(null); setShowCategoryModal(true); }}
+                        className="text-[11px] font-bold text-orange-600 hover:text-orange-700 inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <FolderPlus className="w-3 h-3" />
+                        <span>Quản lý danh mục</span>
+                      </button>
+                    )}
+                  </div>
+                  {categories.length === 0 ? (
+                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center justify-between">
+                      <span>Quán chưa có danh mục nào.</span>
+                      <button
+                        type="button"
+                        onClick={() => { setCatError(null); setShowCategoryModal(true); }}
+                        className="font-bold underline text-amber-950 ml-2 cursor-pointer"
+                      >
+                        Tạo ngay
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={editingItem.category_id}
+                      onChange={(e) => setEditingItem({ ...editingItem, category_id: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-medium focus:bg-white focus:outline-none focus:border-orange-500 text-xs"
+                    >
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -1161,6 +1353,262 @@ export const StaffMenuManage: React.FC = () => {
                   </>
                 ) : (
                   <span>Xóa Món</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* CATEGORY MANAGEMENT MODAL */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full shadow-2xl max-h-[92dvh] flex flex-col overflow-hidden animate-slide-up">
+            {/* Header */}
+            <div className="p-4 sm:p-5 pb-3 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-700 flex items-center justify-center">
+                  <FolderTree className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Quản lý danh mục món</h3>
+                  <p className="text-[11px] text-slate-500">Phân loại món ăn theo nhóm trong thực đơn của quán</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowCategoryModal(false); setCatError(null); setEditingCatId(null); }}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm cursor-pointer"
+                title="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-4 text-xs">
+              {/* Category policy notification banner */}
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-start gap-2.5 text-slate-600">
+                <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                <div className="text-[11px] leading-relaxed">
+                  Để đảm bảo an toàn thực đơn, <strong>chỉ có thể xóa danh mục khi không có món ăn nào</strong>. Nếu danh mục đang có món, bạn cần xóa hoặc chuyển các món sang danh mục khác trước.
+                </div>
+              </div>
+
+              {/* Error banner */}
+              {catError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 font-semibold flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{catError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCatError(null)}
+                    className="text-rose-400 hover:text-rose-600 font-bold ml-2 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Add New Category Form */}
+              {canManage && (
+                <form onSubmit={handleCreateCategory} className="space-y-2">
+                  <label className="block text-slate-800 font-bold">Thêm danh mục mới</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      placeholder="Ví dụ: Món khai vị, Đồ uống, Tráng miệng..."
+                      maxLength={255}
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-medium focus:bg-white focus:outline-none focus:border-orange-500 text-xs min-h-[40px]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={catActionLoading || !newCategoryName.trim()}
+                      className="px-3.5 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer min-h-[40px]"
+                    >
+                      {catActionLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="w-3.5 h-3.5" />
+                      )}
+                      <span>Thêm</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Category List */}
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-800 font-bold">Danh sách danh mục ({categories.length})</label>
+                </div>
+
+                {categories.length === 0 ? (
+                  <div className="p-6 text-center text-slate-400 space-y-1.5 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                    <FolderTree className="w-7 h-7 mx-auto text-slate-300" />
+                    <p className="text-xs font-semibold">Chưa có danh mục nào</p>
+                    <p className="text-[11px] text-slate-400">Hãy thêm danh mục đầu tiên để phân loại thực đơn</p>
+                  </div>
+                ) : (
+                  <div className="border border-slate-200/80 rounded-2xl divide-y divide-slate-100 overflow-hidden bg-white">
+                    {categories.map((c) => {
+                      const count = c.item_count ?? items.filter(i => i.category_id === c.id).length;
+                      const isEditing = editingCatId === c.id;
+
+                      return (
+                        <div key={c.id} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 transition">
+                          {isEditing ? (
+                            <div className="flex items-center gap-2 flex-1">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={editingCatName}
+                                onChange={(e) => setEditingCatName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleUpdateCategory(c.id, editingCatName);
+                                  if (e.key === 'Escape') setEditingCatId(null);
+                                }}
+                                maxLength={255}
+                                className="flex-1 bg-white border border-orange-500 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-bold focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                disabled={catActionLoading}
+                                onClick={() => handleUpdateCategory(c.id, editingCatName)}
+                                className="w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition cursor-pointer"
+                                title="Lưu tên"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingCatId(null)}
+                                className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition cursor-pointer"
+                                title="Hủy"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <span className="font-bold text-slate-900 text-xs truncate">{c.name}</span>
+                                {count > 0 ? (
+                                  <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+                                    {count} món
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/60 px-2 py-0.5 rounded-full shrink-0">
+                                    Trống (0 món)
+                                  </span>
+                                )}
+                              </div>
+
+                              {canManage && (
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingCatId(c.id);
+                                      setEditingCatName(c.name);
+                                      setCatError(null);
+                                    }}
+                                    className="w-7 h-7 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center justify-center transition cursor-pointer"
+                                    title="Sửa tên danh mục"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (count > 0) {
+                                        setCatError(`Không thể xóa danh mục "${c.name}" vì đang có ${count} món ăn. Vui lòng chuyển hoặc xóa hết các món trước.`);
+                                      } else {
+                                        setCatError(null);
+                                        setDeletingCategory(c);
+                                      }
+                                    }}
+                                    className={`w-7 h-7 rounded-lg flex items-center justify-center transition cursor-pointer ${
+                                      count > 0
+                                        ? 'text-slate-300 hover:text-rose-500 hover:bg-rose-50'
+                                        : 'text-rose-500 hover:text-rose-700 hover:bg-rose-50'
+                                    }`}
+                                    title={count > 0 ? `Không thể xóa (đang có ${count} món)` : 'Xóa danh mục rỗng'}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 flex justify-end shrink-0 bg-white">
+              <button
+                type="button"
+                onClick={() => { setShowCategoryModal(false); setCatError(null); setEditingCatId(null); }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer min-h-[40px]"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CATEGORY CONFIRMATION MODAL */}
+      {deletingCategory && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-slide-up">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <span>Xác Nhận Xóa Danh Mục</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeletingCategory(null)}
+                className="text-slate-400 hover:text-slate-700 font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-slate-600">
+              Bạn có chắc chắn muốn xóa danh mục rỗng <strong className="text-slate-900">"{deletingCategory.name}"</strong>?
+              Thao tác này sẽ gỡ bỏ danh mục khỏi danh sách của quán.
+            </p>
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingCategory(null)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs min-h-[44px]"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={catActionLoading}
+                onClick={() => handleDeleteCategory(deletingCategory)}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-md disabled:opacity-50 flex items-center justify-center gap-1.5 min-h-[44px]"
+              >
+                {catActionLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Đang xóa...</span>
+                  </>
+                ) : (
+                  <span>Xóa Danh Mục</span>
                 )}
               </button>
             </div>
