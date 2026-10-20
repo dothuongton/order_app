@@ -6,12 +6,16 @@ import { config } from '../../config/index.js';
 import { deferUntilCommit } from '../../utils/transaction-effects.js';
 
 // Configure Web Push VAPID credentials
-if (config.vapidPublicKey && config.vapidPrivateKey) {
-    webpush.setVapidDetails(
-        config.vapidSubject,
-        config.vapidPublicKey,
-        config.vapidPrivateKey
-    );
+if (config.isPushEnabled && config.vapidPublicKey && config.vapidPrivateKey) {
+    try {
+        webpush.setVapidDetails(
+            config.vapidSubject,
+            config.vapidPublicKey,
+            config.vapidPrivateKey
+        );
+    } catch (err) {
+        console.warn('⚠️ Failed to initialize webpush details:', err);
+    }
 }
 
 export interface PushSubscriptionInput {
@@ -114,6 +118,9 @@ export class PushService {
      */
     static async sendToStaff(tenantId: string, payload: PushNotificationPayload) {
         if (deferUntilCommit(() => PushService.sendToStaff(tenantId, payload))) return { sentCount: 0, deferred: true };
+        if (!config.isPushEnabled) {
+            return { sentCount: 0, disabled: true };
+        }
         try {
             // Find subscriptions of active members in this tenant
             let queryStr = `
@@ -214,6 +221,9 @@ export class PushService {
      * Send test notification to staff member's device
      */
     static async sendTest(tenantId: string, userId: string, endpoint?: string) {
+        if (!config.isPushEnabled) {
+            throw { status: 400, code: 'PUSH_NOT_CONFIGURED', message: 'Hệ thống Web Push chưa được cấu hình VAPID keys' };
+        }
         let subQuery = `
             SELECT id, endpoint, p256dh, auth
             FROM staff_push_subscriptions
