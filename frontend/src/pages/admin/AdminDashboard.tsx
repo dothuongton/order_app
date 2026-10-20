@@ -18,6 +18,7 @@ import { DashboardStatsCards } from '../../components/admin/DashboardStatsCards.
 import { RecentActivityTimeline } from '../../components/admin/RecentActivityTimeline.js';
 import { ShopListTable } from '../../components/admin/ShopListTable.js';
 import { useAdminShopList } from '../../hooks/admin/useAdminShopList.js';
+import { useAdminNavigation } from '../../hooks/admin/useAdminNavigation.js';
 import { RolesView } from '../../components/admin/RolesView.js';
 import { AuditLogsView } from '../../components/admin/AuditLogsView.js';
 import { AdminRightDrawer, RightDrawerContent } from '../../components/admin/AdminRightDrawer.js';
@@ -196,8 +197,14 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
 ];
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
-    // Navigation & Query States
-    const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+    // Navigation & Deep-Link State (Issue #87)
+    const {
+        activeTab,
+        selectedShopId,
+        setActiveTab,
+        openShopDetail,
+        closeShopDetail
+    } = useAdminNavigation();
     const [auditPage, setAuditPage] = useState(1);
     const [auditAction, setAuditAction] = useState<string>('');
     const [auditStartDate, setAuditStartDate] = useState<string>('');
@@ -309,17 +316,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         // Read-only: no false success toast without backend persistence
     };
 
+    // Deep-link effect (Issue #87): load shop detail from URL parameter
+    const deepLinkFetchIdRef = React.useRef(0);
+    useEffect(() => {
+        if (!selectedShopId) {
+            if (drawerContent?.type === 'shop-detail') {
+                setIsDrawerOpen(false);
+                setDrawerContent(null);
+            }
+            return;
+        }
+
+        if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === selectedShopId) {
+            setIsDrawerOpen(true);
+            return;
+        }
+
+        const currentFetchId = ++deepLinkFetchIdRef.current;
+        AdminApi.getShopDetail(selectedShopId)
+            .then((shopDetail) => {
+                if (currentFetchId !== deepLinkFetchIdRef.current) return;
+                setDrawerContent({ type: 'shop-detail', shop: shopDetail });
+                setIsDrawerOpen(true);
+            })
+            .catch(() => {
+                if (currentFetchId !== deepLinkFetchIdRef.current) return;
+                showToast('Không tìm thấy cơ sở quán theo liên kết hoặc đã bị xoá.');
+                closeShopDetail();
+            });
+    }, [selectedShopId]);
+
     // Handler: Open Drawer for Shop Detail
     const handleOpenShopDetail = async (shop: ShopSummary) => {
-        // Open drawer immediately with summary metrics so user gets instant responsive UI
+        // Update URL deep-link
+        openShopDetail(shop.id);
         setDrawerContent({ type: 'shop-detail', shop });
         setIsDrawerOpen(true);
         try {
-            // Fetch full single shop details with deep metrics
             const detail = await AdminApi.getShopDetail(shop.id);
             setDrawerContent({ type: 'shop-detail', shop: detail });
         } catch {
-            // Keep existing summary if detail fetch encounters network error
+            // Keep summary if full detail fetch fails
             setDrawerContent({ type: 'shop-detail', shop });
         }
     };
@@ -663,6 +700,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 onClose={() => {
                     setIsDrawerOpen(false);
                     setDrawerContent(null);
+                    closeShopDetail();
                 }}
                 onSavePermissions={handleSaveRolePermissions}
                 onEditShop={(shop) => {
