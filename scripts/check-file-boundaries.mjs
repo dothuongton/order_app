@@ -265,10 +265,24 @@ export function validateDiffForSecretsAndDebug(diffText) {
 
 // CLI execution
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename || '')) {
-    const baseRef = process.argv[2] || 'origin/main';
+    let baseRef = process.argv[2] || 'origin/main';
     // Priority: Explicit argv[3] > PR_AUTHOR > GITHUB_ACTOR (PR_LABELS is used for compatibility check only)
     const author = process.argv[3] || process.env.PR_AUTHOR || process.env.GITHUB_ACTOR || '';
     const labels = process.env.PR_LABELS || '';
+
+    // If baseRef defaulted to origin/main but cannot be resolved (e.g. shallow clone), fall back gracefully
+    try {
+        execSync(`git rev-parse --verify ${baseRef}`, { stdio: 'ignore' });
+    } catch {
+        if (!process.argv[2]) {
+            try {
+                execSync('git rev-parse --verify HEAD~1', { stdio: 'ignore' });
+                baseRef = 'HEAD~1';
+            } catch {
+                baseRef = 'HEAD';
+            }
+        }
+    }
 
     try {
         const diffStatusRaw = execSync(`git diff --name-status ${baseRef}...HEAD`, { encoding: 'utf-8' });

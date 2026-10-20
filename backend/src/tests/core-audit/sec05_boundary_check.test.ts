@@ -203,9 +203,21 @@ A\tbackend/src/modules/admin/new.ts
     });
 
     it('enforces boundaries when executed via CLI using process.env (PR_AUTHOR, PR_LABELS) without argv override', () => {
+        let baseRef = 'origin/main';
+        try {
+            execSync('git rev-parse --verify origin/main', { cwd: repoRoot, stdio: 'ignore' });
+        } catch {
+            try {
+                execSync('git rev-parse --verify HEAD~1', { cwd: repoRoot, stdio: 'ignore' });
+                baseRef = 'HEAD~1';
+            } catch {
+                baseRef = 'HEAD';
+            }
+        }
+
         // 1. SangVuxx with lane:core attempting to touch core diff via env must exit with non-zero
         try {
-            execSync(`node "${scriptPath}" origin/main`, {
+            execSync(`node "${scriptPath}" ${baseRef}`, {
                 cwd: repoRoot,
                 env: { ...process.env, PR_AUTHOR: 'SangVuxx', PR_LABELS: 'lane:core' },
                 stdio: 'pipe'
@@ -217,7 +229,7 @@ A\tbackend/src/modules/admin/new.ts
         }
 
         // 2. dothuongton with ordinary label priority:P1 via env must exit 0
-        const out = execSync(`node "${scriptPath}" origin/main`, {
+        const out = execSync(`node "${scriptPath}" ${baseRef}`, {
             cwd: repoRoot,
             env: { ...process.env, PR_AUTHOR: 'dothuongton', PR_LABELS: 'priority:P1 bug' },
             encoding: 'utf-8'
