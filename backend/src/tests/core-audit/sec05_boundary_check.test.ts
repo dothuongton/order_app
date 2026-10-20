@@ -2,15 +2,55 @@ import { describe, it, expect } from 'vitest';
 import { validateAuthorFiles, validateDiffForSecretsAndDebug } from '../../../../scripts/check-file-boundaries.mjs';
 
 describe('SEC-05: CI File Boundary & Hygiene Gate (Issue #5)', () => {
-    it('allows valid CMS Super Admin files for SangVuxx lane', () => {
+    it('allows valid CMS Super Admin files for SangVuxx lane (including components, tests, docs)', () => {
         const allowedFiles = [
             'backend/src/modules/admin/shops.controller.ts',
             'frontend/src/pages/admin/AdminDashboard.tsx',
-            'frontend/src/pages/admin/AdminShops.tsx'
+            'frontend/src/pages/admin/AdminShops.tsx',
+            'frontend/src/components/admin/ShopCard.tsx',
+            'backend/src/tests/admin-cms/shops.test.ts',
+            'docs/admin-cms/contract.md'
         ];
         const res = validateAuthorFiles('SangVuxx', allowedFiles);
         expect(res.valid).toBe(true);
         expect(res.violations).toHaveLength(0);
+    });
+
+    it('blocks Sang components, tests, and docs for Core authors', () => {
+        const coreWithSangComponents = [
+            'backend/src/modules/guest/guest.service.ts',
+            'frontend/src/components/admin/ShopCard.tsx'
+        ];
+        const res1 = validateAuthorFiles('Antigravity', coreWithSangComponents);
+        expect(res1.valid).toBe(false);
+        expect(res1.violations.some(v => v.includes('Core cannot touch Super Admin lane file'))).toBe(true);
+
+        const coreWithSangTests = [
+            'backend/src/tests/admin-cms/shops.test.ts'
+        ];
+        const res2 = validateAuthorFiles('dothuongton', coreWithSangTests);
+        expect(res2.valid).toBe(false);
+
+        const coreWithSangDocs = [
+            'docs/admin-cms/contract.md'
+        ];
+        const res3 = validateAuthorFiles('dothuongton', coreWithSangDocs);
+        expect(res3.valid).toBe(false);
+    });
+
+    it('fails closed when author or lane is missing or empty', () => {
+        const res1 = validateAuthorFiles('', ['backend/src/modules/guest/guest.service.ts']);
+        expect(res1.valid).toBe(false);
+        expect(res1.violations.some(v => v.includes('Lane detection error'))).toBe(true);
+
+        const res2 = validateAuthorFiles(undefined, ['backend/src/modules/guest/guest.service.ts']);
+        expect(res2.valid).toBe(false);
+    });
+
+    it('fails closed when author or lane is unknown', () => {
+        const res = validateAuthorFiles('random-bot', ['backend/src/modules/guest/guest.service.ts']);
+        expect(res.valid).toBe(false);
+        expect(res.violations.some(v => v.includes('Unknown or unauthorized lane'))).toBe(true);
     });
 
     it('blocks AdminLogin.tsx for SangVuxx lane', () => {

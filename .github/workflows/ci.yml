@@ -24,7 +24,11 @@ jobs:
       - name: Run Boundary Check
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            node scripts/check-file-boundaries.mjs origin/${{ github.base_ref }} "${{ github.actor }}"
+            PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+            PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+            PR_LABELS="${{ join(github.event.pull_request.labels.*.name, ' ') }}"
+            LANE_ID="${PR_AUTHOR} ${PR_BRANCH} ${PR_LABELS}"
+            node scripts/check-file-boundaries.mjs origin/${{ github.base_ref }} "${LANE_ID}"
           else
             echo "Direct push to main, skipping PR boundary check."
           fi

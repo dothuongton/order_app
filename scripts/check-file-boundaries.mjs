@@ -18,7 +18,13 @@ import path from 'path';
 
 const SANG_ALLOWED_PREFIXES = [
     'backend/src/modules/admin/',
-    'frontend/src/pages/admin/'
+    'frontend/src/pages/admin/',
+    'frontend/src/components/admin/',
+    'frontend/src/hooks/admin/',
+    'frontend/src/api/admin/',
+    'frontend/src/types/admin/',
+    'backend/src/tests/admin-cms/',
+    'docs/admin-cms/'
 ];
 
 const SANG_BLOCKED_EXACT = [
@@ -26,9 +32,26 @@ const SANG_BLOCKED_EXACT = [
 ];
 
 export function validateAuthorFiles(author, files) {
-    const isSang = author && (author.toLowerCase().includes('sangvux') || author.toLowerCase().includes('cms-super-admin'));
-
     const violations = [];
+    if (!author || typeof author !== 'string' || author.trim() === '') {
+        violations.push('Lane detection error: author or lane identifier is required (must not be empty)');
+        return {
+            valid: false,
+            violations
+        };
+    }
+
+    const isSang = /sangvux|cms-super-admin|lane:cms|lane:admin/i.test(author);
+    const isCore = /dothuongton|core|antigravity|lane:core/i.test(author);
+
+    if (!isSang && !isCore) {
+        violations.push(`Lane detection error: Unknown or unauthorized lane "${author}". Must be either Core or Sang.`);
+        return {
+            valid: false,
+            violations
+        };
+    }
+
     for (const file of files) {
         const normalized = file.replace(/\\/g, '/');
 
