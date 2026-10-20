@@ -184,17 +184,84 @@ describe('SEC-06: Tenant Status Lifecycle & Operational Matrix (Issue #6)', () =
         expect(readyRes.status).toBe(200);
     });
 
-    it('blocks staff access when tenant status is archived', async () => {
-        await query(`UPDATE tenants SET status = 'archived' WHERE id = $1`, [tenantId]);
+    it('blocks general staff access but allows settling remaining open sessions when tenant is archived (Issue #6, #19)', async () => {
+        // Restore to active first to create an open session with served item
+        await query(`UPDATE tenants SET status = 'active' WHERE id = $1`, [tenantId]);
 
-        const res = await fetch(`${baseUrl}/api/v1/staff/dashboard/snapshot`, {
+        const tableRes = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-ARCHIVE', 'qr-archive') RETURNING id`, [tenantId]);
+        const archTableId = tableRes.rows[0].id;
+
+        const openRes = await fetch(`${baseUrl}/api/v1/staff/tables/${archTableId}/open`, {
+            method: 'POST',
             headers: {
                 'Authorization': `Bearer ${managerToken}`,
-                'x-tenant-id': tenantId
-            }
+                'x-tenant-id': tenantId,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
         });
-        expect(res.status).toBe(403);
-        const data: any = await res.json();
-        expect(data.error).toBe('SHOP_ARCHIVED');
+        expect(openRes.status).toBe(201);
+        const openData: any = await openRes.json();
+        const archSessionId = openData.sessionId;
+
+        const itemRes = await query(`SELECT id, price FROM menu_items WHERE tenant_id = $1 LIMIT 1`, [tenantId]);
+        const itemId = itemRes.rows[0].id;
+        const itemPrice = Number(itemRes.rows[0].price);
+
+        const orderRes = await query(`
+            INSERT INTO orders (tenant_id, session_id, order_number, idempotency_key, source)
+            VALUES ($1, $2, 999, gen_random_uuid()::text, 'STAFF_POS')
+            RETURNING id
+        `, [tenantId, archSessionId]);
+        const orderId = orderRes.rows[0].id;
+
+        const orderItemRes = await query(`
+            INSERT INTO order_items (tenant_id, order_id, menu_item_id, snapshot_name, snapshot_price, quantity)
+            VALUES ($1, $2, $3, 'Món Test Archive', $4, 1)
+            RETURNING id
+        `, [tenantId, orderId, itemId, itemPrice]);
+
+        await query(`
+            INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
+            VALUES ($1, $2, 'SERVED', 1)
+        `, [tenantId, orderItemRes.rows[0].id]);
+
+        // Now tenant is transitioned to ARCHIVED
+        await query(`UPDATE tenants SET status = 'archived' WHERE id = $1`, [tenantId]);
+
+        // General staff operations (dashboard snapshot, creating new tables) are BLOCKED
+        const dashRes = await fetch(`${baseUrl}/api/v1/staff/dashboard/snapshot`, {
+            headers: { 'Authorization': `Bearer ${managerToken}`, 'x-tenant-id': tenantId }
+        });
+        expect(dashRes.status).toBe(403);
+        const dashData: any = await dashRes.json();
+        expect(dashData.error).toBe('SHOP_ARCHIVED');
+
+        // Reading bill summary of the pending session is ALLOWED
+        const billRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${archSessionId}/bill-summary`, {
+            headers: { 'Authorization': `Bearer ${managerToken}`, 'x-tenant-id': tenantId }
+        });
+        expect(billRes.status).toBe(200);
+        const billData: any = await billRes.json();
+        expect(billData.validBillTotal).toBe(itemPrice);
+
+        // Confirming payment and closing the session is ALLOWED so money and ledger are not stuck
+        const payRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${archSessionId}/confirm-payment-and-close`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                settlementVersion: billData.settlementVersion,
+                expectedAmount: billData.validBillTotal,
+                requestId: 'arch-pay-1'
+            })
+        });
+        expect(payRes.status).toBe(200);
+
+        const sessionCheck = await query(`SELECT status FROM table_sessions WHERE id = $1`, [archSessionId]);
+        expect(sessionCheck.rows[0].status).toBe('CLOSED');
     });
 });

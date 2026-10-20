@@ -52,7 +52,18 @@ Cột `tenants.status` bao gồm 4 trạng thái: `draft`, `active`, `suspended`
 | **`draft`** | Quán mới khởi tạo, đang setup menu/bàn, chưa khai trương | ❌ Chặn (`SHOP_NOT_READY`) | ⚠️ Cho phép setup menu, cấu hình quán | ✅ Toàn quyền chỉnh sửa, duyệt mở quán |
 | **`active`** | Đang hoạt động bình thường | ✅ Đặt món, gọi phục vụ, xem bill | ✅ Phục vụ, quản lý, thu ngân, đổi menu | ✅ Xem thống kê, giám sát |
 | **`suspended`** | Quán bị tạm đình chỉ (vi phạm, nợ phí, bảo trì) | ❌ Chặn đặt món mới (`SHOP_SUSPENDED`) | ⚠️ **Chặn thêm món/mở bàn mới**.<br>✅ **Được phép thu tiền & đóng bàn đang mở** (`/pay`, `/serve`) để không kẹt tiền của khách & quán.<br>✅ Xem lịch sử, xuất báo cáo | ✅ Toàn quyền tạm ngưng hoặc mở khóa trở lại `active` |
-| **`archived`** | Quán đã đóng cửa hoàn toàn / lưu trữ | ❌ Chặn hoàn toàn | ❌ Chặn truy cập (`SHOP_ARCHIVED`) | ✅ Xem lịch sử lưu trữ.<br>❌ **Không xóa cứng tenant, bills, ledger** để bảo toàn lịch sử kế toán.<br>✅ Có thể khôi phục về `active`. |
+| **`archived`** | Quán đã đóng cửa hoàn toàn / lưu trữ | ❌ Chặn hoàn toàn | ❌ Chặn truy cập (`SHOP_ARCHIVED`).<br>⚠️ Ngoại lệ an toàn: cho phép xem bill summary và tất toán/đóng các phiên bàn còn tồn đọng (`/pay`, `/close-without-charge`) để giải phóng bàn và ghi ledger | ✅ Xem lịch sử lưu trữ.<br>❌ **Không xóa cứng tenant, bills, ledger** để bảo toàn lịch sử kế toán.<br>✅ Có thể khôi phục về `active`. |
+
+### 2.1 Chính sách Lưu trữ Quán khi còn Phiên Hoạt động (Issue #6, Issue #19)
+Khi Super Admin thực hiện lưu trữ quán (`status: 'archived'`):
+1. **Phía Super Admin API (`@SangVuxx`)**:
+   - Trước khi cập nhật quán sang `archived`, API cần kiểm tra xem quán còn phiên bàn nào đang `OPEN` hoặc chưa thanh toán hay không.
+   - Nếu còn phiên mở, Super Admin API khuyến nghị cảnh báo hoặc chặn với mã `409 SHOP_HAS_OPEN_SESSIONS`: `"Không thể lưu trữ quán ăn khi vẫn còn bàn chưa hoàn tất thanh toán. Vui lòng đóng tất cả bàn trước khi lưu trữ."`
+2. **Phía Core Auth & Session (`@dothuongton`)**:
+   - Trong trường hợp quán bị lưu trữ khẩn cấp trong khi vẫn còn phiên bàn dang dở, middleware `authenticateStaff` bảo đảm không làm kẹt luồng tài chính:
+     - Guest bị chặn hoàn toàn (`403 SHOP_ARCHIVED`).
+     - Staff bị chặn mở bàn mới, đặt món, gọi món, cập nhật menu (`403 SHOP_ARCHIVED`).
+     - Staff **được phép** gọi `/sessions/:id/bill-summary`, `/sessions/:id/confirm-payment-and-close`, và `/sessions/:id/close-without-charge` để tất toán dứt điểm hóa đơn, ghi nhận ledger kế toán và đóng phiên an toàn.
 
 ---
 

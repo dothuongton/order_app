@@ -91,12 +91,32 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
         const row = resMem.rows[0];
         const tenantStatus = (row.tenant_status || 'active').toLowerCase();
 
-        // Enforce tenant lifecycle status for staff
+        // Enforce tenant lifecycle status for staff (Issue #6 / Issue #19)
         if (tenantStatus === 'archived') {
-            return res.status(403).json({
-                error: 'SHOP_ARCHIVED',
-                message: 'Quán ăn này đã được đưa vào lưu trữ và ngừng hoạt động hoàn toàn'
-            });
+            const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+            const pathToCheck = (req.originalUrl || req.path).split('?')[0];
+
+            if (isMutation) {
+                const isExistingSessionResolution =
+                    /\/sessions\/[^/]+\/(confirm-payment-and-close|close-without-charge)$/.test(pathToCheck) ||
+                    pathToCheck.endsWith('/auth/logout');
+
+                if (!isExistingSessionResolution) {
+                    return res.status(403).json({
+                        error: 'SHOP_ARCHIVED',
+                        message: 'Quán ăn này đã được đưa vào lưu trữ và ngừng hoạt động hoàn toàn'
+                    });
+                }
+            } else {
+                // Allow reading bill summary of existing open sessions for settlement
+                const isSessionRead = /\/sessions\/[^/]+\/bill-summary$/.test(pathToCheck);
+                if (!isSessionRead) {
+                    return res.status(403).json({
+                        error: 'SHOP_ARCHIVED',
+                        message: 'Quán ăn này đã được đưa vào lưu trữ và ngừng hoạt động hoàn toàn'
+                    });
+                }
+            }
         }
 
         if (tenantStatus === 'suspended') {
