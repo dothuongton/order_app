@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS tables (
 CREATE TABLE IF NOT EXISTS table_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    table_id UUID NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
+    table_id UUID NOT NULL REFERENCES tables(id) ON DELETE RESTRICT,
     status VARCHAR(32) NOT NULL DEFAULT 'OPEN', -- 'OPEN', 'CLOSED'
     settlement_version INT NOT NULL DEFAULT 1,
     opened_by UUID REFERENCES users(id) ON DELETE SET NULL,
