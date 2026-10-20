@@ -10,6 +10,7 @@ export const GuestBill: React.FC = () => {
     session,
     activeServiceRequests,
     isSessionClosed,
+    receipt,
     requestAssistance,
     requestCheckout,
     refreshOrdersAndBill
@@ -146,7 +147,27 @@ export const GuestBill: React.FC = () => {
             <Receipt className="w-4 h-4 text-slate-400" />
           </div>
 
-          {billSummary?.rounds?.map((round) => (
+          {receipt && receipt.billLines && receipt.billLines.length > 0 ? (
+            <div className="p-4 space-y-2">
+              <div className="space-y-1.5 pl-2 border-l-2 border-slate-100">
+                {receipt.billLines.map((line, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400">{line.quantityServed}x</span>
+                      <span className="text-slate-800 font-medium truncate max-w-[190px]">
+                        {line.itemName}
+                        {line.variantName && (
+                          <span className="text-[10px] text-orange-600 font-bold ml-1">({line.variantName})</span>
+                        )}
+                      </span>
+                    </div>
+                    <span className="font-semibold text-slate-900">{line.subtotal.toLocaleString('vi-VN')}đ</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            billSummary?.rounds?.map((round) => (
             <div key={round.orderNumber} className="p-4 space-y-2">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                 <div className="flex items-center gap-1.5">
@@ -206,7 +227,8 @@ export const GuestBill: React.FC = () => {
                 ))}
               </div>
             </div>
-          ))}
+            ))
+          )}
 
           {/* Pending Items Notice */}
           {billSummary && billSummary.pendingTotal > 0 && (
@@ -220,7 +242,22 @@ export const GuestBill: React.FC = () => {
           )}
 
           {/* Promotion and Bill Breakdown */}
-          {billSummary && (billSummary.totalDiscount || 0) > 0 && (
+          {receipt?.appliedPromotions && receipt.appliedPromotions.length > 0 ? (
+            <div className="p-4 bg-emerald-50/60 space-y-1.5 border-t border-emerald-100 text-xs">
+              <div className="flex items-center justify-between text-emerald-700 font-bold">
+                <span className="flex items-center gap-1">
+                  🎁 Khuyến mãi đã áp dụng:
+                </span>
+              </div>
+              <div className="pt-1 flex flex-wrap gap-1">
+                {receipt.appliedPromotions.map((p: any) => (
+                  <span key={p.id} className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                    {p.title}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : billSummary && (billSummary.totalDiscount || 0) > 0 ? (
             <div className="p-4 bg-emerald-50/60 space-y-1.5 border-t border-emerald-100 text-xs">
               <div className="flex items-center justify-between text-slate-600">
                 <span>Tạm tính (các món đã tiếp nhận/phục vụ):</span>
@@ -242,17 +279,19 @@ export const GuestBill: React.FC = () => {
                 </div>
               )}
             </div>
-          )}
+          ) : null}
 
           {/* Grand Total */}
           <div className="p-4 bg-slate-50 flex items-center justify-between border-t-2 border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-800 block">Tổng thanh toán</span>
-              <span className="text-[11px] text-slate-400">(Chỉ tính các món đã tiếp nhận/phục vụ)</span>
+              <span className="text-[11px] text-slate-400">
+                {receipt?.settled ? '(Hóa đơn đã chốt)' : '(Chỉ tính các món đã tiếp nhận/phục vụ)'}
+              </span>
             </div>
             <div className="text-right">
               <span className="text-2xl font-black text-orange-600">
-                {(billSummary?.validBillTotal || 0).toLocaleString('vi-VN')}đ
+                {(receipt ? (receipt.totalAmount || 0) : (billSummary?.validBillTotal || 0)).toLocaleString('vi-VN')}đ
               </span>
             </div>
           </div>
@@ -269,15 +308,37 @@ export const GuestBill: React.FC = () => {
 
       {/* Action Buttons or Completed State */}
       {isUnopened ? null : isClosed ? (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-1.5 shadow-xs">
-          <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 mx-auto">
-            <CheckCircle className="w-5 h-5" />
+        receipt?.settled && receipt?.closeReason === 'CONFIRMED_SETTLED' ? (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-1.5 shadow-xs">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 mx-auto">
+              <CheckCircle className="w-5 h-5" />
+            </div>
+            <h4 className="font-bold text-sm text-emerald-900">Phiên bàn đã thanh toán hoàn tất</h4>
+            <p className="text-xs text-emerald-700">
+              Cảm ơn quý khách đã dùng bữa tại {tenant?.name || 'nhà hàng'}! Chúc quý khách một ngày tốt lành.
+            </p>
           </div>
-          <h4 className="font-bold text-sm text-emerald-900">Phiên bàn đã thanh toán hoàn tất</h4>
-          <p className="text-xs text-emerald-700">
-            Cảm ơn quý khách đã dùng bữa tại {tenant?.name || 'nhà hàng'}! Chúc quý khách một ngày tốt lành.
-          </p>
-        </div>
+        ) : receipt?.closeReason === 'CLOSED_WITHOUT_CHARGE' ? (
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center space-y-1.5 shadow-xs">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-slate-200 text-slate-700 mx-auto">
+              <CheckCircle className="w-5 h-5 text-slate-500" />
+            </div>
+            <h4 className="font-bold text-sm text-slate-800">Phiên bàn đã kết thúc (không tính tiền)</h4>
+            <p className="text-xs text-slate-600">
+              Bàn đã được kết thúc bởi nhân viên.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center space-y-1.5 shadow-xs">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-slate-200 text-slate-700 mx-auto">
+              <CheckCircle className="w-5 h-5 text-slate-500" />
+            </div>
+            <h4 className="font-bold text-sm text-slate-800">Phiên bàn đã kết thúc</h4>
+            <p className="text-xs text-slate-600">
+              Quyền truy cập của phiên bàn này đã kết thúc.
+            </p>
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-2 gap-3 pt-2">
           <button

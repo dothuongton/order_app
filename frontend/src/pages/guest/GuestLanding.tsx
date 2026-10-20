@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useGuest } from '../../context/GuestContext.js';
 import { GuestMenu } from './GuestMenu.js';
 import { GuestOrders } from './GuestOrders.js';
@@ -28,22 +28,53 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [waitingForOpen, setWaitingForOpen] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const activeQrRef = useRef<string>(qrId);
+  activeQrRef.current = qrId;
 
   useEffect(() => {
     const init = async () => {
       try {
-        await loadTableMenu(qrId);
-        // Try auto-joining session if table is open
-        try {
-          await joinSession(qrId);
-        } catch (err: any) {
-          if (err.code === 'SESSION_NOT_OPEN') setWaitingForOpen(true);
-          else setInitError(err.message || 'Không thể tham gia phiên bàn');
+        const menuData = await loadTableMenu(qrId);
+        if (activeQrRef.current !== qrId) return;
+
+        if (menuData?.session && menuData.session.status === 'OPEN') {
+          const scopedKey = `guest_auth_${qrId}`;
+          let hasValidToken = false;
+          try {
+            const raw = sessionStorage.getItem(scopedKey);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed.sessionId === menuData.session.id && sessionStorage.getItem('guest_token')) {
+                hasValidToken = true;
+              }
+            }
+          } catch {}
+
+          if (!hasValidToken) {
+            try {
+              await joinSession(qrId);
+              if (activeQrRef.current === qrId) setWaitingForOpen(false);
+            } catch (err: any) {
+              if (activeQrRef.current === qrId) {
+                if (err.code === 'SESSION_NOT_OPEN') setWaitingForOpen(true);
+                else setInitError(err.message || 'Không thể tham gia phiên bàn');
+              }
+            }
+          } else {
+            if (activeQrRef.current === qrId) setWaitingForOpen(false);
+          }
+        } else if (!menuData?.session) {
+          // Table has no active session
+          const receiptRaw = sessionStorage.getItem(`guest_receipt_${qrId}`);
+          if (!receiptRaw && activeQrRef.current === qrId) {
+            setWaitingForOpen(true);
+          }
         }
       } catch (err: any) {
-        setInitError(err.message || 'Không thể tải thông tin bàn');
+        if (activeQrRef.current === qrId) setInitError(err.message || 'Không thể tải thông tin bàn');
       }
     };
+
     init();
   }, [qrId, loadTableMenu, joinSession]);
 
@@ -52,12 +83,14 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
   useEffect(() => {
     if (!waitingForOpen || isSessionClosed) return;
     const timer = setInterval(() => {
-      joinSession(qrId).then(() => setWaitingForOpen(false)).catch((err: any) => {
-        if (err.code !== 'SESSION_NOT_OPEN') { setWaitingForOpen(false); setInitError(err.message); }
-      });
+      loadTableMenu(qrId).then((data) => {
+        if (data?.session && data.session.status === 'OPEN') {
+          joinSession(qrId).then(() => setWaitingForOpen(false)).catch(() => {});
+        }
+      }).catch(() => {});
     }, 8000);
     return () => clearInterval(timer);
-  }, [waitingForOpen, isSessionClosed, qrId, joinSession]);
+  }, [waitingForOpen, isSessionClosed, qrId, loadTableMenu, joinSession]);
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);

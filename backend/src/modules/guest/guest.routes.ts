@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { createHash } from 'crypto';
 import { GuestService } from './guest.service.js';
 import { authenticateGuest } from '../../middleware/auth.js';
 import { config } from '../../config/index.js';
@@ -53,6 +54,155 @@ guestRouter.post('/public/tables/:qrId/join', async (req: Request, res: Response
             error: err.code || 'SERVER_ERROR',
             message: err.message || 'Lỗi tham gia phiên bàn'
         });
+    }
+});
+
+// 2b. Get verified closed session receipt (authenticated by guest token, accessible even when session is closed)
+guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
+    try {
+        const authHeader = req.headers.authorization;
+        const cookieToken = req.cookies?.guest_token;
+        const guestHeaderToken = req.headers['x-guest-token'] as string | undefined;
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : (cookieToken || guestHeaderToken);
+
+        if (!token) {
+            return res.status(401).json({
+                error: 'UNAUTHORIZED',
+                message: 'Thiếu guest token để xem biên nhận'
+            });
+        }
+
+        const tokenHash = createHash('sha256').update(token).digest('hex');
+        const resGuest = await query(`
+            SELECT
+                gs.id as guest_session_id,
+                gs.tenant_id,
+                gs.table_id,
+                gs.session_id,
+                gs.expires_at,
+                gs.revoked_at,
+                ts.status as session_status,
+                ts.close_reason,
+                ts.closed_at,
+                t.table_number
+            FROM guest_sessions gs
+            JOIN table_sessions ts ON ts.id = gs.session_id
+            JOIN tables t ON t.id = gs.table_id
+            WHERE gs.token_hash = $1
+        `, [tokenHash]);
+
+        if (resGuest.rows.length === 0) {
+            return res.status(401).json({
+                error: 'ACCESS_REVOKED',
+                message: 'Phiên không hợp lệ hoặc quyền truy cập đã hết hiệu lực'
+            });
+        }
+
+        const row = resGuest.rows[0];
+        if (new Date(row.expires_at) < new Date()) {
+            return res.status(401).json({
+                error: 'TOKEN_EXPIRED',
+                message: 'Phiên truy cập đã hết hạn'
+            });
+        }
+
+        if (row.session_status === 'OPEN') {
+            return res.json({
+                isClosed: false,
+                sessionStatus: 'OPEN',
+                sessionId: row.session_id,
+                tableNumber: row.table_number
+            });
+        }
+
+        const closeReason = row.close_reason || 'CLOSED';
+        if (closeReason === 'CONFIRMED_SETTLED') {
+            const billRes = await query(`
+                SELECT id, total_amount, confirmed_at, status
+                FROM bills
+                WHERE session_id = $1 AND status = 'CONFIRMED'
+                LIMIT 1
+            `, [row.session_id]);
+
+            if (billRes.rows.length > 0) {
+                const bill = billRes.rows[0];
+                const linesRes = await query(`
+                    SELECT item_name, variant_name, quantity_served, unit_price, subtotal
+                    FROM bill_lines
+                    WHERE bill_id = $1
+                    ORDER BY created_at ASC
+                `, [bill.id]);
+
+                const promoRes = await query(`
+                    SELECT pr.promotion_id, pr.discount_amount,
+                           COALESCE(pr.snapshot_title, p.title) as promo_title,
+                           COALESCE(pr.snapshot_code, p.code) as promo_code
+                    FROM promotion_redemptions pr
+                    LEFT JOIN promotions p ON p.id = pr.promotion_id
+                    WHERE pr.session_id = $1
+                `, [row.session_id]);
+
+                return res.json({
+                    isClosed: true,
+                    sessionStatus: 'CLOSED',
+                    closeReason: 'CONFIRMED_SETTLED',
+                    settled: true,
+                    tableNumber: row.table_number,
+                    tableName: `Bàn ${row.table_number}`,
+                    sessionId: row.session_id,
+                    totalAmount: parseInt(bill.total_amount, 10),
+                    confirmedAt: bill.confirmed_at,
+                    billLines: linesRes.rows.map(r => ({
+                        itemName: r.item_name,
+                        variantName: r.variant_name,
+                        quantityServed: r.quantity_served,
+                        unitPrice: parseInt(r.unit_price, 10),
+                        subtotal: parseInt(r.subtotal, 10)
+                    })),
+                    appliedPromotions: promoRes.rows.map(r => ({
+                        id: r.promotion_id,
+                        title: r.promo_title,
+                        code: r.promo_code,
+                        discountAmount: parseInt(r.discount_amount, 10)
+                    })),
+                    message: 'Phiên bàn đã thanh toán hoàn tất'
+                });
+            }
+        }
+
+        if (closeReason === 'CLOSED_WITHOUT_CHARGE') {
+            return res.json({
+                isClosed: true,
+                sessionStatus: 'CLOSED',
+                closeReason: 'CLOSED_WITHOUT_CHARGE',
+                settled: false,
+                tableNumber: row.table_number,
+                tableName: `Bàn ${row.table_number}`,
+                sessionId: row.session_id,
+                totalAmount: 0,
+                confirmedAt: row.closed_at,
+                billLines: [],
+                appliedPromotions: [],
+                message: 'Phiên bàn đã kết thúc (không phát sinh chi phí)'
+            });
+        }
+
+        return res.json({
+            isClosed: true,
+            sessionStatus: 'CLOSED',
+            closeReason: closeReason,
+            settled: false,
+            tableNumber: row.table_number,
+            tableName: `Bàn ${row.table_number}`,
+            sessionId: row.session_id,
+            totalAmount: 0,
+            confirmedAt: row.closed_at,
+            billLines: [],
+            appliedPromotions: [],
+            message: 'Phiên bàn đã kết thúc'
+        });
+    } catch (err: any) {
+        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 

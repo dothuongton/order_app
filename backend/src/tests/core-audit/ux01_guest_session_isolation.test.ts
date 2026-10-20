@@ -201,6 +201,23 @@ describe('UX-01: Guest Session Lifecycle & Isolation Suite (Issue #57, G-03, G-0
             body: JSON.stringify({ type: 'ASSISTANCE', note: 'Can I order more?' })
         });
         expect([401, 403]).toContain(failServiceRes.status);
+
+        // 3e. Official immutable receipt access: guest 1 fetches server-verified receipt
+        const receiptRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
+            headers: { 'x-guest-token': guest1Token }
+        });
+        expect(receiptRes.status).toBe(200);
+        const receipt = await receiptRes.json();
+        expect(receipt.isClosed).toBe(true);
+        expect(receipt.settled).toBe(true);
+        expect(receipt.closeReason).toBe('CONFIRMED_SETTLED');
+        expect(receipt.totalAmount).toBe(63000);
+        expect(receipt.billLines.length).toBeGreaterThan(0);
+        expect(receipt.billLines[0].itemName).toContain('Nem Chua');
+
+        // Unauthenticated access to receipt is rejected
+        const noAuthReceipt = await fetch(`${baseUrl}/api/v1/guest/receipt`);
+        expect(noAuthReceipt.status).toBe(401);
     });
 
     it('4. New scan isolation: new guest scanning closed table sees unopened state, zero data leakage', async () => {
@@ -258,5 +275,37 @@ describe('UX-01: Guest Session Lifecycle & Isolation Suite (Issue #57, G-03, G-0
 
         // Clean up session 2
         await StaffService.closeWithoutCharge(tenantId, session2.sessionId, managerId, 'Test cleanup');
+    });
+
+    it('6. Close without charge: receipt clearly identifies CLOSED_WITHOUT_CHARGE, not settled', async () => {
+        // Staff opens Table A02
+        const tableA02Res = await query(`SELECT id, public_qr_id FROM tables WHERE tenant_id = $1 AND table_number = 'A02'`, [tenantId]);
+        const a02Id = tableA02Res.rows[0].id;
+        const a02Qr = tableA02Res.rows[0].public_qr_id;
+
+        const sessionRes = await StaffService.openSession(tenantId, a02Id, waiterId);
+        
+        // Guest joins
+        const joinRes = await fetch(`${baseUrl}/api/v1/public/tables/${a02Qr}/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceFingerprint: 'guest-a02-phone' })
+        });
+        const guestToken = (await joinRes.json()).token;
+
+        // Staff closes without charge
+        await StaffService.closeWithoutCharge(tenantId, sessionRes.sessionId, managerId, 'Customer changed mind');
+
+        // Guest fetches receipt
+        const receiptRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
+            headers: { 'x-guest-token': guestToken }
+        });
+        expect(receiptRes.status).toBe(200);
+        const receipt = await receiptRes.json();
+        expect(receipt.isClosed).toBe(true);
+        expect(receipt.settled).toBe(false);
+        expect(receipt.closeReason).toBe('Customer changed mind');
+        expect(receipt.totalAmount).toBe(0);
+        expect(receipt.billLines).toEqual([]);
     });
 });

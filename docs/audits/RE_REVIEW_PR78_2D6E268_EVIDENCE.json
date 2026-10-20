@@ -1,0 +1,39 @@
+{
+  "reviewedHead": "2d6e268c4f5d1d6c577d3e3cecf56979cd9d30b9",
+  "backendTests": 147,
+  "builds": [
+    "frontend",
+    "backend"
+  ],
+  "browserEnvironment": "Headless Chrome,390x844,Vite127.0.0.1:5189; all API requests fulfilled by isolated fixtures; external requests blocked; no production writes",
+  "browser": [
+    {
+      "case": "open-idle-requests-in-750ms",
+      "delta": {
+        "/public/tables/review-A/menu": 8,
+        "/public/tables/review-A/join": 9,
+        "/guest/session": 7,
+        "/guest/orders": 6,
+        "/guest/bill-summary": 6
+      },
+      "text": "F\nFIXTURE TENANT\nBàn A\nPhiên mở\nTất cả món\n\nKhông có món nào trong danh mục này\n\nThực đơn\nĐơn đã gọi\nTổng bill"
+    },
+    {
+      "case": "closed-receipt-reload-fixture",
+      "counts": {
+        "/guest/bill-summary": 1,
+        "/guest/session": 6,
+        "/public/tables/review-A/join": 255,
+        "/public/tables/review-A/menu": 263
+      },
+      "text": "F\nFIXTURE TENANT\nBàn A\nĐã kết thúc\nHóa đơn bàn hiện tại\nBàn A\nFixture tenant\nĐã kết thúc\nCHI TIẾT CÁC MÓN TÍNH TIỀN\nTổng thanh toán\n(Chỉ tính các món đã tiếp nhận/phục vụ)\n100.000đ\nHệ thống không thu tiền trực tuyến. Quý khách vui lòng thanh toán bằng tiền mặt hoặc chuyển khoản trực tiếp cho nhân viên khi thanh toán.\nPhiên bàn đã thanh toán hoàn tất\n\nCảm ơn quý khách đã dùng bữa tại Fixture tenant! Chúc quý khách một ngày tốt lành.\n\nThực đơn\nĐơn đã gọi\nTổng bill"
+    }
+  ],
+  "receiptCallback": {
+    "method": "execute actual transpiled session.closed callback with stale client cache fixture",
+    "lastClientQuote": 120000,
+    "finalServerAmountFixture": 100000,
+    "storedAmount": 120000,
+    "storedIsClosed": true
+  }
+}

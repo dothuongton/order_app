@@ -891,7 +891,11 @@ export class StaffService {
             broadcastToStaff(tenantId, 'service_request.updated', { sessionId });
             broadcastToSession(sessionId, 'session.closed', {
                 sessionId,
-                message: 'Phiên bàn đã kết thúc. Cảm ơn quý khách!'
+                reason: 'CONFIRMED_SETTLED',
+                settledAmount: finalAmount,
+                confirmedAt: new Date().toISOString(),
+                lines: billLinesToInsert,
+                message: `Đã xác nhận thanh toán ${finalAmount.toLocaleString('vi-VN')}đ và kết thúc phiên bàn ${session.table_number}`
             });
 
             return {
@@ -993,7 +997,11 @@ export class StaffService {
             broadcastToStaff(tenantId, 'service_request.updated', { sessionId });
             broadcastToSession(sessionId, 'session.closed', {
                 sessionId,
-                message: 'Phiên bàn đã được kết thúc'
+                reason: 'CLOSED_WITHOUT_CHARGE',
+                settledAmount: 0,
+                confirmedAt: new Date().toISOString(),
+                lines: [],
+                message: 'Phiên bàn đã được kết thúc (không phát sinh bill)'
             });
 
             return {
