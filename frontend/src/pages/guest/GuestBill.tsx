@@ -139,7 +139,24 @@ export const GuestBill: React.FC = () => {
                   </span>
                 )}
               </div>
-              <span>{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
+              <div className="text-right">
+                {round.acceptedOrServedSubtotal > 0 ? (
+                  <span>
+                    {round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ
+                    {round.pendingSubtotal > 0 && (
+                      <span className="text-amber-600 font-normal ml-1">
+                        (+{round.pendingSubtotal.toLocaleString('vi-VN')}đ chờ xác nhận)
+                      </span>
+                    )}
+                  </span>
+                ) : round.pendingSubtotal > 0 ? (
+                  <span className="text-amber-600 font-semibold">
+                    {round.pendingSubtotal.toLocaleString('vi-VN')}đ (Chờ tiếp nhận)
+                  </span>
+                ) : (
+                  <span>0đ</span>
+                )}
+              </div>
             </div>
 
             <div className="space-y-1.5 pl-2 border-l-2 border-slate-100">
@@ -188,12 +205,12 @@ export const GuestBill: React.FC = () => {
         {billSummary && (billSummary.totalDiscount || 0) > 0 && (
           <div className="p-4 bg-emerald-50/60 space-y-1.5 border-t border-emerald-100 text-xs">
             <div className="flex items-center justify-between text-slate-600">
-              <span>Tạm tính (chưa giảm giá):</span>
+              <span>Tạm tính (các món đã tiếp nhận/phục vụ):</span>
               <span className="font-semibold">{((billSummary.rawBillTotal || (billSummary.validBillTotal + (billSummary.totalDiscount || 0)))).toLocaleString('vi-VN')}đ</span>
             </div>
             <div className="flex items-center justify-between text-emerald-700 font-bold">
               <span className="flex items-center gap-1">
-                🎁 Khuyến mãi đã áp dụng:
+                🎁 Khuyến mãi áp dụng cho tổng bill:
               </span>
               <span>-{(billSummary.totalDiscount || 0).toLocaleString('vi-VN')}đ</span>
             </div>

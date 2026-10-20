@@ -777,18 +777,73 @@ export class GuestService {
             });
         }
 
+        // Evaluate session-level promotion on the whole table session (rawConfirmedTotal)
+        const promosRes = await query(`
+            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority
+            FROM promotions
+            WHERE tenant_id = $1 AND is_active = true
+              AND (start_time IS NULL OR NOW() >= start_time)
+              AND (end_time IS NULL OR NOW() <= end_time)
+              AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+            ORDER BY priority DESC, created_at DESC
+        `, [tenantId]);
+
+        let bestSessionPromo: any = null;
+        let bestSessionDiscount = 0;
+
+        for (const promo of promosRes.rows) {
+            const minOrder = parseInt(promo.min_order_amount || '0', 10);
+            if (rawConfirmedTotal < minOrder) continue;
+
+            const discValue = parseInt(promo.discount_value, 10);
+            let calculated = 0;
+            if (promo.discount_type === 'PERCENT') {
+                calculated = Math.floor((rawConfirmedTotal * discValue) / 100);
+                if (promo.max_discount_amount) {
+                    calculated = Math.min(calculated, parseInt(promo.max_discount_amount, 10));
+                }
+            } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                calculated = Math.min(discValue, rawConfirmedTotal);
+            }
+            calculated = Math.max(0, Math.min(calculated, rawConfirmedTotal));
+
+            if (
+                calculated > bestSessionDiscount ||
+                (calculated === bestSessionDiscount && calculated > 0 && promo.priority > (bestSessionPromo?.priority || 0))
+            ) {
+                bestSessionDiscount = calculated;
+                bestSessionPromo = promo;
+            }
+        }
+
+        let effectiveDiscount = confirmedDiscountTotal;
+        let effectivePromotions = Array.from(appliedPromotionsMap.values());
+
+        if (confirmedDiscountTotal === 0 && bestSessionDiscount > 0) {
+            effectiveDiscount = bestSessionDiscount;
+            effectivePromotions = [{
+                id: bestSessionPromo.id,
+                title: bestSessionPromo.title,
+                code: bestSessionPromo.code,
+                discountType: bestSessionPromo.discount_type,
+                discountValue: Number(bestSessionPromo.discount_value || 0)
+            }];
+        }
+
+        const effectiveValidBillTotal = Math.max(0, rawConfirmedTotal - effectiveDiscount);
+
         return {
             sessionId: session.id,
             sessionStatus: session.status,
             settlementVersion: session.settlement_version,
             rawBillTotal: rawConfirmedTotal,
-            totalDiscount: confirmedDiscountTotal,
-            validBillTotal: confirmedOrAcceptedTotal, // Tổng các món đã tiếp nhận / đã phục vụ sau giảm giá
+            totalDiscount: effectiveDiscount,
+            validBillTotal: effectiveValidBillTotal, // Tổng các món đã tiếp nhận / đã phục vụ sau giảm giá tổng bill
             servedTotal,                             // Tổng các món đã phục vụ
             pendingTotal,                            // Phần đang chờ tiếp nhận
             unresolvedCount,                         // Còn món PENDING/ACCEPTED chưa giải quyết
             rounds: Object.values(roundSummaries),
-            appliedPromotions: Array.from(appliedPromotionsMap.values()),
+            appliedPromotions: effectivePromotions,
             canConfirmPayment: unresolvedCount === 0 && session.status === 'OPEN'
         };
     }

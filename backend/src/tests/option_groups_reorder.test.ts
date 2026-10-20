@@ -228,4 +228,65 @@ describe('Flexible Option Groups & Product Reordering (OPT-01, PROD-01, PROD-02)
         expect(line.price).toBe(59000);
         expect(line.subtotal).toBe(118000); // 59,000 * 2
     });
+
+    it('6. Applies promotion to total bill across multiple small order rounds', async () => {
+        // Create a promotion with min_order_amount = 200,000đ (10% off, max 50k)
+        const promoRes = await query(`
+            INSERT INTO promotions (tenant_id, title, code, discount_type, discount_value, min_order_amount, max_discount_amount, is_active, priority)
+            VALUES ($1, 'Giảm 10% đơn từ 200k', 'GIAM10', 'PERCENT', 10, 200000, 50000, true, 100)
+            RETURNING id
+        `, [tenantId]);
+        const promoId = promoRes.rows[0].id;
+
+        const tableB01Res = await query(`SELECT id FROM tables WHERE tenant_id = $1 AND table_number = 'A02'`, [tenantId]);
+        const tableA02Id = tableB01Res.rows[0].id;
+
+        const openRes = await StaffService.openSession(tenantId, tableA02Id, waiterId);
+        const sessId = openRes.sessionId;
+
+        // Round 1: 120,000đ (< 200,000đ)
+        const round1 = await GuestService.createOrder(tenantId, sessId, tableA02Id, {
+            idempotencyKey: 'test-session-promo-round-1',
+            items: [{ menuItemId: createdItemId, quantity: 3 }] // 3 * 40,000 = 120,000đ
+        });
+        await StaffService.acceptOrderItem(tenantId, round1.items[0].id, 3, waiterId);
+
+        // Bill summary after round 1: total = 120,000 (< 200k), no discount yet
+        const summary1 = await GuestService.getBillSummary(tenantId, sessId);
+        expect(summary1.rawBillTotal).toBe(120000);
+        expect(summary1.totalDiscount).toBe(0);
+        expect(summary1.validBillTotal).toBe(120000);
+
+        // Round 2: 120,000đ (< 200,000đ by itself, but total becomes 240,000đ >= 200,000đ!)
+        const round2 = await GuestService.createOrder(tenantId, sessId, tableA02Id, {
+            idempotencyKey: 'test-session-promo-round-2',
+            items: [{ menuItemId: createdItemId, quantity: 3 }] // 3 * 40,000 = 120,000đ
+        });
+        await StaffService.acceptOrderItem(tenantId, round2.items[0].id, 3, waiterId);
+
+        // Bill summary after round 2: total (240,000đ) >= 200,000đ => 10% promo applies on total bill!
+        const totalRaw = 240000;
+        const expectedDiscount = Math.floor(totalRaw * 10 / 100); // 24,000đ
+        const expectedValid = totalRaw - expectedDiscount; // 216,000đ
+
+        const summary2 = await GuestService.getBillSummary(tenantId, sessId);
+        expect(summary2.rawBillTotal).toBe(totalRaw);
+        expect(summary2.totalDiscount).toBe(expectedDiscount);
+        expect(summary2.validBillTotal).toBe(expectedValid);
+        expect(summary2.appliedPromotions[0].title).toBe('Giảm 10% đơn từ 200k');
+
+        // Staff serves all items and settles payment
+        await StaffService.serveOrderItem(tenantId, round1.items[0].id, 3, waiterId);
+        await StaffService.serveOrderItem(tenantId, round2.items[0].id, 3, waiterId);
+
+        const summaryFinal = await GuestService.getBillSummary(tenantId, sessId);
+        expect(summaryFinal.validBillTotal).toBe(expectedValid);
+        expect(summaryFinal.totalDiscount).toBe(expectedDiscount);
+
+        const settlement = await StaffService.confirmPaymentAndCloseSession(tenantId, sessId, summaryFinal.settlementVersion, waiterId);
+        expect(settlement.totalAmount).toBe(expectedValid);
+
+        // Cleanup
+        await query('UPDATE promotions SET is_active = false WHERE id = $1', [promoId]);
+    });
 });

@@ -139,12 +139,12 @@ export const GuestOrders: React.FC = () => {
             </div>
 
             {/* Round discount footer if discount > 0 */}
-            {Boolean(order.discountTotal && order.discountTotal > 0) && (
+            {Number(order.discountTotal || 0) > 0 ? (
               <div className="bg-emerald-50/60 px-4 py-2 border-t border-emerald-100 flex items-center justify-between text-xs">
-                <span className="text-emerald-800 font-medium">Giảm giá ưu đãi lần này:</span>
+                <span className="text-emerald-800 font-medium">Giảm giá ưu đãi:</span>
                 <span className="font-extrabold text-emerald-700">-{Number(order.discountTotal || 0).toLocaleString('vi-VN')}đ</span>
               </div>
-            )}
+            ) : null}
           </div>
         ))
       )}

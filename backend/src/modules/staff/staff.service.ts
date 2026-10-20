@@ -700,23 +700,98 @@ export class StaffService {
                 GROUP BY oi.id, oi.snapshot_name, oi.snapshot_variant_name, oi.snapshot_price
             `, [sessionId]);
 
+            const rawServedTotal = servedPartsRes.rows.reduce((sum, r) => sum + Number(r.snapshot_price) * parseInt(r.quantity_served, 10), 0);
+            const confirmedItemDiscountTotal = servedPartsRes.rows.reduce((sum, r) => {
+                const qty = parseInt(r.quantity_served, 10);
+                const price = Number(r.snapshot_price);
+                const sub = partAmount(price, qty, r.original_quantity, Number(r.discount_amount || 0));
+                return sum + Math.max(0, price * qty - sub);
+            }, 0);
+
+            // Check best promotion for rawServedTotal on the session
+            const promoRes = await client.query(`
+                SELECT id, code, title, discount_type, discount_value, min_order_amount, max_discount_amount, priority
+                FROM promotions
+                WHERE tenant_id = $1 AND is_active = true
+                  AND (start_time IS NULL OR NOW() >= start_time)
+                  AND (end_time IS NULL OR NOW() <= end_time)
+                  AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+                ORDER BY priority DESC, created_at DESC
+            `, [tenantId]);
+
+            let bestPromo: any = null;
+            let sessionDiscount = 0;
+            for (const promo of promoRes.rows) {
+                const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                if (rawServedTotal < minOrder) continue;
+                const discValue = parseInt(promo.discount_value, 10);
+                let calc = 0;
+                if (promo.discount_type === 'PERCENT') {
+                    calc = Math.floor((rawServedTotal * discValue) / 100);
+                    if (promo.max_discount_amount) {
+                        calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+                    }
+                } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                    calc = Math.min(discValue, rawServedTotal);
+                }
+                calc = Math.max(0, Math.min(calc, rawServedTotal));
+                if (calc > sessionDiscount || (calc === sessionDiscount && calc > 0 && promo.priority > (bestPromo?.priority || 0))) {
+                    sessionDiscount = calc;
+                    bestPromo = promo;
+                }
+            }
+
             let finalAmount = 0;
             const billLinesToInsert: any[] = [];
 
-            for (const r of servedPartsRes.rows) {
-                const qty = parseInt(r.quantity_served, 10);
-                const price = Number(r.snapshot_price);
-                const subtotal = partAmount(price, qty, r.original_quantity, Number(r.discount_amount || 0));
-                finalAmount += subtotal;
+            if (confirmedItemDiscountTotal === 0 && sessionDiscount > 0) {
+                finalAmount = Math.max(0, rawServedTotal - sessionDiscount);
+                const lineRaw = servedPartsRes.rows.map(r => Number(r.snapshot_price) * parseInt(r.quantity_served, 10));
+                const lineDiscounts = lineRaw.map(amt => rawServedTotal > 0 ? Number(BigInt(amt) * BigInt(sessionDiscount) / BigInt(rawServedTotal)) : 0);
+                let rem = sessionDiscount - lineDiscounts.reduce((s, v) => s + v, 0);
+                for (let i = 0; i < lineDiscounts.length && rem > 0; i++) {
+                    lineDiscounts[i]++;
+                    rem--;
+                }
 
-                billLinesToInsert.push({
-                    orderItemId: r.order_item_id,
-                    itemName: r.snapshot_name,
-                    variantName: r.snapshot_variant_name,
-                    quantityServed: qty,
-                    unitPrice: price,
-                    subtotal
+                servedPartsRes.rows.forEach((r, idx) => {
+                    const qty = parseInt(r.quantity_served, 10);
+                    const price = Number(r.snapshot_price);
+                    const rawLine = price * qty;
+                    const subtotal = Math.max(0, rawLine - (lineDiscounts[idx] || 0));
+                    billLinesToInsert.push({
+                        orderItemId: r.order_item_id,
+                        itemName: r.snapshot_name,
+                        variantName: r.snapshot_variant_name,
+                        quantityServed: qty,
+                        unitPrice: price,
+                        subtotal
+                    });
                 });
+
+                if (bestPromo) {
+                    await client.query(`
+                        UPDATE promotions
+                        SET current_redemptions = current_redemptions + 1, updated_at = NOW()
+                        WHERE id = $1
+                    `, [bestPromo.id]);
+                }
+            } else {
+                for (const r of servedPartsRes.rows) {
+                    const qty = parseInt(r.quantity_served, 10);
+                    const price = Number(r.snapshot_price);
+                    const subtotal = partAmount(price, qty, r.original_quantity, Number(r.discount_amount || 0));
+                    finalAmount += subtotal;
+
+                    billLinesToInsert.push({
+                        orderItemId: r.order_item_id,
+                        itemName: r.snapshot_name,
+                        variantName: r.snapshot_variant_name,
+                        quantityServed: qty,
+                        unitPrice: price,
+                        subtotal
+                    });
+                }
             }
 
             // 5. Insert Manual Settlement Confirmation record
