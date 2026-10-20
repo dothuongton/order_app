@@ -468,7 +468,6 @@ CREATE TABLE IF NOT EXISTS uploaded_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_uploaded_images_tenant ON uploaded_images(tenant_id);
-
 -- 10. Revoked Staff Tokens & Schema Migrations Tracking
 CREATE TABLE IF NOT EXISTS revoked_staff_tokens (
     token_hash VARCHAR(64) PRIMARY KEY,

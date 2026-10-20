@@ -17,8 +17,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         const customName = 'Admin Do Not Reset';
 
         await query(`
-            UPDATE users 
-            SET password_hash = $1, full_name = $2, is_platform_admin = false 
+            UPDATE users
+            SET password_hash = $1, full_name = $2, is_platform_admin = false
             WHERE email = 'superadmin@qrorder.vn'
         `, [customHash, customName]);
 
@@ -26,8 +26,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         await ensureSchemaOnBoot();
 
         let res = await query(`
-            SELECT password_hash, full_name, is_platform_admin 
-            FROM users 
+            SELECT password_hash, full_name, is_platform_admin
+            FROM users
             WHERE email = 'superadmin@qrorder.vn'
         `);
         expect(res.rows[0].password_hash).toBe(customHash);
@@ -38,8 +38,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         await migrate();
 
         res = await query(`
-            SELECT password_hash, full_name, is_platform_admin 
-            FROM users 
+            SELECT password_hash, full_name, is_platform_admin
+            FROM users
             WHERE email = 'superadmin@qrorder.vn'
         `);
         expect(res.rows[0].password_hash).toBe(customHash);
@@ -50,8 +50,8 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         await seed(false);
 
         res = await query(`
-            SELECT password_hash, full_name, is_platform_admin 
-            FROM users 
+            SELECT password_hash, full_name, is_platform_admin
+            FROM users
             WHERE email = 'superadmin@qrorder.vn'
         `);
         expect(res.rows[0].password_hash).toBe(customHash);
@@ -61,32 +61,27 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         // 5. Restore superadmin credentials so other test suites can authenticate cleanly
         const defaultHash = await bcrypt.hash('admin123', 10);
         await query(`
-            UPDATE users 
-            SET password_hash = $1, full_name = 'Hệ Thống Super Admin', is_platform_admin = true 
+            UPDATE users
+            SET password_hash = $1, full_name = 'Hệ Thống Super Admin', is_platform_admin = true
             WHERE email = 'superadmin@qrorder.vn'
         `, [defaultHash]);
     });
 
-    it('does not create default superadmin user when running migrations on a database without admin', async () => {
-        // Temporarily delete superadmin account
-        await query(`DELETE FROM users WHERE email = 'superadmin@qrorder.vn'`);
-
-        // Remove 004 migration record from tracking table to simulate re-running migration
-        await query(`DELETE FROM schema_migrations WHERE filename = '004_superadmin_user.sql'`);
-
-        // Execute migration
-        await migrate();
-
-        // Verify superadmin was NOT automatically inserted with default credentials
-        const checkRes = await query(`SELECT 1 FROM users WHERE email = 'superadmin@qrorder.vn'`);
-        expect(checkRes.rowCount).toBe(0);
-
-        // Restore superadmin for subsequent test suites
-        const defaultHash = await bcrypt.hash('admin123', 10);
-        await query(`
-            INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
-            VALUES ('99999999-9999-9999-9999-999999999999', 'superadmin@qrorder.vn', $1, 'Hệ Thống Super Admin', '0999999999', true)
-            ON CONFLICT (email) DO NOTHING
-        `, [defaultHash]);
+    it('does not recreate a default platform admin when the account is absent during migration', async () => {
+        const original = await query(`SELECT * FROM users WHERE is_platform_admin = true`);
+        expect(original.rows).toHaveLength(1);
+        const user = original.rows[0];
+        await query('DELETE FROM users WHERE id = $1', [user.id]);
+        try {
+            await query(`DELETE FROM schema_migrations WHERE filename = '004_superadmin_user.sql'`);
+            await migrate();
+            await ensureSchemaOnBoot();
+            const result = await query('SELECT id FROM users WHERE is_platform_admin = true');
+            expect(result.rows).toHaveLength(0);
+        } finally {
+            await query(`INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
+                VALUES ($1, $2, $3, $4, $5, true)`,
+                [user.id, user.email, user.password_hash, user.full_name, user.phone]);
+        }
     });
 });
