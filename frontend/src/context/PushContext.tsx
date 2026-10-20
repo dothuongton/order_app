@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { request } from '../api/client.js';
 import { useAuth } from './AuthContext.js';
 
@@ -12,6 +12,15 @@ export type PushPermissionState =
   | 'sync_error'              // Browser has subscription but backend sync failed / needs retry
   | 'key_mismatch'            // Server VAPID key was rotated; re-subscribe needed
   | 'denied';                 // Permission blocked by user
+
+export class PushActionError extends Error {
+  code: PushPermissionState;
+  constructor(message: string, code: PushPermissionState) {
+    super(message);
+    this.name = 'PushActionError';
+    this.code = code;
+  }
+}
 
 interface PushContextType {
   state: PushPermissionState;
@@ -59,9 +68,36 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Set of endpoints confirmed to have expired at APNs/FCM (HTTP 410)
+  const expiredEndpointsRef = useRef<Set<string>>(new Set());
+
+  // Track active user and tenant to discard stale in-flight responses across logout or tenant switch
+  const sessionScopeRef = useRef<{ userId?: string; tenantId?: string }>({
+    userId: user?.id,
+    tenantId: currentTenant?.id
+  });
+  sessionScopeRef.current = {
+    userId: user?.id,
+    tenantId: currentTenant?.id
+  };
+
+  useEffect(() => {
+    if (!user || !currentTenant) {
+      setIsSubscribed(false);
+      setState(typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'granted' : 'default');
+      setErrorMessage(null);
+    }
+  }, [user?.id, currentTenant?.id]);
+
   // Check device and permission status
   const checkStatus = useCallback(async () => {
     if (typeof window === 'undefined') return;
+
+    const activeUserId = user?.id;
+    const activeTenantId = currentTenant?.id;
+    const isStale = () => {
+      return sessionScopeRef.current.userId !== activeUserId || sessionScopeRef.current.tenantId !== activeTenantId;
+    };
 
     // 0. Check secure context (HTTPS or localhost)
     const isInsecureHttp = window.location.protocol === 'http:' &&
@@ -69,6 +105,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.location.hostname !== '127.0.0.1';
 
     if (isInsecureHttp) {
+      if (isStale()) return;
       setState('http_insecure');
       setIsSubscribed(false);
       return;
@@ -91,6 +128,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (hasNotification) {
       const perm = Notification.permission;
       if (perm === 'denied') {
+        if (isStale()) return;
         setState('denied');
         setIsSubscribed(false);
         return;
@@ -99,12 +137,14 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // On iOS Safari normal browser tab without Notification API, Web Push requires Home Screen
     if (isIos && !isStandalone && !hasNotification) {
+      if (isStale()) return;
       setState('ios_need_install');
       setIsSubscribed(false);
       return;
     }
 
     if (!hasSW || !hasPush) {
+      if (isStale()) return;
       setState('unsupported');
       setIsSubscribed(false);
       return;
@@ -112,8 +152,10 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // If user is logged out, clear subscription state (no false positives)
     if (!user || !currentTenant) {
+      if (isStale()) return;
       setIsSubscribed(false);
       setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
+      setErrorMessage(null);
       return;
     }
 
@@ -122,27 +164,54 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       serverInfo = await request<{ available: boolean; enabled: boolean; publicKey?: string; reason?: string }>('/staff/push/public-key');
     } catch (err: any) {
-      console.warn('[Push] Error querying server push status:', err?.message);
+      if (isStale()) return;
+      // Network error, 5xx, or 401/403: do NOT misclassify as server_disabled
+      setIsSubscribed(false);
+      if (err?.status === 401 || err?.status === 403) {
+        setErrorMessage('Phiên làm việc hết hạn hoặc không có quyền kiểm tra thông báo.');
+        setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
+      } else {
+        setState('sync_error');
+        setErrorMessage('Không thể kết nối máy chủ để kiểm tra thông báo. Vui lòng kiểm tra lại kết nối mạng.');
+      }
+      return;
     }
 
+    if (isStale()) return;
+
+    // Server explicitly responded 200 OK with available: false
     if (!serverInfo || !serverInfo.available || !serverInfo.publicKey) {
       setState('server_disabled');
       setIsSubscribed(false);
+      setErrorMessage(null);
       return;
     }
 
     if (hasNotification && Notification.permission === 'default') {
       setState('default');
       setIsSubscribed(false);
+      setErrorMessage(null);
       return;
     }
 
     // 4. Permission is 'granted', check active subscription in ServiceWorker and sync with backend
     try {
       const reg = await navigator.serviceWorker.getRegistration();
+      if (isStale()) return;
+
       if (reg) {
         const sub = await reg.pushManager.getSubscription();
+        if (isStale()) return;
+
         if (sub) {
+          // If this endpoint was confirmed dead/expired, do not reuse it
+          if (expiredEndpointsRef.current.has(sub.endpoint)) {
+            setIsSubscribed(false);
+            setState('sync_error');
+            setErrorMessage('Đăng ký thông báo của thiết bị đã hết hạn. Vui lòng bấm để kết nối lại.');
+            return;
+          }
+
           // Check for VAPID key rotation
           const keyMatches = areApplicationServerKeysEqual(sub.options?.applicationServerKey || null, serverInfo.publicKey);
           if (!keyMatches) {
@@ -165,12 +234,17 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   }
                 })
               });
+              if (isStale()) return;
               setIsSubscribed(true);
               setState('granted');
               setErrorMessage(null);
               return;
             } catch (err: any) {
-              console.warn('[Push] Backend sync error:', err.message);
+              if (isStale()) return;
+              if (err?.status === 410 || err?.code === 'SUBSCRIPTION_EXPIRED') {
+                expiredEndpointsRef.current.add(sub.endpoint);
+                await sub.unsubscribe().catch(() => {});
+              }
               setIsSubscribed(false);
               setState('sync_error');
               setErrorMessage('Chưa đồng bộ được thông báo với máy chủ quán. Vui lòng bấm để kết nối lại.');
@@ -179,9 +253,12 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       }
+      if (isStale()) return;
       setIsSubscribed(false);
       setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
+      setErrorMessage(null);
     } catch {
+      if (isStale()) return;
       setState('default');
       setIsSubscribed(false);
     }
@@ -204,10 +281,18 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     setErrorMessage(null);
 
+    const activeUserId = user?.id;
+    const activeTenantId = currentTenant?.id;
+    const isStale = () => {
+      return sessionScopeRef.current.userId !== activeUserId || sessionScopeRef.current.tenantId !== activeTenantId;
+    };
+
     try {
       if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        setState('http_insecure');
-        throw new Error('Apple và iOS yêu cầu kết nối bảo mật HTTPS (hoặc qua domain có SSL) để cho phép nhận thông báo khi khóa màn hình');
+        throw new PushActionError(
+          'Apple và iOS yêu cầu kết nối bảo mật HTTPS (hoặc qua domain có SSL) để cho phép nhận thông báo khi khóa màn hình',
+          'http_insecure'
+        );
       }
 
       const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
@@ -217,50 +302,73 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
         if (isIos && !isStandalone) {
-          setState('ios_need_install');
-          throw new Error('Apple yêu cầu bạn bấm "Chia sẻ ⎋" -> "Thêm vào Màn hình chính" để nhận chuông thông báo khi khóa máy trên iPhone');
+          throw new PushActionError(
+            'Apple yêu cầu bạn bấm "Chia sẻ ⎋" -> "Thêm vào Màn hình chính" để nhận chuông thông báo khi khóa máy trên iPhone',
+            'ios_need_install'
+          );
         }
-        setState('unsupported');
-        throw new Error('Thiết bị hoặc trình duyệt không hỗ trợ Web Push');
+        throw new PushActionError('Thiết bị hoặc trình duyệt không hỗ trợ Web Push', 'unsupported');
       }
 
       // Check VAPID availability from backend first
-      const serverInfo = await request<{ available: boolean; enabled: boolean; publicKey?: string; reason?: string }>('/staff/push/public-key');
+      let serverInfo: { available: boolean; enabled: boolean; publicKey?: string; reason?: string };
+      try {
+        serverInfo = await request<{ available: boolean; enabled: boolean; publicKey?: string; reason?: string }>('/staff/push/public-key');
+      } catch (err: any) {
+        if (err?.status === 401 || err?.status === 403) {
+          throw new PushActionError('Phiên làm việc hết hạn hoặc thiếu quyền nhận thông báo quán', 'sync_error');
+        }
+        throw new PushActionError('Không thể kết nối tới máy chủ để kiểm tra thông báo. Vui lòng thử lại sau.', 'sync_error');
+      }
+
+      if (isStale()) return;
+
       if (!serverInfo.available || !serverInfo.publicKey) {
-        setState('server_disabled');
-        throw new Error('Hệ thống thông báo đẩy (Web Push) chưa được cấu hình hoặc kích hoạt trên máy chủ quán');
+        throw new PushActionError(
+          serverInfo?.reason === 'INITIALIZATION_FAILED'
+            ? 'Hệ thống thông báo đẩy trên máy chủ gặp sự cố khởi tạo VAPID'
+            : 'Hệ thống thông báo đẩy (Web Push) chưa được cấu hình hoặc kích hoạt trên máy chủ quán',
+          'server_disabled'
+        );
       }
 
       // Request browser permission
       const permission = await Notification.requestPermission();
       if (permission === 'denied') {
-        setState('denied');
-        throw new Error('Quyền thông báo bị từ chối trong Cài đặt của máy');
+        throw new PushActionError('Quyền thông báo bị từ chối trong Cài đặt của máy', 'denied');
       }
 
       if (permission !== 'granted') {
+        if (isStale()) return;
         setState('default');
         return;
       }
 
+      if (isStale()) return;
+
       // Register Service Worker
       await navigator.serviceWorker.register('/sw.js', { scope: '/' });
       const registration = await navigator.serviceWorker.ready;
+      if (isStale()) return;
 
-      // Check existing subscription and rotate if key changed
+      // Check existing subscription and rotate if key changed or previously marked expired
       let subscription = await registration.pushManager.getSubscription();
       if (subscription) {
+        const isExpired = expiredEndpointsRef.current.has(subscription.endpoint);
         const keyMatches = areApplicationServerKeysEqual(subscription.options?.applicationServerKey || null, serverInfo.publicKey);
-        if (!keyMatches) {
+        if (!keyMatches || isExpired) {
           const oldEndpoint = subscription.endpoint;
           await subscription.unsubscribe().catch(() => {});
           await request('/staff/push/unsubscribe', {
             method: 'POST',
             body: JSON.stringify({ endpoint: oldEndpoint })
           }).catch(() => {});
+          expiredEndpointsRef.current.delete(oldEndpoint);
           subscription = null;
         }
       }
+
+      if (isStale()) return;
 
       // Subscribe anew if needed
       if (!subscription) {
@@ -273,8 +381,10 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const subJson = subscription.toJSON();
       if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) {
-        throw new Error('Không thể khởi tạo subscription khóa p256dh/auth');
+        throw new PushActionError('Không thể khởi tạo subscription khóa p256dh/auth', 'sync_error');
       }
+
+      if (isStale()) return;
 
       // Sync subscription to backend
       await request('/staff/push/subscribe', {
@@ -288,14 +398,22 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
       });
 
+      if (isStale()) return;
+
+      expiredEndpointsRef.current.delete(subJson.endpoint);
       setState('granted');
       setIsSubscribed(true);
       setErrorMessage(null);
     } catch (err: any) {
+      if (isStale()) return;
       setIsSubscribed(false);
-      if (state !== 'server_disabled' && state !== 'denied' && state !== 'ios_need_install' && state !== 'http_insecure') {
-        setState('sync_error');
+      let targetState: PushPermissionState = 'sync_error';
+      if (err instanceof PushActionError) {
+        targetState = err.code;
+      } else if (err?.code === 'denied' || (typeof Notification !== 'undefined' && Notification.permission === 'denied')) {
+        targetState = 'denied';
       }
+      setState(targetState);
       setErrorMessage(err.message || 'Lỗi khi bật thông báo');
       throw err;
     } finally {
@@ -360,6 +478,34 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ endpoint })
       });
     } catch (err: any) {
+      // If endpoint expired at APNs/FCM (410), clear subscription and unregister dead endpoint
+      if (err?.status === 410 || err?.code === 'SUBSCRIPTION_EXPIRED') {
+        if ('serviceWorker' in navigator) {
+          try {
+            const reg = await navigator.serviceWorker.getRegistration();
+            if (reg) {
+              const sub = await reg.pushManager.getSubscription();
+              if (sub) {
+                expiredEndpointsRef.current.add(sub.endpoint);
+                await sub.unsubscribe().catch(() => {});
+              }
+            }
+          } catch {}
+        }
+        setIsSubscribed(false);
+        setState('sync_error');
+        setErrorMessage('Đăng ký thông báo của thiết bị đã hết hạn tại APNs/FCM. Vui lòng bấm để kết nối lại thiết bị.');
+        throw err;
+      }
+
+      // If database lost the device registration (404), allow re-sync without destroying browser subscription
+      if (err?.status === 404 || err?.code === 'DEVICE_NOT_REGISTERED') {
+        setIsSubscribed(false);
+        setState('sync_error');
+        setErrorMessage('Thiết bị chưa được đồng bộ trên hệ thống máy chủ quán. Vui lòng bấm để đồng bộ lại.');
+        throw err;
+      }
+
       setErrorMessage(err.message || 'Lỗi gửi thông báo thử nghiệm');
       throw err;
     } finally {

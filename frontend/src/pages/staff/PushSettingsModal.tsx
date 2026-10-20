@@ -265,6 +265,25 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
               Vui lòng sử dụng Safari trên iOS 16.4+ (đã cài ra Home Screen), Chrome hoặc Edge trên Android/máy tính để nhận thông báo đẩy.
             </p>
           </div>
+        ) : state === 'sync_error' ? (
+          /* Case 3.5: Sync error or expired subscription */
+          <div className="space-y-3 bg-amber-50/80 border border-amber-200 p-4 rounded-2xl text-xs text-amber-900">
+            <div className="flex items-center gap-2 font-bold text-amber-950">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span>Chưa đồng bộ thông báo với máy chủ</span>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              {errorMessage || 'Thiết bị chưa thể đồng bộ hoặc đăng ký thông báo với máy chủ quán. Vui lòng bấm nút bên dưới để kết nối lại.'}
+            </p>
+            <button
+              onClick={handleSubscribe}
+              disabled={isLoading}
+              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>{isLoading ? 'Đang kết nối lại...' : 'Kết nối lại thông báo ngay'}</span>
+            </button>
+          </div>
         ) : state === 'granted' && isSubscribed ? (
           /* Case 4: Granted & Subscribed */
           <div className="space-y-3">

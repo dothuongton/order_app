@@ -14,7 +14,7 @@ import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
-  Smartphone, BellRing, Search, ShieldAlert, Palette, Settings
+  Smartphone, BellRing, Search, ShieldAlert, Palette, Settings, AlertTriangle
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
@@ -537,8 +537,22 @@ export const StaffDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Sync error notification prompt */}
+      {pushState === 'sync_error' && (
+        <div
+          onClick={() => setShowPushModal(true)}
+          className="bg-amber-500/20 border-b border-amber-500/30 text-amber-200 px-4 py-2 text-xs font-semibold flex items-center justify-between cursor-pointer hover:bg-amber-500/30 transition"
+        >
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Chưa đồng bộ thông báo với máy chủ: Nhấn để kết nối lại</span>
+          </div>
+          <span className="text-[10px] text-amber-300 font-bold underline shrink-0">Kết nối lại</span>
+        </div>
+      )}
+
       {/* Push notification prompt if not yet subscribed and server is available */}
-      {(!isPushSubscribed && pushState !== 'server_disabled' && pushState !== 'key_mismatch' && (pushState === 'default' || pushState === 'granted')) && (
+      {(!isPushSubscribed && pushState !== 'server_disabled' && pushState !== 'key_mismatch' && pushState !== 'sync_error' && (pushState === 'default' || pushState === 'granted')) && (
         <div
           onClick={() => setShowPushModal(true)}
           className="bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 px-4 py-2.5 text-xs font-black flex items-center justify-between cursor-pointer transition shadow-md"
