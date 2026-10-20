@@ -3,6 +3,7 @@ import { verifyStaffToken } from '../utils/staff-token.js';
 import { config } from '../config/index.js';
 import { query } from '../db/pool.js';
 import { hashToken } from '../utils/crypto.js';
+import { getOrSetDeviceCookie } from '../utils/device-cookie.js';
 
 export interface StaffUser {
     id: string;
@@ -36,6 +37,9 @@ export interface GuestContext {
     tableId: string;
     sessionId: string;
     tableNumber: string;
+    claimedDeviceHash?: string | null;
+    claimVersion?: number;
+    deviceHash?: string;
 }
 
 declare global {
@@ -226,6 +230,8 @@ export async function authenticateGuest(req: Request, res: Response, next: NextF
                 gs.expires_at,
                 gs.revoked_at,
                 ts.status as session_status,
+                ts.claimed_device_hash,
+                ts.claim_version,
                 t.table_number, t.is_enabled, te.status as tenant_status
             FROM guest_sessions gs
             JOIN table_sessions ts ON ts.id = gs.session_id
@@ -261,12 +267,27 @@ export async function authenticateGuest(req: Request, res: Response, next: NextF
             return res.status(403).json({ error: 'SHOP_SUSPENDED', message: 'Quán hoặc bàn đang ngừng phục vụ' });
         }
 
+        const { deviceHash } = getOrSetDeviceCookie(req, res);
+
+        if (config.orderingMode === 'approved_single_device') {
+            if (row.claimed_device_hash && row.claimed_device_hash !== deviceHash) {
+                return res.status(403).json({
+                    error: 'DEVICE_NOT_CLAIMED',
+                    code: 'DEVICE_NOT_CLAIMED',
+                    message: 'Thiết bị này không có quyền thao tác trên bàn này. Chỉ thiết bị giữ quyền mới có thể thao tác.'
+                });
+            }
+        }
+
         req.guest = {
             guestSessionId: row.guest_session_id,
             tenantId: row.tenant_id,
             tableId: row.table_id,
             sessionId: row.session_id,
-            tableNumber: row.table_number
+            tableNumber: row.table_number,
+            claimedDeviceHash: row.claimed_device_hash,
+            claimVersion: row.claim_version,
+            deviceHash
         };
 
         next();

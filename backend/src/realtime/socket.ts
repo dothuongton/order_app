@@ -72,12 +72,38 @@ export function initSocketIO(httpServer: HTTPServer, _allowedOrigins?: string[])
             for (const room of socket.rooms) if (room.startsWith('session:')) socket.leave(room);
             delete socket.data.guest;
         });
+        socket.on('join_table_room', async (input: unknown, ack?: (result: any) => void) => {
+            try {
+                const parsed = z.object({ tableId: z.string().uuid() }).safeParse(input);
+                if (!parsed.success) throw new Error('invalid_table_id');
+                await socket.join(`table:${parsed.data.tableId}:public`);
+                if (typeof ack === 'function') ack({ ok: true });
+            } catch {
+                if (typeof ack === 'function') ack({ ok: false, error: 'BAD_REQUEST' });
+            }
+        });
+        socket.on('leave_table_room', async (input: unknown) => {
+            try {
+                const parsed = z.object({ tableId: z.string().uuid() }).safeParse(input);
+                if (parsed.success) {
+                    await socket.leave(`table:${parsed.data.tableId}:public`);
+                }
+            } catch {
+                // ignore
+            }
+        });
     });
     return io;
 }
 
 export function getIO(): SocketIOServer | null {
     return io;
+}
+
+export function broadcastToTable(tableId: string, event: string, payload: any) {
+    if (deferUntilCommit(() => broadcastToTable(tableId, event, payload))) return;
+    if (!io) return;
+    io.in(`table:${tableId}:public`).emit(event, { ...payload, emittedAt: new Date().toISOString() });
 }
 
 // Re-check authorization for every delivery so revocations and expiry take effect.

@@ -1,9 +1,10 @@
 import { query, withTransaction } from '../../db/pool.js';
 import { generateRandomToken, hashToken } from '../../utils/crypto.js';
 import { checkIdempotency, recordIdempotency } from '../../utils/idempotency.js';
-import { broadcastToStaff, broadcastToSession } from '../../realtime/socket.js';
+import { broadcastToStaff, broadcastToSession, broadcastToTable } from '../../realtime/socket.js';
 import { PushService } from '../push/push.service.js';
 import { PricingService } from '../pricing/pricing.service.js';
+import { config } from '../../config/index.js';
 
 import { z } from 'zod';
 import { validate, orderInputSchema } from '../../utils/validation.js';
@@ -22,12 +23,13 @@ export interface CreateOrderInput {
 
 export class GuestService {
     // 1. Get public table menu & status
-    static async getPublicTableMenu(publicQrId: string) {
+    static async getPublicTableMenu(publicQrId: string, callerDeviceHash?: string) {
         const tableRes = await query(`
             SELECT
                 t.id as table_id,
                 t.table_number,
                 t.readiness,
+                t.capacity,
                 t.is_enabled,
                 te.id as tenant_id,
                 te.name as tenant_name,
@@ -54,14 +56,71 @@ export class GuestService {
 
         const table = tableRes.rows[0];
 
-        // Check active session
+        // Check active or pending session
         const sessionRes = await query(`
-            SELECT id, status, settlement_version, opened_at
+            SELECT id, status, settlement_version, opened_at, expires_at,
+                   requester_device_hash, claimed_device_hash, claim_version,
+                   requester_guest_name, request_id, requested_at
             FROM table_sessions
-            WHERE table_id = $1 AND status = 'OPEN'
+            WHERE table_id = $1 AND status IN ('PENDING_APPROVAL', 'OPEN')
         `, [table.table_id]);
 
-        const activeSession = sessionRes.rows[0] || null;
+        let activeSession = sessionRes.rows[0] || null;
+
+        // Auto-expire pending session if time has passed
+        if (activeSession && activeSession.status === 'PENDING_APPROVAL') {
+            if (activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now()) {
+                await query(`
+                    UPDATE table_sessions
+                    SET status = 'CLOSED', close_reason = 'EXPIRED'
+                    WHERE id = $1 AND status = 'PENDING_APPROVAL'
+                `, [activeSession.id]);
+                activeSession = null;
+            }
+        }
+
+        // Determine device state & table status
+        let tableStatus: 'VACANT' | 'PENDING' | 'OCCUPIED' = 'VACANT';
+        let deviceState: 'IDLE' | 'REQUESTER' | 'CLAIMED' | 'VIEWER' = 'IDLE';
+        let requesterInfo: any = null;
+        let canOrder = false;
+        let canRequest = table.is_enabled && table.tenant_status === 'active';
+
+        if (activeSession) {
+            if (activeSession.status === 'PENDING_APPROVAL') {
+                tableStatus = 'PENDING';
+                canRequest = false;
+                if (callerDeviceHash && activeSession.requester_device_hash === callerDeviceHash) {
+                    deviceState = 'REQUESTER';
+                    requesterInfo = {
+                        requestId: activeSession.request_id,
+                        guestName: activeSession.requester_guest_name,
+                        requestedAt: activeSession.requested_at,
+                        expiresAt: activeSession.expires_at,
+                        remainingSeconds: Math.max(0, Math.floor((new Date(activeSession.expires_at).getTime() - Date.now()) / 1000)),
+                        canWithdraw: true
+                    };
+                } else {
+                    deviceState = 'VIEWER';
+                }
+            } else if (activeSession.status === 'OPEN') {
+                tableStatus = 'OCCUPIED';
+                canRequest = false;
+                if (config.orderingMode === 'approved_single_device') {
+                    if (callerDeviceHash && activeSession.claimed_device_hash === callerDeviceHash) {
+                        deviceState = 'CLAIMED';
+                        canOrder = true;
+                    } else {
+                        deviceState = 'VIEWER';
+                        canOrder = false;
+                    }
+                } else {
+                    // Multi-device mode: any device can order
+                    deviceState = 'CLAIMED';
+                    canOrder = true;
+                }
+            }
+        }
 
         // Fetch categories and items
         const catRes = await query(`
@@ -186,10 +245,24 @@ export class GuestService {
             table: {
                 id: table.table_id,
                 tableNumber: table.table_number,
+                table_number: table.table_number,
                 readiness: table.readiness,
-                isEnabled: table.is_enabled
+                capacity: table.capacity,
+                isEnabled: table.is_enabled,
+                is_enabled: table.is_enabled,
+                orderingMode: config.orderingMode,
+                ordering_mode: config.orderingMode,
+                tableStatus,
+                table_status: tableStatus,
+                deviceState,
+                device_state: deviceState,
+                canOrder,
+                can_order: canOrder,
+                canRequest,
+                can_request: canRequest,
+                request: requesterInfo
             },
-            session: activeSession ? {
+            session: (activeSession && (deviceState === 'CLAIMED' || config.orderingMode === 'multi_device')) ? {
                 id: activeSession.id,
                 status: activeSession.status,
                 openedAt: activeSession.opened_at
@@ -273,7 +346,7 @@ export class GuestService {
     }
 
     // 2. Join session
-    static async joinSession(publicQrId: string, deviceFingerprint?: string) {
+    static async joinSession(publicQrId: string, deviceFingerprint?: string, callerDeviceHash?: string) {
         validate(z.string().max(1000).optional(), deviceFingerprint);
         return withTransaction(async client => {
             const tableRes = await client.query(`
@@ -316,8 +389,20 @@ export class GuestService {
                 };
             }
 
-            const locked = await client.query(`SELECT status FROM table_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [row.session_id, row.tenant_id]);
+            const locked = await client.query(`SELECT status, claimed_device_hash, claim_version FROM table_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [row.session_id, row.tenant_id]);
             if (locked.rows[0]?.status !== 'OPEN') throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
+
+            // In approved_single_device mode: enforce caller has claim
+            if (config.orderingMode === 'approved_single_device') {
+                const claimedHash = locked.rows[0]?.claimed_device_hash;
+                if (!claimedHash || claimedHash !== callerDeviceHash) {
+                    throw {
+                        status: 403,
+                        code: 'DEVICE_NOT_CLAIMED',
+                        message: 'Thiết bị này không có quyền tham gia phiên đặt món của bàn. Chỉ thiết bị được duyệt mới có quyền đặt món.'
+                    };
+                }
+            }
 
             // Generate token and record guest_session
             const rawToken = generateRandomToken(32);
@@ -327,7 +412,7 @@ export class GuestService {
             await client.query(`
                 INSERT INTO guest_sessions (tenant_id, table_id, session_id, token_hash, device_fingerprint, expires_at)
                 VALUES ($1, $2, $3, $4, $5, $6)
-            `, [row.tenant_id, row.table_id, row.session_id, tokenHash, deviceFingerprint || null, expiresAt]);
+            `, [row.tenant_id, row.table_id, row.session_id, tokenHash, callerDeviceHash || deviceFingerprint || null, expiresAt]);
 
             return {
                 token: rawToken,
@@ -340,12 +425,189 @@ export class GuestService {
         });
     }
 
+    // 2b. Gaeru Flow - Request Table Open (P1)
+    static async requestTableOpen(publicQrId: string, input: { requestId: string; guestName: string }, deviceHash: string) {
+        validate(z.object({
+            requestId: z.string().uuid(),
+            guestName: z.string().trim().min(1, 'Vui lòng nhập tên').max(80, 'Tên tối đa 80 ký tự')
+        }), input);
+
+        return await withTransaction(async (client) => {
+            // Rate limit: max 6 requests in 10 minutes from this device
+            const countRes = await client.query(`
+                SELECT COUNT(*) as recent_count
+                FROM table_sessions
+                WHERE requester_device_hash = $1
+                  AND requested_at > NOW() - INTERVAL '10 minutes'
+            `, [deviceHash]);
+
+            if (parseInt(countRes.rows[0]?.recent_count || '0', 10) >= 6) {
+                throw {
+                    status: 429,
+                    code: 'RATE_LIMIT_EXCEEDED',
+                    message: 'Bạn đã gửi quá nhiều yêu cầu mở bàn. Vui lòng chờ vài phút rồi thử lại.'
+                };
+            }
+
+            // Lock table row
+            const tableRes = await client.query(`
+                SELECT t.id, t.tenant_id, t.table_number, t.is_enabled, te.status as tenant_status
+                FROM tables t
+                JOIN tenants te ON te.id = t.tenant_id
+                WHERE t.public_qr_id = $1
+                FOR UPDATE
+            `, [publicQrId]);
+
+            if (tableRes.rows.length === 0) {
+                throw { status: 404, code: 'TABLE_NOT_FOUND', message: 'Không tìm thấy bàn tương ứng với mã QR' };
+            }
+
+            const table = tableRes.rows[0];
+            if (table.tenant_status !== 'active') {
+                throw { status: 403, code: 'SHOP_SUSPENDED', message: 'Quán ăn hiện đang tạm ngừng hoạt động.' };
+            }
+            if (!table.is_enabled) {
+                throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn này hiện đang tạm ngừng sử dụng.' };
+            }
+
+            // Check existing active session
+            const activeRes = await client.query(`
+                SELECT id, status, request_id, requester_device_hash, requester_guest_name, requested_at, expires_at
+                FROM table_sessions
+                WHERE table_id = $1 AND status IN ('PENDING_APPROVAL', 'OPEN')
+                FOR UPDATE
+            `, [table.id]);
+
+            if (activeRes.rows.length > 0) {
+                const active = activeRes.rows[0];
+                if (active.status === 'OPEN') {
+                    throw { status: 409, code: 'TABLE_ALREADY_OCCUPIED', message: 'Bàn đang có khách phục vụ.' };
+                }
+
+                // If pending, check expiration
+                if (active.expires_at && new Date(active.expires_at).getTime() <= Date.now()) {
+                    await client.query(`
+                        UPDATE table_sessions
+                        SET status = 'CLOSED', close_reason = 'EXPIRED'
+                        WHERE id = $1
+                    `, [active.id]);
+                } else if (active.request_id === input.requestId && active.requester_device_hash === deviceHash) {
+                    // Idempotent retry
+                    return {
+                        status: 'PENDING_APPROVAL',
+                        isRetry: true,
+                        sessionId: active.id,
+                        requestId: active.request_id,
+                        guestName: active.requester_guest_name,
+                        requestedAt: active.requested_at,
+                        expiresAt: active.expires_at
+                    };
+                } else {
+                    throw { status: 409, code: 'TABLE_REQUEST_PENDING', message: 'Bàn đang có yêu cầu mở bàn khác đang chờ duyệt.' };
+                }
+            }
+
+            // Insert new pending session
+            const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+            const insertRes = await client.query(`
+                INSERT INTO table_sessions (
+                    tenant_id, table_id, status, requested_at, expires_at,
+                    requester_guest_name, requester_device_hash, request_id
+                ) VALUES ($1, $2, 'PENDING_APPROVAL', NOW(), $3, $4, $5, $6)
+                RETURNING id, status, request_id, requester_guest_name, requested_at, expires_at
+            `, [table.tenant_id, table.id, expiresAt, input.guestName.trim(), deviceHash, input.requestId]);
+
+            const row = insertRes.rows[0];
+
+            // Realtime notifications
+            broadcastToStaff(table.tenant_id, 'table_session:requested', {
+                tableId: table.id,
+                tableNumber: table.table_number,
+                sessionId: row.id,
+                requestId: row.request_id,
+                guestName: row.requester_guest_name,
+                requestedAt: row.requested_at,
+                expiresAt: row.expires_at
+            });
+
+            broadcastToTable(table.id, 'table_session:status_changed', {
+                tableId: table.id,
+                status: 'PENDING'
+            });
+
+            return {
+                status: 'PENDING_APPROVAL',
+                sessionId: row.id,
+                requestId: row.request_id,
+                guestName: row.requester_guest_name,
+                requestedAt: row.requested_at,
+                expiresAt: row.expires_at
+            };
+        });
+    }
+
+    // 2c. Gaeru Flow - Withdraw Table Request (P1)
+    static async withdrawTableRequest(publicQrId: string, requestId: string, deviceHash: string) {
+        validate(z.string().uuid(), requestId);
+
+        return await withTransaction(async (client) => {
+            const tableRes = await client.query(`
+                SELECT t.id, t.tenant_id, t.table_number
+                FROM tables t
+                WHERE t.public_qr_id = $1
+                FOR UPDATE
+            `, [publicQrId]);
+
+            if (tableRes.rows.length === 0) {
+                throw { status: 404, code: 'TABLE_NOT_FOUND', message: 'Không tìm thấy bàn' };
+            }
+            const table = tableRes.rows[0];
+
+            const sessionRes = await client.query(`
+                SELECT id, requester_device_hash, status
+                FROM table_sessions
+                WHERE table_id = $1 AND request_id = $2 AND status = 'PENDING_APPROVAL'
+                FOR UPDATE
+            `, [table.id, requestId]);
+
+            if (sessionRes.rows.length === 0) {
+                throw { status: 404, code: 'REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu chờ duyệt hợp lệ' };
+            }
+
+            const session = sessionRes.rows[0];
+            if (session.requester_device_hash !== deviceHash) {
+                throw { status: 403, code: 'FORBIDDEN', message: 'Không thể hủy yêu cầu của thiết bị khác' };
+            }
+
+            await client.query(`
+                UPDATE table_sessions
+                SET status = 'CLOSED', close_reason = 'CUSTOMER_WITHDRAWN', updated_at = NOW()
+                WHERE id = $1
+            `, [session.id]);
+
+            broadcastToStaff(table.tenant_id, 'table_session:withdrawn', {
+                tableId: table.id,
+                tableNumber: table.table_number,
+                sessionId: session.id,
+                requestId
+            });
+
+            broadcastToTable(table.id, 'table_session:status_changed', {
+                tableId: table.id,
+                status: 'VACANT'
+            });
+
+            return { status: 'WITHDRAWN' };
+        });
+    }
+
     // 3. Create Order (F02, F03, F04)
     static async createOrder(
         tenantId: string,
         sessionId: string,
         tableId: string,
-        input: CreateOrderInput
+        input: CreateOrderInput,
+        callerDeviceHash?: string
     ) {
         input = validate(orderInputSchema, input);
         if (!input.items || input.items.length === 0) {
@@ -355,7 +617,7 @@ export class GuestService {
         return await withTransaction(async (client) => {
             // Lock session row FOR UPDATE
             const sessionRes = await client.query(`
-                SELECT ts.id, ts.status, ts.settlement_version, ts.table_id, t.table_number
+                SELECT ts.id, ts.status, ts.settlement_version, ts.table_id, ts.claimed_device_hash, ts.claim_version, t.table_number
                 FROM table_sessions ts
                 JOIN tables t ON t.id = ts.table_id
                 WHERE ts.id = $1 AND ts.tenant_id = $2
@@ -382,6 +644,16 @@ export class GuestService {
             const session = sessionRes.rows[0];
             if (session.status !== 'OPEN') {
                 throw { status: 400, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc, không thể gọi thêm món' };
+            }
+
+            if (config.orderingMode === 'approved_single_device') {
+                if (!callerDeviceHash || session.claimed_device_hash !== callerDeviceHash) {
+                    throw {
+                        status: 403,
+                        code: 'DEVICE_NOT_CLAIMED',
+                        message: 'Thiết bị này không có quyền đặt món cho bàn này. Chỉ thiết bị giữ quyền mới có thể đặt món.'
+                    };
+                }
             }
 
             // Check if shop is suspended
@@ -966,15 +1238,21 @@ export class GuestService {
         sessionId: string,
         tableId: string,
         type: 'ASSISTANCE' | 'CHECKOUT',
-        note?: string
+        note?: string,
+        callerDeviceHash?: string
     ) {
         return await withTransaction(async (client) => {
             validate(z.enum(['ASSISTANCE', 'CHECKOUT']), type);
             validate(z.string().max(1000).optional(), note);
-            const locked = await client.query(`SELECT id, status FROM table_sessions
+            const locked = await client.query(`SELECT id, status, claimed_device_hash FROM table_sessions
                 WHERE id = $1 AND tenant_id = $2 AND table_id = $3 FOR UPDATE`, [sessionId, tenantId, tableId]);
             if (!locked.rows.length || locked.rows[0].status !== 'OPEN') {
                 throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
+            }
+            if (config.orderingMode === 'approved_single_device') {
+                if (!callerDeviceHash || locked.rows[0].claimed_device_hash !== callerDeviceHash) {
+                    throw { status: 403, code: 'DEVICE_NOT_CLAIMED', message: 'Chỉ thiết bị giữ quyền đặt món mới có thể gọi nhân viên.' };
+                }
             }
             // Check if there is already an open request of this type
             const existingRes = await client.query(`

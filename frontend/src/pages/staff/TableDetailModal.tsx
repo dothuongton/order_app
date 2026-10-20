@@ -30,6 +30,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeletingTable, setIsDeletingTable] = useState(false);
+  const [isReleasingClaim, setIsReleasingClaim] = useState(false);
 
   useEffect(() => {
     if (table) {
@@ -256,6 +257,22 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     } catch (err: any) {
       setActionError(err.message || 'Lỗi mở phiên bàn');
       setIsLoading(false);
+    }
+  };
+
+  // Release device claim (Gaeru P1)
+  const handleReleaseClaim = async () => {
+    if (!table?.table_id) return;
+    setIsReleasingClaim(true);
+    setActionError(null);
+    try {
+      await request(`/staff/tables/${table.table_id}/release-claim`, { method: 'POST' });
+      setActionSuccess('Đã giải phóng thiết bị gọi món của bàn này.');
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || 'Lỗi giải phóng thiết bị');
+    } finally {
+      setIsReleasingClaim(false);
     }
   };
 
@@ -611,6 +628,21 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     </div>
                   );
                 })()}
+
+                {/* Release Claim (Gaeru P1) */}
+                <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
+                  <div className="text-[11px] text-slate-500">
+                    <span>Đổi máy gọi món / giải phóng quyền đặt</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleReleaseClaim}
+                    disabled={isReleasingClaim}
+                    className="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition cursor-pointer"
+                  >
+                    {isReleasingClaim ? 'Đang giải phóng...' : 'Giải phóng máy gọi'}
+                  </button>
+                </div>
               </div>
             )}
             </>

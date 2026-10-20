@@ -47,6 +47,21 @@ interface GuestContextType {
   activeServiceRequests: any[];
   banners: any[];
   promotions: any[];
+  orderingMode: 'multi_device' | 'approved_single_device';
+  tableStatus: 'VACANT' | 'PENDING' | 'OCCUPIED';
+  deviceState: 'IDLE' | 'REQUESTER' | 'CLAIMED' | 'VIEWER';
+  pendingRequest: {
+    requestId: string;
+    guestName: string;
+    requestedAt?: string;
+    expiresAt?: string;
+    remainingSeconds?: number;
+    canWithdraw?: boolean;
+  } | null;
+  canOrder: boolean;
+  canRequest: boolean;
+  requestOpenTable: (guestName: string) => Promise<any>;
+  withdrawOpenRequest: () => Promise<any>;
   loadTableMenu: (qrId: string) => Promise<any>;
   joinSession: (qrId: string) => Promise<any>;
   fetchReceipt: (token?: string) => Promise<GuestReceipt | null>;
@@ -160,6 +175,12 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [activeServiceRequests, setActiveServiceRequests] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
+  const [orderingMode, setOrderingMode] = useState<'multi_device' | 'approved_single_device'>('multi_device');
+  const [tableStatus, setTableStatus] = useState<'VACANT' | 'PENDING' | 'OCCUPIED'>('VACANT');
+  const [deviceState, setDeviceState] = useState<'IDLE' | 'REQUESTER' | 'CLAIMED' | 'VIEWER'>('IDLE');
+  const [pendingRequest, setPendingRequest] = useState<any>(null);
+  const [canOrder, setCanOrder] = useState<boolean>(true);
+  const [canRequest, setCanRequest] = useState<boolean>(false);
   const [guestToken, setGuestToken] = useState<string | null>(() => {
     return typeof window !== 'undefined' ? sessionStorage.getItem('guest_token') : null;
   });
@@ -313,6 +334,20 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         setTenant(data.tenant);
         setTable(data.table);
+        if (data.table) {
+          if (data.table.ordering_mode || data.table.orderingMode) {
+            setOrderingMode(data.table.ordering_mode || data.table.orderingMode);
+          }
+          if (data.table.table_status || data.table.tableStatus) {
+            setTableStatus(data.table.table_status || data.table.tableStatus);
+          }
+          if (data.table.device_state || data.table.deviceState) {
+            setDeviceState(data.table.device_state || data.table.deviceState);
+          }
+          setPendingRequest(data.table.request || null);
+          setCanOrder(Boolean(data.table.can_order ?? data.table.canOrder ?? true));
+          setCanRequest(Boolean(data.table.can_request ?? data.table.canRequest ?? false));
+        }
         setCategories(data.categories || []);
         setMenuItems(data.menuItems || []);
         setBanners(data.banners || []);
@@ -509,6 +544,67 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     inFlightJoinRef.current = { qrId, promise };
     return promise;
   }, [refreshOrdersAndBill, socket]);
+
+  // Request table open (Gaeru P1)
+  const requestOpenTable = useCallback(async (guestName: string): Promise<any> => {
+    if (!publicQrIdRef.current) throw new Error('Không có mã QR bàn');
+    const requestId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('req-' + Math.random().toString(36).substring(2, 11));
+    const res = await request<any>(`/public/tables/${publicQrIdRef.current}/request-open`, {
+      method: 'POST',
+      body: JSON.stringify({ requestId, guestName })
+    });
+    await loadTableMenu(publicQrIdRef.current);
+    return res;
+  }, [loadTableMenu]);
+
+  // Withdraw pending table request (Gaeru P1)
+  const withdrawOpenRequest = useCallback(async (): Promise<any> => {
+    if (!publicQrIdRef.current || !pendingRequest?.requestId) throw new Error('Không có yêu cầu nào đang chờ');
+    const res = await request<any>(`/public/tables/${publicQrIdRef.current}/withdraw-request`, {
+      method: 'POST',
+      body: JSON.stringify({ requestId: pendingRequest.requestId })
+    });
+    await loadTableMenu(publicQrIdRef.current);
+    return res;
+  }, [pendingRequest, loadTableMenu]);
+
+  // Listen to table status events (for pending approval, claim release, approval)
+  useEffect(() => {
+    if (!socket || !table?.id) return;
+
+    const currentTableId = table.id;
+    socket.emit('join_table_room', { tableId: currentTableId });
+
+    const handleTableUpdated = () => {
+      if (publicQrIdRef.current) {
+        loadTableMenu(publicQrIdRef.current);
+      }
+    };
+
+    const handleTableRejected = (payload?: any) => {
+      showToast({
+        title: 'Yêu cầu mở bàn',
+        message: payload?.reason ? `Yêu cầu bị từ chối: ${payload.reason}` : 'Yêu cầu mở bàn đã bị từ chối.',
+        type: 'warning'
+      });
+      if (publicQrIdRef.current) {
+        loadTableMenu(publicQrIdRef.current);
+      }
+    };
+
+    socket.on('table_session:status_changed', handleTableUpdated);
+    socket.on('table_session:approved', handleTableUpdated);
+    socket.on('table_session:rejected', handleTableRejected);
+    socket.on('table_session:claim_released', handleTableUpdated);
+
+    return () => {
+      socket.emit('leave_table_room', { tableId: currentTableId });
+      socket.off('table_session:status_changed', handleTableUpdated);
+      socket.off('table_session:approved', handleTableUpdated);
+      socket.off('table_session:rejected', handleTableRejected);
+      socket.off('table_session:claim_released', handleTableUpdated);
+    };
+  }, [socket, table?.id, loadTableMenu, showToast]);
 
   // Listen to socket session room events
   useEffect(() => {
@@ -815,6 +911,14 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       activeServiceRequests,
       banners,
       promotions,
+      orderingMode,
+      tableStatus,
+      deviceState,
+      pendingRequest,
+      canOrder,
+      canRequest,
+      requestOpenTable,
+      withdrawOpenRequest,
       loadTableMenu,
       joinSession,
       fetchReceipt,

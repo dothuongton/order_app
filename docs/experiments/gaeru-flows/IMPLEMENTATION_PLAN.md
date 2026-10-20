@@ -58,18 +58,18 @@ Bổ sung các cột phục vụ vòng đời yêu cầu và claim vào bảng `
   2. Drop index cũ `idx_unique_open_session_per_table`.
   3. Tạo index duy nhất mới:
      ```sql
-     CREATE UNIQUE INDEX idx_unique_active_session_per_table 
-     ON table_sessions (table_id) 
+     CREATE UNIQUE INDEX idx_unique_active_session_per_table
+     ON table_sessions (table_id)
      WHERE status IN ('PENDING_APPROVAL', 'OPEN');
      ```
   4. Tạo index hỗ trợ tra cứu device và expiry:
      ```sql
-     CREATE INDEX idx_table_sessions_pending_expiry 
-     ON table_sessions (expires_at) 
+     CREATE INDEX idx_table_sessions_pending_expiry
+     ON table_sessions (expires_at)
      WHERE status = 'PENDING_APPROVAL';
 
-     CREATE INDEX idx_table_sessions_requester_device 
-     ON table_sessions (tenant_id, requester_device_hash) 
+     CREATE INDEX idx_table_sessions_requester_device
+     ON table_sessions (tenant_id, requester_device_hash)
      WHERE status = 'PENDING_APPROVAL';
      ```
   5. *Postcondition:* Xác minh index tồn tại và ngăn chặn triệt để 2 phiên cùng active trên 1 bàn.
@@ -233,8 +233,8 @@ Tại `POST /api/v1/guest/orders`:
   - Kiểm tra device cookie `__Host-order-device`.
   - Trong transaction đặt món:
     ```sql
-    SELECT status, claimed_device_hash, claim_version 
-    FROM table_sessions 
+    SELECT status, claimed_device_hash, claim_version
+    FROM table_sessions
     WHERE id = $session_id FOR SHARE;
     ```
   - Nếu `claimed_device_hash IS NULL` hoặc `claimed_device_hash != hash(cookie)`:

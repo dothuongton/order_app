@@ -1,5 +1,6 @@
 import { query, withTransaction } from '../../db/pool.js';
-import { broadcastToStaff, broadcastToSession } from '../../realtime/socket.js';
+import { broadcastToStaff, broadcastToSession, broadcastToTable } from '../../realtime/socket.js';
+import { generateRandomToken, hashToken } from '../../utils/crypto.js';
 import qrcode from 'qrcode';
 
 import { z } from 'zod';
@@ -223,6 +224,251 @@ export class StaffService {
                 message: `Đã mở phiên phục vụ cho bàn ${table.table_number}`
             };
         });
+    }
+
+    // 2b. Gaeru Flow - Approve Session Request (P1)
+    static async approveSessionRequest(tenantId: string, tableId: string, userId: string, input?: { sessionId?: string; expectedVersion?: number }) {
+        return await withTransaction(async (client) => {
+            const tenant = await client.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
+            if (tenant.rows[0]?.status !== 'active') throw { status: 403, code: 'SHOP_SUSPENDED', message: 'Quán đang ngừng nhận khách' };
+
+            // Lock table row
+            const tableRes = await client.query(`
+                SELECT id, table_number, readiness, is_enabled
+                FROM tables
+                WHERE id = $1 AND tenant_id = $2
+                FOR UPDATE
+            `, [tableId, tenantId]);
+
+            if (tableRes.rows.length === 0) {
+                throw { status: 404, code: 'TABLE_NOT_FOUND', message: 'Không tìm thấy bàn' };
+            }
+            const table = tableRes.rows[0];
+            if (!table.is_enabled) {
+                throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn đang bị tắt sử dụng' };
+            }
+
+            // Lock pending session
+            const sessionQuery = input?.sessionId
+                ? `SELECT * FROM table_sessions WHERE id = $1 AND table_id = $2 AND tenant_id = $3 AND status = 'PENDING_APPROVAL' FOR UPDATE`
+                : `SELECT * FROM table_sessions WHERE table_id = $1 AND tenant_id = $2 AND status = 'PENDING_APPROVAL' FOR UPDATE`;
+            const sessionParams = input?.sessionId
+                ? [input.sessionId, tableId, tenantId]
+                : [tableId, tenantId];
+
+            const sessionRes = await client.query(sessionQuery, sessionParams);
+            if (sessionRes.rows.length === 0) {
+                throw { status: 409, code: 'REQUEST_NOT_FOUND_OR_RESOLVED', message: 'Yêu cầu mở bàn không tồn tại hoặc đã được xử lý' };
+            }
+
+            const session = sessionRes.rows[0];
+            if (session.expires_at && new Date(session.expires_at).getTime() <= Date.now()) {
+                await client.query(`
+                    UPDATE table_sessions
+                    SET status = 'CLOSED', close_reason = 'EXPIRED', updated_at = NOW()
+                    WHERE id = $1
+                `, [session.id]);
+                return {
+                    isError: true,
+                    status: 409,
+                    code: 'REQUEST_EXPIRED',
+                    message: 'Yêu cầu mở bàn đã hết hạn 15 phút'
+                };
+            }
+
+            if (input?.expectedVersion && session.claim_version !== input.expectedVersion) {
+                throw { status: 409, code: 'VERSION_CONFLICT', message: 'Phiên yêu cầu đã có thay đổi' };
+            }
+
+            // Reset readiness if needed
+            if (table.readiness === 'NEEDS_CLEANING') {
+                await client.query(`UPDATE tables SET readiness = 'READY' WHERE id = $1`, [tableId]);
+            }
+
+            // Approve and open session
+            const updateRes = await client.query(`
+                UPDATE table_sessions
+                SET status = 'OPEN',
+                    approved_at = NOW(),
+                    approved_by = $1,
+                    opened_at = NOW(),
+                    opened_by = $1,
+                    claimed_device_hash = requester_device_hash,
+                    claim_version = 1,
+                    updated_at = NOW()
+                WHERE id = $2
+                RETURNING *
+            `, [userId, session.id]);
+
+            const approvedSession = updateRes.rows[0];
+
+            // Create initial bill
+            await client.query(`
+                INSERT INTO bills (tenant_id, session_id, status, total_amount)
+                VALUES ($1, $2, 'OPEN', 0)
+                ON CONFLICT (session_id) DO NOTHING
+            `, [tenantId, approvedSession.id]);
+
+            // Create guest token for the requester device
+            const rawToken = generateRandomToken(32);
+            const tokenHash = hashToken(rawToken);
+            await client.query(`
+                INSERT INTO guest_sessions (tenant_id, table_id, session_id, token_hash, device_fingerprint, expires_at)
+                VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '24 hours')
+            `, [tenantId, tableId, approvedSession.id, tokenHash, approvedSession.claimed_device_hash]);
+
+            // Broadcast real-time events
+            broadcastToStaff(tenantId, 'table_session:opened', {
+                tableId,
+                sessionId: approvedSession.id,
+                tableNumber: table.table_number
+            });
+
+            broadcastToTable(tableId, 'table_session:approved', {
+                tableId,
+                sessionId: approvedSession.id,
+                tableNumber: table.table_number,
+                claimedDeviceHash: approvedSession.claimed_device_hash,
+                token: rawToken
+            });
+
+            broadcastToStaff(tenantId, 'table.updated', { tableId });
+
+            return {
+                sessionId: approvedSession.id,
+                tableId,
+                tableNumber: table.table_number,
+                claimedDeviceHash: approvedSession.claimed_device_hash,
+                token: rawToken,
+                message: `Đã duyệt mở bàn ${table.table_number}`
+            };
+        });
+    }
+
+    // 2c. Gaeru Flow - Reject Session Request (P1)
+    static async rejectSessionRequest(tenantId: string, tableId: string, userId: string, input?: { sessionId?: string; reason?: string }) {
+        return await withTransaction(async (client) => {
+            const sessionQuery = input?.sessionId
+                ? `SELECT id FROM table_sessions WHERE id = $1 AND table_id = $2 AND tenant_id = $3 AND status = 'PENDING_APPROVAL' FOR UPDATE`
+                : `SELECT id FROM table_sessions WHERE table_id = $1 AND tenant_id = $2 AND status = 'PENDING_APPROVAL' FOR UPDATE`;
+            const sessionParams = input?.sessionId
+                ? [input.sessionId, tableId, tenantId]
+                : [tableId, tenantId];
+
+            const sessionRes = await client.query(sessionQuery, sessionParams);
+            if (sessionRes.rows.length === 0) {
+                throw { status: 409, code: 'REQUEST_NOT_FOUND_OR_RESOLVED', message: 'Yêu cầu mở bàn không tồn tại hoặc đã được xử lý' };
+            }
+
+            const session = sessionRes.rows[0];
+            await client.query(`
+                UPDATE table_sessions
+                SET status = 'CLOSED',
+                    close_reason = 'STAFF_REJECTED',
+                    closed_at = NOW(),
+                    closed_by = $1,
+                    updated_at = NOW()
+                WHERE id = $2
+            `, [userId, session.id]);
+
+            broadcastToStaff(tenantId, 'table_session:rejected', {
+                tableId,
+                sessionId: session.id
+            });
+
+            broadcastToTable(tableId, 'table_session:rejected', {
+                tableId,
+                sessionId: session.id,
+                reason: input?.reason
+            });
+
+            broadcastToStaff(tenantId, 'table.updated', { tableId });
+
+            return {
+                status: 'REJECTED',
+                tableId,
+                sessionId: session.id,
+                message: 'Đã từ chối yêu cầu mở bàn'
+            };
+        });
+    }
+
+    // 2d. Gaeru Flow - Release Claim (P1)
+    static async releaseSessionClaim(tenantId: string, tableId: string, _userId: string) {
+        return await withTransaction(async (client) => {
+            const sessionRes = await client.query(`
+                SELECT id, status, claim_version
+                FROM table_sessions
+                WHERE table_id = $1 AND tenant_id = $2 AND status = 'OPEN'
+                FOR UPDATE
+            `, [tableId, tenantId]);
+
+            if (sessionRes.rows.length === 0) {
+                throw { status: 404, code: 'SESSION_NOT_FOUND', message: 'Không có phiên đang mở trên bàn này' };
+            }
+
+            const session = sessionRes.rows[0];
+            const nextClaimVersion = (session.claim_version || 1) + 1;
+
+            await client.query(`
+                UPDATE table_sessions
+                SET claimed_device_hash = NULL,
+                    claim_version = $1,
+                    updated_at = NOW()
+                WHERE id = $2
+            `, [nextClaimVersion, session.id]);
+
+            // Revoke all existing guest tokens
+            await client.query(`
+                UPDATE guest_sessions
+                SET revoked_at = NOW()
+                WHERE session_id = $1 AND revoked_at IS NULL
+            `, [session.id]);
+
+            broadcastToTable(tableId, 'table_session:claim_released', {
+                tableId,
+                sessionId: session.id,
+                claimVersion: nextClaimVersion
+            });
+
+            broadcastToSession(session.id, 'session.claim_released', {
+                tableId,
+                claimVersion: nextClaimVersion
+            });
+
+            broadcastToStaff(tenantId, 'table.updated', { tableId });
+
+            return {
+                status: 'CLAIM_RELEASED',
+                tableId,
+                sessionId: session.id,
+                claimVersion: nextClaimVersion,
+                message: 'Đã giải phóng quyền đặt món của thiết bị. Bàn có thể duyệt thiết bị mới.'
+            };
+        });
+    }
+
+    // 2e. Gaeru Flow - Get Pending Requests (P1)
+    static async getPendingRequests(tenantId: string) {
+        const res = await query(`
+            SELECT
+                ts.id as session_id,
+                ts.table_id,
+                t.table_number,
+                ts.requester_guest_name as guest_name,
+                ts.request_id,
+                ts.requested_at,
+                ts.expires_at,
+                GREATEST(0, EXTRACT(EPOCH FROM (ts.expires_at - NOW())))::int as remaining_seconds
+            FROM table_sessions ts
+            JOIN tables t ON t.id = ts.table_id
+            WHERE ts.tenant_id = $1
+              AND ts.status = 'PENDING_APPROVAL'
+              AND ts.expires_at > NOW()
+            ORDER BY ts.requested_at ASC
+        `, [tenantId]);
+
+        return res.rows;
     }
 
     // 3. Accept Order Item / Part (F05)

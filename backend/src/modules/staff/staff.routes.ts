@@ -44,6 +44,79 @@ staffRouter.post('/tables/:id/open', requirePermission('session.open'), async (r
     }
 });
 
+// 2b. Gaeru Flow - Approve Session Request (P1)
+staffRouter.post('/tables/:id/approve-request', requirePermission('session.open'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const tableId = req.params.id;
+        const result: any = await StaffService.approveSessionRequest(staff.tenantId, tableId, staff.id, req.body);
+        if (result.isError) {
+            return res.status(result.status || 409).json({
+                error: result.code || 'SERVER_ERROR',
+                code: result.code || 'SERVER_ERROR',
+                message: result.message
+            });
+        }
+        return res.status(200).json(result);
+    } catch (err: any) {
+        const status = err.status || 500;
+        return res.status(status).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi duyệt yêu cầu mở bàn'
+        });
+    }
+});
+
+// 2c. Gaeru Flow - Reject Session Request (P1)
+staffRouter.post('/tables/:id/reject-request', requirePermission('session.open'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const tableId = req.params.id;
+        const result = await StaffService.rejectSessionRequest(staff.tenantId, tableId, staff.id, req.body);
+        return res.status(200).json(result);
+    } catch (err: any) {
+        const status = err.status || 500;
+        return res.status(status).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi từ chối yêu cầu mở bàn'
+        });
+    }
+});
+
+// 2d. Gaeru Flow - Release Claim (P1)
+staffRouter.post('/tables/:id/release-claim', requirePermission('session.open'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const tableId = req.params.id;
+        const result = await StaffService.releaseSessionClaim(staff.tenantId, tableId, staff.id);
+        return res.status(200).json(result);
+    } catch (err: any) {
+        const status = err.status || 500;
+        return res.status(status).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi giải phóng quyền đặt món'
+        });
+    }
+});
+
+// 2e. Gaeru Flow - Get Pending Requests (P1)
+staffRouter.get('/requests/pending', requirePermission('session.open'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const requests = await StaffService.getPendingRequests(staff.tenantId);
+        return res.status(200).json({ requests });
+    } catch (err: any) {
+        const status = err.status || 500;
+        return res.status(status).json({
+            error: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi lấy danh sách yêu cầu mở bàn'
+        });
+    }
+});
+
 // 3. Mark table ready after cleaning (F11)
 staffRouter.post('/tables/:id/mark-ready', requirePermission('table.manage'), async (req: Request, res: Response) => {
     try {
