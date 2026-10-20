@@ -284,7 +284,7 @@ describe('UX-01: Guest Session Lifecycle & Isolation Suite (Issue #57, G-03, G-0
         const a02Qr = tableA02Res.rows[0].public_qr_id;
 
         const sessionRes = await StaffService.openSession(tenantId, a02Id, waiterId);
-        
+
         // Guest joins
         const joinRes = await fetch(`${baseUrl}/api/v1/public/tables/${a02Qr}/join`, {
             method: 'POST',
@@ -307,5 +307,86 @@ describe('UX-01: Guest Session Lifecycle & Isolation Suite (Issue #57, G-03, G-0
         expect(receipt.closeReason).toBe('Customer changed mind');
         expect(receipt.totalAmount).toBe(0);
         expect(receipt.billLines).toEqual([]);
+    });
+
+    it('7. Scope & Credential isolation on receipt: header precedence, scope mismatch, reject staff Bearer', async () => {
+        // Staff opens Table A01 (Session A) and Table A02 (Session B)
+        const tableA01Res = await query(`SELECT id, public_qr_id FROM tables WHERE tenant_id = $1 AND table_number = 'A01'`, [tenantId]);
+        const a01Id = tableA01Res.rows[0].id;
+        const a01Qr = tableA01Res.rows[0].public_qr_id;
+        const sessA = await StaffService.openSession(tenantId, a01Id, waiterId);
+
+        const tableA02Res = await query(`SELECT id, public_qr_id FROM tables WHERE tenant_id = $1 AND table_number = 'A02'`, [tenantId]);
+        const a02Id = tableA02Res.rows[0].id;
+        const a02Qr = tableA02Res.rows[0].public_qr_id;
+        const sessB = await StaffService.openSession(tenantId, a02Id, waiterId);
+
+        // Guest joins A and B
+        const joinARes = await fetch(`${baseUrl}/api/v1/public/tables/${a01Qr}/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceFingerprint: 'guest-A' })
+        });
+        const tokenA = (await joinARes.json()).token;
+
+        const joinBRes = await fetch(`${baseUrl}/api/v1/public/tables/${a02Qr}/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceFingerprint: 'guest-B' })
+        });
+        const tokenB = (await joinBRes.json()).token;
+
+        // Close A without charge (reason A) and B without charge (reason B)
+        await StaffService.closeWithoutCharge(tenantId, sessA.sessionId, managerId, 'Session A closed');
+        await StaffService.closeWithoutCharge(tenantId, sessB.sessionId, managerId, 'Session B closed');
+
+        // Test 1: Header token A takes precedence over cookie token B
+        const headerPrecedenceRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
+            headers: {
+                'x-guest-token': tokenA,
+                'Cookie': `guest_token=${tokenB}`
+            }
+        });
+        expect(headerPrecedenceRes.status).toBe(200);
+        const dataA = await headerPrecedenceRes.json();
+        expect(dataA.sessionId).toBe(sessA.sessionId);
+        expect(dataA.closeReason).toBe('Session A closed');
+
+        // Test 2: Staff Bearer token rejected on guest receipt endpoint (fail-closed)
+        const staffLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'admin@phoco.vn', password: '123' })
+        });
+        const staffToken = (await staffLoginRes.json()).token;
+        const staffBearerRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
+            headers: {
+                'Authorization': `Bearer ${staffToken}`,
+                'x-guest-token': tokenA
+            }
+        });
+        expect(staffBearerRes.status).toBe(401);
+        expect((await staffBearerRes.json()).error).toBe('INVALID_CREDENTIAL_TYPE');
+
+        // Test 3: Scope mismatch on sessionId fails closed with 403
+        const scopeMismatchSessionRes = await fetch(`${baseUrl}/api/v1/guest/receipt?sessionId=${sessB.sessionId}`, {
+            headers: { 'x-guest-token': tokenA }
+        });
+        expect(scopeMismatchSessionRes.status).toBe(403);
+        expect((await scopeMismatchSessionRes.json()).error).toBe('SCOPE_MISMATCH');
+
+        // Test 4: Scope mismatch on qrId fails closed with 403
+        const scopeMismatchQrRes = await fetch(`${baseUrl}/api/v1/guest/receipt?qrId=${a02Qr}`, {
+            headers: { 'x-guest-token': tokenA }
+        });
+        expect(scopeMismatchQrRes.status).toBe(403);
+        expect((await scopeMismatchQrRes.json()).error).toBe('SCOPE_MISMATCH');
+
+        // Test 5: Matching scope succeeds
+        const matchingScopeRes = await fetch(`${baseUrl}/api/v1/guest/receipt?sessionId=${sessA.sessionId}&qrId=${a01Qr}`, {
+            headers: { 'x-guest-token': tokenA }
+        });
+        expect(matchingScopeRes.status).toBe(200);
+        expect((await matchingScopeRes.json()).sessionId).toBe(sessA.sessionId);
     });
 });

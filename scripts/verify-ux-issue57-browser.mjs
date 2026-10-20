@@ -14,8 +14,7 @@ async function sleep(ms) {
 
 function assert(condition, message) {
   if (!condition) {
-    console.error(`\n❌ ASSERTION FAILED: ${message}`);
-    process.exit(1);
+    throw new Error(`ASSERTION FAILED: ${message}`);
   }
 }
 
@@ -458,9 +457,11 @@ async function main() {
     console.log('  ✅ Confirmed settlement verified: immutable receipt, exact amount, token revoked');
 
     // =========================================================================
-    // 4. SCENARIO 4: RELOAD / BACK BẢO TOÀN BIÊN NHẬN (No 263-request Loop!)
+    // 4. SCENARIO 4: RELOAD / BACK BẢO TOÀN BIÊN NHẬN (No 263-request Loop & Server Recovery R3)
     // =========================================================================
-    console.log('\n=== 4. SCENARIO 4: Reload / Back Receipt Preservation (No Loop!) ===');
+    console.log('\n=== 4. SCENARIO 4: Reload / Back Receipt Preservation (No Loop & Server Recovery R3) ===');
+    // Simulate missed socket or offline closure: clear receipt cache so reload MUST recover verified receipt from server
+    await evaluate("sessionStorage.removeItem('guest_receipt_qr-phoco-a01')");
     await cdp.send('Page.reload');
     await sleep(1500);
 
@@ -600,8 +601,11 @@ async function main() {
     // 8. SCENARIO 8: ĐỔI BÀN (QR Switch in Single Provider)
     // =========================================================================
     console.log('\n=== 8. SCENARIO 8: QR Table Switch in Same Provider (Stale Guard) ===');
-    // Switch from qr-phoco-a02 to qr-phoco-a03
-    await cdp.send('Page.navigate', { url: 'http://localhost:5173/t/qr-phoco-a03' });
+    // Client-side navigation in same provider without reloading document
+    await evaluate(`
+      window.history.pushState({}, '', '/t/qr-phoco-a03');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    `);
     await sleep(1500);
 
     const switchIdle = await measureIdleApiRequests(750);
@@ -615,7 +619,16 @@ async function main() {
     console.log('\n🎉 ALL 8 BROWSER UX & ISOLATION SCENARIOS FULLY VERIFIED (100% PASS with Hard Assertions)!');
   } finally {
     try { cdp?.close(); } catch {}
-    chromeProcess.kill('SIGTERM');
+    if (chromeProcess) {
+      try {
+        chromeProcess.kill('SIGTERM');
+      } catch {}
+    }
+    if (profileDir && fs.existsSync(profileDir)) {
+      try {
+        fs.rmSync(profileDir, { recursive: true, force: true });
+      } catch {}
+    }
   }
   process.exit(0);
 }

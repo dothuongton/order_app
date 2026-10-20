@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { createHash } from 'crypto';
 import { GuestService } from './guest.service.js';
 import { authenticateGuest } from '../../middleware/auth.js';
 import { config } from '../../config/index.js';
 import { query } from '../../db/pool.js';
+import { hashToken } from '../../utils/crypto.js';
 
 export const guestRouter = Router();
 
@@ -60,10 +60,20 @@ guestRouter.post('/public/tables/:qrId/join', async (req: Request, res: Response
 // 2b. Get verified closed session receipt (authenticated by guest token, accessible even when session is closed)
 guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
     try {
-        const authHeader = req.headers.authorization;
-        const cookieToken = req.cookies?.guest_token;
         const guestHeaderToken = req.headers['x-guest-token'] as string | undefined;
-        const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : (cookieToken || guestHeaderToken);
+        const cookieToken = req.cookies?.guest_token as string | undefined;
+        const authHeader = req.headers.authorization;
+
+        // Staff Bearer tokens are not guest credentials; fail closed if Bearer token is provided
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({
+                error: 'INVALID_CREDENTIAL_TYPE',
+                message: 'Route biên nhận khách không chấp nhận Authorization Bearer token'
+            });
+        }
+
+        // Align credential extraction with authenticateGuest: explicit header takes precedence over cookie
+        const token = guestHeaderToken || cookieToken;
 
         if (!token) {
             return res.status(401).json({
@@ -72,7 +82,7 @@ guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
             });
         }
 
-        const tokenHash = createHash('sha256').update(token).digest('hex');
+        const tokenHash = hashToken(token);
         const resGuest = await query(`
             SELECT
                 gs.id as guest_session_id,
@@ -84,7 +94,8 @@ guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
                 ts.status as session_status,
                 ts.close_reason,
                 ts.closed_at,
-                t.table_number
+                t.table_number,
+                t.public_qr_id
             FROM guest_sessions gs
             JOIN table_sessions ts ON ts.id = gs.session_id
             JOIN tables t ON t.id = gs.table_id
@@ -99,6 +110,25 @@ guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
         }
 
         const row = resGuest.rows[0];
+
+        // Scope verification: fail-closed if caller explicitly requests a different session or QR
+        const requestedSessionId = req.query.sessionId as string | undefined;
+        const requestedQrId = req.query.qrId as string | undefined;
+
+        if (requestedSessionId && row.session_id !== requestedSessionId) {
+            return res.status(403).json({
+                error: 'SCOPE_MISMATCH',
+                message: 'Token không thuộc về phiên bàn được yêu cầu'
+            });
+        }
+
+        if (requestedQrId && row.public_qr_id !== requestedQrId) {
+            return res.status(403).json({
+                error: 'SCOPE_MISMATCH',
+                message: 'Token không thuộc về mã QR bàn được yêu cầu'
+            });
+        }
+
         if (new Date(row.expires_at) < new Date()) {
             return res.status(401).json({
                 error: 'TOKEN_EXPIRED',
