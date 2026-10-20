@@ -270,20 +270,36 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
                             </div>
 
                             {/* Metrics Cards */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
-                                    <span className="text-[11px] font-semibold text-blue-700">Tổng số bàn</span>
-                                    <p className="text-2xl font-extrabold text-blue-900 mt-1">
-                                        {content.shop.tableCount || 0}
-                                    </p>
-                                </div>
-                                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
-                                    <span className="text-[11px] font-semibold text-emerald-700">Doanh thu chốt</span>
-                                    <p className="text-lg font-extrabold text-emerald-900 mt-1">
-                                        {(content.shop.totalRevenue || 0).toLocaleString('vi-VN')} đ
-                                    </p>
-                                </div>
-                            </div>
+                            {(() => {
+                                const metrics = content.shop.metrics ?? {
+                                    tableCount: content.shop.tableCount,
+                                    orderCount: content.shop.orderCount,
+                                    totalRevenue: content.shop.totalRevenue
+                                };
+                                const tableCountDisplay = typeof metrics?.tableCount === 'number'
+                                    ? metrics.tableCount
+                                    : '—';
+                                const revenueDisplay = typeof metrics?.totalRevenue === 'number'
+                                    ? `${metrics.totalRevenue.toLocaleString('vi-VN')} đ`
+                                    : '—';
+
+                                return (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                                            <span className="text-[11px] font-semibold text-blue-700">Tổng số bàn</span>
+                                            <p className="text-2xl font-extrabold text-blue-900 mt-1">
+                                                {tableCountDisplay}
+                                            </p>
+                                        </div>
+                                        <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                                            <span className="text-[11px] font-semibold text-emerald-700">Doanh thu chốt</span>
+                                            <p className="text-lg font-extrabold text-emerald-900 mt-1">
+                                                {revenueDisplay}
+                                            </p>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* Actions Footer */}

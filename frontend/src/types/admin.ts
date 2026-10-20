@@ -17,6 +17,12 @@ export interface ShopOwner {
     phone?: string | null;
 }
 
+export interface ShopMetrics {
+    tableCount: number;
+    orderCount: number;
+    totalRevenue: number;
+}
+
 export interface ShopSummary {
     id: string;
     name: string;
@@ -32,15 +38,12 @@ export interface ShopSummary {
     tableCount: number;
     orderCount: number;
     totalRevenue: number;
+    metrics?: ShopMetrics;
 }
 
 export interface ShopDetail extends ShopSummary {
     description?: string | null;
-    metrics?: {
-        tableCount: number;
-        orderCount: number;
-        totalRevenue: number;
-    };
+    metrics: ShopMetrics;
 }
 
 export interface PaginationMeta {

@@ -316,14 +316,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
 
     // Handler: Open Drawer for Shop Detail
     const handleOpenShopDetail = async (shop: ShopSummary) => {
+        // Open drawer immediately with summary metrics so user gets instant responsive UI
+        setDrawerContent({ type: 'shop-detail', shop });
+        setIsDrawerOpen(true);
         try {
-            // Fetch single shop full details
+            // Fetch full single shop details with deep metrics
             const detail = await AdminApi.getShopDetail(shop.id);
             setDrawerContent({ type: 'shop-detail', shop: detail });
         } catch {
+            // Keep existing summary if detail fetch encounters network error
             setDrawerContent({ type: 'shop-detail', shop });
         }
-        setIsDrawerOpen(true);
     };
 
     // Handler: Open Drawer for Audit Log Diff
