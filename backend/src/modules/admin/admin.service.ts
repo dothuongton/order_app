@@ -1,26 +1,15 @@
 import bcrypt from 'bcryptjs';
-import { z } from 'zod';
-import { validate } from '../../utils/validation.js';
 import { query, withTransaction } from '../../db/pool.js';
-
-export interface CreateShopInput {
-    name: string;
-    slug: string;
-    phone?: string;
-    address?: string;
-    ownerEmail: string;
-    ownerFullName: string;
-    ownerPassword?: string;
-}
-
-export interface UpdateShopInput {
-    name?: string;
-    slug?: string;
-    status?: 'draft' | 'active' | 'suspended' | 'archived';
-    phone?: string;
-    address?: string;
-    description?: string;
-}
+import { validate } from '../../utils/validation.js';
+import { AdminApiError } from './admin.errors.js';
+import {
+    CreateShopInput,
+    UpdateShopInput,
+    ListShopsQueryInput,
+    ListAuditLogsQueryInput,
+    createShopSchema,
+    updateShopSchema
+} from './admin.validation.js';
 
 export class AdminService {
     /**
@@ -31,7 +20,8 @@ export class AdminService {
             SELECT 
                 COUNT(*) as total_shops,
                 COUNT(*) FILTER (WHERE status = 'active') as active_shops,
-                COUNT(*) FILTER (WHERE status = 'suspended') as suspended_shops
+                COUNT(*) FILTER (WHERE status = 'suspended') as suspended_shops,
+                COUNT(*) FILTER (WHERE status = 'archived') as archived_shops
             FROM tenants
         `);
 
@@ -50,6 +40,7 @@ export class AdminService {
             totalShops: parseInt(shopsRes.rows[0].total_shops, 10),
             activeShops: parseInt(shopsRes.rows[0].active_shops, 10),
             suspendedShops: parseInt(shopsRes.rows[0].suspended_shops, 10),
+            archivedShops: parseInt(shopsRes.rows[0].archived_shops, 10),
             totalRevenue: parseInt(revenueRes.rows[0].total_confirmed_revenue, 10),
             totalSettlements: parseInt(revenueRes.rows[0].total_settlements, 10),
             totalOrders: parseInt(ordersRes.rows[0].total_orders, 10)
@@ -57,39 +48,91 @@ export class AdminService {
     }
 
     /**
-     * List shops with search and status filtering
+     * List shops with search, status filtering, bounded pagination and stable sort.
+     * Guarantees exactly one record per tenant using LATERAL join for owner.
      */
-    static async listShops(search?: string, status?: string) {
-        let sql = `
+    static async listShops(input: ListShopsQueryInput) {
+        const page = Math.max(1, input.page);
+        const limit = Math.min(100, Math.max(1, input.limit));
+        const offset = (page - 1) * limit;
+
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+
+        if (input.status && input.status !== 'all') {
+            params.push(input.status);
+            whereClauses.push(`t.status = $${params.length}`);
+        }
+
+        if (input.search && input.search.trim()) {
+            params.push(`%${input.search.trim().toLowerCase()}%`);
+            whereClauses.push(
+                `(LOWER(t.name) LIKE $${params.length} OR LOWER(t.slug) LIKE $${params.length} OR LOWER(COALESCE(owner.email, '')) LIKE $${params.length})`
+            );
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        // 1. Total count query
+        const countSql = `
+            SELECT COUNT(t.id) as total
+            FROM tenants t
+            LEFT JOIN LATERAL (
+                SELECT u.email
+                FROM memberships m
+                JOIN users u ON u.id = m.user_id
+                WHERE m.tenant_id = t.id AND m.role = 'owner'
+                ORDER BY m.created_at ASC, m.id ASC
+                LIMIT 1
+            ) owner ON true
+            WHERE ${whereSql}
+        `;
+        const countRes = await query(countSql, params);
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        // 2. Determine sort order
+        const orderDirection = input.order === 'asc' ? 'ASC' : 'DESC';
+        let orderByClause = `t.created_at ${orderDirection}, t.id ${orderDirection}`;
+        if (input.sortBy === 'name') {
+            orderByClause = `t.name ${orderDirection}, t.id ${orderDirection}`;
+        } else if (input.sortBy === 'revenue') {
+            orderByClause = `total_revenue ${orderDirection}, t.id ${orderDirection}`;
+        } else if (input.sortBy === 'orders') {
+            orderByClause = `order_count ${orderDirection}, t.id ${orderDirection}`;
+        }
+
+        // 3. Data query with pagination parameters
+        const dataParams = [...params];
+        dataParams.push(limit);
+        const limitParamIndex = dataParams.length;
+        dataParams.push(offset);
+        const offsetParamIndex = dataParams.length;
+
+        const dataSql = `
             SELECT 
                 t.id, t.name, t.slug, t.status, t.phone, t.address,
                 t.active_template_id, t.active_published_version,
                 t.created_at, t.updated_at,
-                u.id as owner_id, u.email as owner_email, u.full_name as owner_name,
+                owner.id as owner_id, owner.email as owner_email, owner.full_name as owner_name,
                 (SELECT COUNT(*) FROM tables tbl WHERE tbl.tenant_id = t.id) as table_count,
                 (SELECT COUNT(*) FROM orders o WHERE o.tenant_id = t.id) as order_count,
                 (SELECT COALESCE(SUM(amount), 0) FROM manual_settlement_confirmations msc WHERE msc.tenant_id = t.id) as total_revenue
             FROM tenants t
-            LEFT JOIN memberships m ON m.tenant_id = t.id AND m.role = 'owner'
-            LEFT JOIN users u ON u.id = m.user_id
-            WHERE 1=1
+            LEFT JOIN LATERAL (
+                SELECT u.id, u.email, u.full_name
+                FROM memberships m
+                JOIN users u ON u.id = m.user_id
+                WHERE m.tenant_id = t.id AND m.role = 'owner'
+                ORDER BY m.created_at ASC, m.id ASC
+                LIMIT 1
+            ) owner ON true
+            WHERE ${whereSql}
+            ORDER BY ${orderByClause}
+            LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
         `;
-        const params: any[] = [];
 
-        if (status && status !== 'all') {
-            params.push(status);
-            sql += ` AND t.status = $${params.length}`;
-        }
-
-        if (search && search.trim()) {
-            params.push(`%${search.trim().toLowerCase()}%`);
-            sql += ` AND (LOWER(t.name) LIKE $${params.length} OR LOWER(t.slug) LIKE $${params.length} OR LOWER(COALESCE(u.email, '')) LIKE $${params.length})`;
-        }
-
-        sql += ` ORDER BY t.created_at DESC`;
-
-        const res = await query(sql, params);
-        return res.rows.map(row => ({
+        const dataRes = await query(dataSql, dataParams);
+        const shops = dataRes.rows.map(row => ({
             id: row.id,
             name: row.name,
             slug: row.slug,
@@ -99,6 +142,7 @@ export class AdminService {
             activeTemplateId: row.active_template_id,
             activePublishedVersion: row.active_published_version,
             createdAt: row.created_at,
+            updatedAt: row.updated_at,
             owner: row.owner_id ? {
                 id: row.owner_id,
                 email: row.owner_email,
@@ -108,24 +152,86 @@ export class AdminService {
             orderCount: parseInt(row.order_count || '0', 10),
             totalRevenue: parseInt(row.total_revenue || '0', 10)
         }));
+
+        return {
+            shops,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit) || 1
+            }
+        };
     }
 
     /**
-     * Create a new shop along with its owner, draft and default tables
+     * Get detail of a single shop
+     */
+    static async getShopDetail(tenantId: string) {
+        const sql = `
+            SELECT 
+                t.id, t.name, t.slug, t.status, t.phone, t.address, t.description,
+                t.active_template_id, t.active_published_version,
+                t.created_at, t.updated_at,
+                owner.id as owner_id, owner.email as owner_email, owner.full_name as owner_name, owner.phone as owner_phone,
+                (SELECT COUNT(*) FROM tables tbl WHERE tbl.tenant_id = t.id) as table_count,
+                (SELECT COUNT(*) FROM orders o WHERE o.tenant_id = t.id) as order_count,
+                (SELECT COALESCE(SUM(amount), 0) FROM manual_settlement_confirmations msc WHERE msc.tenant_id = t.id) as total_revenue
+            FROM tenants t
+            LEFT JOIN LATERAL (
+                SELECT u.id, u.email, u.full_name, u.phone
+                FROM memberships m
+                JOIN users u ON u.id = m.user_id
+                WHERE m.tenant_id = t.id AND m.role = 'owner'
+                ORDER BY m.created_at ASC, m.id ASC
+                LIMIT 1
+            ) owner ON true
+            WHERE t.id = $1
+        `;
+
+        const res = await query(sql, [tenantId]);
+        if (res.rows.length === 0) {
+            throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy nhà hàng');
+        }
+
+        const row = res.rows[0];
+        return {
+            id: row.id,
+            name: row.name,
+            slug: row.slug,
+            status: row.status,
+            phone: row.phone,
+            address: row.address,
+            description: row.description,
+            activeTemplateId: row.active_template_id,
+            activePublishedVersion: row.active_published_version,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            owner: row.owner_id ? {
+                id: row.owner_id,
+                email: row.owner_email,
+                fullName: row.owner_name,
+                phone: row.owner_phone
+            } : null,
+            metrics: {
+                tableCount: parseInt(row.table_count || '0', 10),
+                orderCount: parseInt(row.order_count || '0', 10),
+                totalRevenue: parseInt(row.total_revenue || '0', 10)
+            }
+        };
+    }
+
+    /**
+     * Create a new shop along with owner, default draft, tables, and categories transactionally.
      */
     static async createShop(input: CreateShopInput, createdBySuperAdminId: string) {
-        input = validate(z.object({
-            name: z.string().trim().min(1).max(200), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100),
-            phone: z.string().max(30).optional(), address: z.string().max(1000).optional(),
-            ownerEmail: z.string().trim().email().max(254).transform(v => v.toLowerCase()),
-            ownerFullName: z.string().trim().min(1).max(200),
-            ownerPassword: z.string().min(8).refine(v => Buffer.byteLength(v) <= 72)
-        }).strict(), input);
+        input = validate(createShopSchema, input);
+
         return await withTransaction(async (client) => {
             // Check slug uniqueness
             const slugCheck = await client.query('SELECT id FROM tenants WHERE slug = $1', [input.slug]);
             if (slugCheck.rows.length > 0) {
-                throw new Error(`Đường dẫn slug "${input.slug}" đã được sử dụng bởi quán khác`);
+                throw new AdminApiError(400, 'BAD_REQUEST', `Đường dẫn slug "${input.slug}" đã được sử dụng bởi quán khác`);
             }
 
             // 1. Create Tenant
@@ -138,10 +244,8 @@ export class AdminService {
             const tenant = tenantRes.rows[0];
             const tenantId = tenant.id;
 
-            // 2. Create or find Owner User
-            const password = input.ownerPassword!;
-            const passwordHash = await bcrypt.hash(password, 10);
-
+            // 2. Create or find Owner User (preserve existing user's password if already registered)
+            const passwordHash = await bcrypt.hash(input.ownerPassword, 10);
             const userRes = await client.query(`
                 INSERT INTO users (email, password_hash, full_name, phone)
                 VALUES ($1, $2, $3, $4)
@@ -199,14 +303,15 @@ export class AdminService {
                     ($1, 'Đồ Uống & Tráng Miệng', 2)
             `, [tenantId]);
 
-            // 7. Record Super Admin Audit Log
+            // 7. Record Super Admin Audit Log (sanitized, NO passwords or hashes)
             await client.query(`
                 INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
                 VALUES ($1, $2, 'SUPER_ADMIN_CREATE_SHOP', 'tenant', $3, $4)
             `, [tenantId, createdBySuperAdminId, tenantId, JSON.stringify({
                 name: input.name,
                 slug: input.slug,
-                ownerEmail: input.ownerEmail
+                ownerEmail: input.ownerEmail,
+                ownerFullName: input.ownerFullName
             })]);
 
             return {
@@ -220,22 +325,41 @@ export class AdminService {
     }
 
     /**
-     * Update shop details or status (e.g. suspend or activate)
+     * Update shop details or status (e.g. suspend, activate, archive)
      */
     static async updateShop(tenantId: string, input: UpdateShopInput, adminUserId: string) {
-        validate(z.enum(['draft', 'active', 'suspended', 'archived']).optional(), input.status);
-        validate(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100).optional(), input.slug);
+        input = validate(updateShopSchema, input);
+
         return await withTransaction(async (client) => {
             const currentRes = await client.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
             if (currentRes.rows.length === 0) {
-                throw new Error('Không tìm thấy quán');
+                throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy nhà hàng');
             }
             const current = currentRes.rows[0];
 
             if (input.slug && input.slug !== current.slug) {
-                const slugCheck = await client.query('SELECT id FROM tenants WHERE slug = $1 AND id != $2', [input.slug, tenantId]);
+                const slugCheck = await client.query(
+                    'SELECT id FROM tenants WHERE slug = $1 AND id != $2',
+                    [input.slug, tenantId]
+                );
                 if (slugCheck.rows.length > 0) {
-                    throw new Error(`Slug "${input.slug}" đã bị trùng với quán khác`);
+                    throw new AdminApiError(400, 'BAD_REQUEST', `Đường dẫn slug "${input.slug}" đã bị trùng với quán khác`);
+                }
+            }
+
+            // Prevent archiving tenant if there are open table sessions (Release 54 coordination)
+            if (input.status === 'archived') {
+                const openSessionsCheck = await client.query(
+                    "SELECT COUNT(*) as count FROM table_sessions WHERE tenant_id = $1 AND status = 'OPEN'",
+                    [tenantId]
+                );
+                const openCount = parseInt(openSessionsCheck.rows[0]?.count || '0', 10);
+                if (openCount > 0) {
+                    throw new AdminApiError(
+                        400,
+                        'CANNOT_ARCHIVE_ACTIVE_SESSIONS',
+                        `Không thể lưu trữ quán khi vẫn còn ${openCount} phiên bàn đang mở (OPEN). Vui lòng hoàn tất thanh toán hoặc đóng các phiên trước khi lưu trữ.`
+                    );
                 }
             }
 
@@ -250,16 +374,34 @@ export class AdminService {
                 UPDATE tenants
                 SET name = $1, slug = $2, status = $3, phone = $4, address = $5, description = $6, updated_at = NOW()
                 WHERE id = $7
-                RETURNING *
+                RETURNING id, name, slug, status, phone, address, description, active_template_id, active_published_version, created_at, updated_at
             `, [updatedName, updatedSlug, updatedStatus, updatedPhone, updatedAddress, updatedDesc, tenantId]);
 
-            // Audit log
+            const action = input.status && input.status !== current.status
+                ? 'SUPER_ADMIN_STATUS_CHANGE'
+                : 'SUPER_ADMIN_UPDATE_SHOP';
+
+            // Audit log with structured diff (sanitized)
             await client.query(`
                 INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
-                VALUES ($1, $2, 'SUPER_ADMIN_UPDATE_SHOP', 'tenant', $3, $4)
-            `, [tenantId, adminUserId, tenantId.toString(), JSON.stringify({
-                previous: { name: current.name, status: current.status, slug: current.slug },
-                updated: { name: updatedName, status: updatedStatus, slug: updatedSlug }
+                VALUES ($1, $2, $3, 'tenant', $4, $5)
+            `, [tenantId, adminUserId, action, tenantId.toString(), JSON.stringify({
+                previous: {
+                    name: current.name,
+                    slug: current.slug,
+                    status: current.status,
+                    phone: current.phone,
+                    address: current.address,
+                    description: current.description
+                },
+                updated: {
+                    name: updatedName,
+                    slug: updatedSlug,
+                    status: updatedStatus,
+                    phone: updatedPhone,
+                    address: updatedAddress,
+                    description: updatedDesc
+                }
             })]);
 
             return updateRes.rows[0];
@@ -275,15 +417,53 @@ export class AdminService {
             FROM cms_templates
             ORDER BY created_at ASC
         `);
-        return res.rows;
+        return res.rows.map(row => ({
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            thumbnailUrl: row.thumbnail_url,
+            defaultBlocks: row.default_blocks,
+            editableFields: row.editable_fields,
+            isActive: row.is_active,
+            createdAt: row.created_at
+        }));
     }
 
     /**
-     * List audit logs with pagination
+     * List audit logs with bounded pagination and filtering
      */
-    static async listAuditLogs(limit: number = 50) {
-        validate(z.number().int().min(1).max(200), limit);
-        const res = await query(`
+    static async listAuditLogs(input: ListAuditLogsQueryInput) {
+        const page = Math.max(1, input.page);
+        const limit = Math.min(100, Math.max(1, input.limit));
+        const offset = (page - 1) * limit;
+
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+
+        if (input.tenantId) {
+            params.push(input.tenantId);
+            whereClauses.push(`al.tenant_id = $${params.length}`);
+        }
+
+        if (input.action && input.action.trim()) {
+            params.push(input.action.trim());
+            whereClauses.push(`al.action = $${params.length}`);
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        // 1. Total count query
+        const countRes = await query(`SELECT COUNT(*) as total FROM audit_logs al WHERE ${whereSql}`, params);
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        // 2. Data query
+        const dataParams = [...params];
+        dataParams.push(limit);
+        const limitParamIndex = dataParams.length;
+        dataParams.push(offset);
+        const offsetParamIndex = dataParams.length;
+
+        const dataSql = `
             SELECT 
                 al.id, al.tenant_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
                 u.email as user_email, u.full_name as user_name,
@@ -291,9 +471,34 @@ export class AdminService {
             FROM audit_logs al
             LEFT JOIN users u ON u.id = al.user_id
             LEFT JOIN tenants t ON t.id = al.tenant_id
-            ORDER BY al.created_at DESC
-            LIMIT $1
-        `, [limit]);
-        return res.rows;
+            WHERE ${whereSql}
+            ORDER BY al.created_at DESC, al.id DESC
+            LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
+        `;
+
+        const dataRes = await query(dataSql, dataParams);
+        const logs = dataRes.rows.map(row => ({
+            id: row.id,
+            tenantId: row.tenant_id,
+            tenantName: row.tenant_name,
+            userId: row.user_id,
+            userName: row.user_name,
+            userEmail: row.user_email,
+            action: row.action,
+            resourceType: row.resource_type,
+            resourceId: row.resource_id,
+            details: row.details,
+            createdAt: row.created_at
+        }));
+
+        return {
+            logs,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit) || 1
+            }
+        };
     }
 }
