@@ -450,4 +450,146 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             });
         });
     });
+
+    // =========================================================================
+    // 8. TEMPLATES REGISTRY
+    // =========================================================================
+    describe('GET /api/v1/admin/templates', () => {
+        it('returns available layout templates', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/templates`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(Array.isArray(data.templates)).toBe(true);
+            expect(data.templates.length).toBeGreaterThanOrEqual(1);
+            const tpl = data.templates[0];
+            expect(tpl).toHaveProperty('id');
+            expect(tpl).toHaveProperty('name');
+            expect(tpl).toHaveProperty('defaultBlocks');
+        });
+    });
+
+    // =========================================================================
+    // 9. E2E FULL SHOP LIFECYCLE & LEDGER PRESERVATION
+    // =========================================================================
+    describe('E2E Full Shop Lifecycle & Zero Hard-Delete Ledger Preservation', () => {
+        it('executes full flow: create -> list -> detail -> update -> suspend -> reactivate -> archive and preserves ledger', async () => {
+            const flowSlug = `flow-shop-${Date.now()}`;
+
+            // Step 1: Create
+            const createRes = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    name: 'Quán E2E Flow',
+                    slug: flowSlug,
+                    phone: '0933445566',
+                    address: '777 Đường Láng, Hà Nội',
+                    ownerFullName: 'Chủ Quán E2E',
+                    ownerEmail: `flow.${Date.now()}@e2e.vn`,
+                    ownerPassword: 'FlowPassword123!'
+                })
+            });
+            expect(createRes.status).toBe(201);
+            const createData: any = await createRes.json();
+            const shopId = createData.shop.id;
+            expect(shopId).toBeDefined();
+
+            // Step 2: List with search
+            const listRes = await fetch(`${baseUrl}/api/v1/admin/shops?search=${flowSlug}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(listRes.status).toBe(200);
+            const listData: any = await listRes.json();
+            expect(listData.shops.some((s: any) => s.id === shopId)).toBe(true);
+
+            // Step 3: Get Detail
+            const detailRes = await fetch(`${baseUrl}/api/v1/admin/shops/${shopId}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(detailRes.status).toBe(200);
+            const detailData: any = await detailRes.json();
+            expect(detailData.shop.id).toBe(shopId);
+            expect(detailData.shop.status).toBe('active');
+
+            // Step 4: Update metadata
+            const updateRes = await fetch(`${baseUrl}/api/v1/admin/shops/${shopId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    name: 'Quán E2E Flow Đã Đổi Tên',
+                    description: 'Mô tả mới được cập nhật'
+                })
+            });
+            expect(updateRes.status).toBe(200);
+            const updateData: any = await updateRes.json();
+            expect(updateData.shop.name).toBe('Quán E2E Flow Đã Đổi Tên');
+
+            // Step 5: Transition to Suspended
+            const suspendRes = await fetch(`${baseUrl}/api/v1/admin/shops/${shopId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({ status: 'suspended' })
+            });
+            expect(suspendRes.status).toBe(200);
+            const suspendData: any = await suspendRes.json();
+            expect(suspendData.shop.status).toBe('suspended');
+
+            // Step 6: Transition back to Active
+            const activateRes = await fetch(`${baseUrl}/api/v1/admin/shops/${shopId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({ status: 'active' })
+            });
+            expect(activateRes.status).toBe(200);
+            const activateData: any = await activateRes.json();
+            expect(activateData.shop.status).toBe('active');
+
+            // Step 7: Transition to Archived (Zero Hard-Delete)
+            const archiveRes = await fetch(`${baseUrl}/api/v1/admin/shops/${shopId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({ status: 'archived' })
+            });
+            expect(archiveRes.status).toBe(200);
+            const archiveData: any = await archiveRes.json();
+            expect(archiveData.shop.status).toBe('archived');
+
+            // Step 8: Verify Zero Hard-Delete in DB
+            const tenantInDb = await query('SELECT id, status FROM tenants WHERE id = $1', [shopId]);
+            expect(tenantInDb.rows.length).toBe(1);
+            expect(tenantInDb.rows[0].status).toBe('archived');
+
+            const tablesInDb = await query('SELECT COUNT(*) as count FROM tables WHERE tenant_id = $1', [shopId]);
+            expect(parseInt(tablesInDb.rows[0].count, 10)).toBe(5);
+
+            // Step 9: Verify audit trail
+            const auditTrail = await query(
+                'SELECT action FROM audit_logs WHERE tenant_id = $1 ORDER BY created_at ASC',
+                [shopId]
+            );
+            expect(auditTrail.rows.length).toBeGreaterThanOrEqual(4);
+            const actions = auditTrail.rows.map(r => r.action);
+            expect(actions).toContain('SUPER_ADMIN_CREATE_SHOP');
+            expect(actions).toContain('SUPER_ADMIN_UPDATE_SHOP');
+            expect(actions).toContain('SUPER_ADMIN_STATUS_CHANGE');
+        });
+    });
 });

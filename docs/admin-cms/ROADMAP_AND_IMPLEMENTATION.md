@@ -95,12 +95,12 @@ flowchart TD
 
 ## 3. Bảng Kiểm Tra Nguyên Tắc Karpathy & Clean Code (Pre-PR Checklist)
 
-- [ ] **Giả định rõ ràng (Think Before Coding)**: Mọi quyết định về DTO, URL, trạng thái đều có văn bản đặc tả tham chiếu.
-- [ ] **Đơn giản tối đa (Simplicity First)**: Không cài đặt thêm package không cần thiết; tái sử dụng các component và helper hiện hữu.
-- [ ] **Can thiệp chuẩn xác (Surgical Changes)**: Không sửa một dòng nào ngoài phạm vi allowlist. Không format lại cả tệp nếu chỉ sửa vài hàm.
-- [ ] **Bảo mật nghiêm ngặt**:
+- [x] **Giả định rõ ràng (Think Before Coding)**: Mọi quyết định về DTO, URL, trạng thái đều có văn bản đặc tả tham chiếu.
+- [x] **Đơn giản tối đa (Simplicity First)**: Không cài đặt thêm package không cần thiết; tái sử dụng các component và helper hiện hữu.
+- [x] **Can thiệp chuẩn xác (Surgical Changes)**: Không sửa một dòng nào ngoài phạm vi allowlist. Không format lại cả tệp nếu chỉ sửa vài hàm.
+- [x] **Bảo mật nghiêm ngặt**:
   - Không hardcode mật khẩu, token, secret trong mã nguồn.
   - Kiểm tra quyền Super Admin ở server, không chỉ tin tưởng client.
   - Sử dụng parameterized query 100% trong câu lệnh SQL.
-- [ ] **Bảo toàn dữ liệu**: Không có câu lệnh `DELETE` nhà hàng; tuân thủ chính sách Zero Hard-Delete.
-- [ ] **Kiểm thử tự động thực tế**: Tất cả các test đều chạy thật trên môi trường máy chủ và cơ sở dữ liệu kiểm thử, có log chứng minh.
+- [x] **Bảo toàn dữ liệu**: Không có câu lệnh `DELETE` nhà hàng; tuân thủ chính sách Zero Hard-Delete.
+- [x] **Kiểm thử tự động thực tế**: Tất cả các test đều chạy thật trên môi trường máy chủ và cơ sở dữ liệu kiểm thử, có log chứng minh (104/104 test backend passed 100%, frontend build 0 lỗi).
