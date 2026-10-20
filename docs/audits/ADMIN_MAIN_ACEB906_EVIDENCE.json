@@ -1,0 +1,24 @@
+{
+  "head": "aceb9066b6819e28232517bcc402d0390d80fff5",
+  "scope": "isolated local qr_order_test database; no production login or writes",
+  "existingEmail": {
+    "linkedExistingId": true,
+    "membershipRole": "owner",
+    "originalPasswordPreserved": true,
+    "newInitialPasswordWorks": false
+  },
+  "qr": {
+    "createdCount": 5,
+    "allPredictable": true
+  },
+  "detailContract": {
+    "metricsTableCount": 5,
+    "topLevelTableCount": null,
+    "drawerTopLevelExpression": 0
+  },
+  "audit": {
+    "createdCount": 1,
+    "actorEmailPresent": true,
+    "actorIdPresent": false
+  }
+}
