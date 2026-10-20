@@ -1,0 +1,24 @@
+{
+  "published_for": "dothuongton/order_app",
+  "note": "Spec gốc giữ nguyên byte; trạng thái triển khai và quyết định nằm ngoài spec.",
+  "sources": [
+    {
+      "source_filename": "README (2).md",
+      "repo_path": "docs/specs/GAERU_SOFT_V4_MASTER.md",
+      "sha256": "b5e25d3cc382c4208a1996544d6e2585dc7c5ecd509a6fe3b2729a159150c08d"
+    },
+    {
+      "source_filename": "GAERU_V4_TABLE_ORDER_ADDENDUM.md",
+      "repo_path": "docs/specs/GAERU_V4_TABLE_ORDER_ADDENDUM.md",
+      "sha256": "3f9906ebbc069db897db766934ff8902f92394b9c6f946eb48b71d404442d7c7"
+    },
+    {
+      "repo": "https://github.com/multica-ai/andrej-karpathy-skills",
+      "commit": "2c606141936f1eeef17fa3043a72095b4765b9c2",
+      "upstream_path": "skills/karpathy-guidelines/SKILL.md",
+      "repo_path": ".agents/skills/karpathy-guidelines/SKILL.md",
+      "license_declared_in_upstream": "MIT",
+      "sha256": "6e22cc54cb02a5e98ae42d06d9d7292db0c1b43894831b32879beb0166b2aea7"
+    }
+  ]
+}
