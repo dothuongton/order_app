@@ -1,3 +1,16 @@
+# GAERU SOFT — Đặc tả V4 và code QR Order hiện tại
+
+**Hệ thống đích:** [GAERU SOFT V4 Master](docs/specs/GAERU_SOFT_V4_MASTER.md) + [Bổ sung order tại bàn](docs/specs/GAERU_V4_TABLE_ORDER_ADDENDUM.md), do chủ dự án cung cấp, được lưu nguyên văn.
+
+- Bắt đầu tại [docs/specs](docs/specs/README.md): thứ tự đọc, sai khác với code hiện tại và nguồn tài liệu.
+- Theo dõi [25 module V4 và khoảng trống triển khai](docs/specs/V4_IMPLEMENTATION_MAP.md). Vá core/CMS hiện tại không đồng nghĩa hoàn tất V4.
+- Quy tắc cộng tác: [AGENTS.md](AGENTS.md); [Karpathy skill trong repo](.agents/skills/karpathy-guidelines/SKILL.md), ghim nguồn và phiên bản.
+- [EpicV4#50](https://github.com/dothuongton/order_app/issues/50) và [Sprint0#51](https://github.com/dothuongton/order_app/issues/51) theo dõi hệthốngđích; [#2](https://github.com/dothuongton/order_app/issues/2) chia ownership, [#24](https://github.com/dothuongton/order_app/issues/24) theo dõi core review, [#35](https://github.com/dothuongton/order_app/issues/35) chứa đánh giá Muse và kế hoạch liên quan. Spec Muse là đề xuất đối chiếu, không thay master/addendum.
+
+Phần dưới giữ README của bản QRv1.2 để tra cứu code/cách chạy hiện hữu. Các giới hạn v1.2 không phải quyết định loại bỏ tính năng trong đặc tả V4. Trạng thái thực tế phải xem code/issue và bằng chứng review.
+
+---
+
 # QR Ordering PWA Multi-Tenant — v1.2
 
 Hệ thống gọi món qua mã QR tại bàn dành cho nhà hàng/quán ăn (Multi-tenant), thiết kế Mobile-First theo tài liệu **Phân tích và Đặc tả v1.2**.
