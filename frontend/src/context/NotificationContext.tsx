@@ -26,8 +26,8 @@ interface NotificationContextType {
   requestWakeLock: () => Promise<void>;
   releaseWakeLock: () => void;
   toggleWakeLock: () => void;
-  playOrderSound: (tableName?: string) => void;
-  playAlertSound: (tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE') => void;
+  playOrderSound: (tableName?: string, eventId?: string) => void;
+  playAlertSound: (tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE', eventId?: string) => void;
   playSuccessSound: () => void;
   testSound: () => void;
   toasts: ToastNotification[];
@@ -491,8 +491,27 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [removeToast]);
 
+  // Deduplication cache for events shared between Socket.IO and Service Worker (60s TTL)
+  const processedEventsRef = useRef<Map<string, number>>(new Map());
+
+  const shouldProcessEvent = useCallback((eventId?: string): boolean => {
+    if (!eventId) return true;
+    const now = Date.now();
+    for (const [id, timestamp] of processedEventsRef.current.entries()) {
+      if (now - timestamp > 60000) {
+        processedEventsRef.current.delete(id);
+      }
+    }
+    if (processedEventsRef.current.has(eventId)) {
+      return false; // Duplicate dropped
+    }
+    processedEventsRef.current.set(eventId, now);
+    return true;
+  }, []);
+
   // 1. New Order Notification (Dual Chime + Voice)
-  const playOrderSound = useCallback((tableName?: string) => {
+  const playOrderSound = useCallback((tableName?: string, eventId?: string) => {
+    if (eventId && !shouldProcessEvent(eventId)) return;
     if (soundMode === 'off') return;
 
     // 1. ALWAYS play the loud chime tone first (guarantees sound is heard even if TTS is unavailable/slow or screen is off)
@@ -505,10 +524,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         speakVietnamese(`${spokenTable} vừa đặt món`);
       }, 350);
     }
-  }, [soundMode, speakVietnamese, playOrderSoundTone]);
+  }, [soundMode, speakVietnamese, playOrderSoundTone, shouldProcessEvent]);
 
   // 2. Service Request Notification (Dual Chime + Voice)
-  const playAlertSound = useCallback((tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE') => {
+  const playAlertSound = useCallback((tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE', eventId?: string) => {
+    if (eventId && !shouldProcessEvent(eventId)) return;
     if (soundMode === 'off') return;
 
     // 1. ALWAYS play the alert tone first
@@ -524,7 +544,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         speakVietnamese(prompt);
       }, 350);
     }
-  }, [soundMode, speakVietnamese, playAlertSoundTone]);
+  }, [soundMode, speakVietnamese, playAlertSoundTone, shouldProcessEvent]);
 
   // 3. Success Sound
   const playSuccessSound = useCallback(() => {
@@ -547,14 +567,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const handleSwMessage = (event: MessageEvent) => {
       if (event.data?.type === 'PUSH_ORDER_EVENT') {
         const payload = event.data.payload || {};
-        const eventType = payload.data?.type || payload.type;
-        const tableName = payload.data?.tableName || payload.tableName;
-        const requestType = payload.data?.requestType;
+        const data = payload.data || {};
+        const eventType = data.type || payload.type;
+        const tableName = data.tableName || payload.tableName;
+        const requestType = data.requestType || payload.requestType;
+        const eventId = data.eventId || payload.eventId || payload.tag;
 
         if (eventType === 'order.created') {
-          playOrderSound(tableName);
+          playOrderSound(tableName, eventId);
         } else if (eventType === 'service_request.created') {
-          playAlertSound(tableName, requestType);
+          playAlertSound(tableName, requestType, eventId);
         }
       }
     };

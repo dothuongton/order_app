@@ -112,6 +112,11 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
                   <span className="text-xs font-black text-amber-800">Cần cài vào Màn hình chính</span>
                 </>
+              ) : state === 'sync_error' ? (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span className="text-xs font-black text-amber-800">Lỗi đồng bộ máy chủ</span>
+                </>
               ) : state === 'denied' ? (
                 <>
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>

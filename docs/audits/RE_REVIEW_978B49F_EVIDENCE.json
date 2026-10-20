@@ -1,0 +1,66 @@
+{
+  "head": "978b49f",
+  "results": [
+    {
+      "id": "cancelled-first-promotion",
+      "quote": 40000,
+      "pay": 200,
+      "reloaded": 40000,
+      "retry": 400,
+      "message": "Đã xác nhận thanh toán 40.000đ và kết thúc phiên bàn a26bde15-d9e5-4b2e-bf0c-fce5bb39e571"
+    },
+    {
+      "id": "multiple-attached-cap",
+      "quote": 100000,
+      "pay": 409,
+      "error": "PROMOTION_EXHAUSTED",
+      "reloaded": 100000,
+      "retry": 409,
+      "retryError": "PROMOTION_EXHAUSTED",
+      "sessionStatus": "OPEN"
+    },
+    {
+      "id": "archived-accepted-session",
+      "dashboard": 200,
+      "serve": 200,
+      "settle": 200
+    },
+    {
+      "id": "lane-bypass",
+      "coreOnSangFile": {
+        "valid": false,
+        "violations": [
+          "Core lane violation: Core cannot touch Super Admin lane file: backend/src/modules/admin/admin.service.ts"
+        ]
+      },
+      "unknownOnCoreFile": {
+        "valid": false,
+        "violations": [
+          "Lane detection error: Unknown or unauthorized lane identifier \"unknown-user my-core-work \". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity)."
+        ]
+      },
+      "sangOwnedApi": {
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "id": "seed-default-preservation",
+      "markerPreserved": true
+    }
+  ],
+  "workflowMetadata": [
+    {
+      "PR_AUTHOR": "SangVuxx",
+      "PR_LABELS": "lane:core",
+      "exitCode": 0,
+      "output": "✅ File boundaries and diff hygiene checks passed successfully.\n"
+    },
+    {
+      "PR_AUTHOR": "dothuongton",
+      "PR_LABELS": "priority:P1",
+      "exitCode": 1,
+      "output": "❌ File Boundary Violation:\n  - Lane detection error: Unknown or unauthorized lane identifier \"priority:P1\". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity).\n"
+    }
+  ]
+}

@@ -28,21 +28,44 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
         const totalConfirmedAmount = Number(confirmedRes.rows[0].total_confirmed_amount);
         const averageOrderValue = confirmedSessionsCount > 0 ? Math.round(totalConfirmedAmount / confirmedSessionsCount) : 0;
 
-        // 2. Count served items across all served parts in this restaurant
+        // 2. Count served items across all served parts in this restaurant (with net settlement discount reconciliation)
         const servedItemsRes = await query(`
-            WITH served_lines AS (
-                SELECT oi.id, oi.snapshot_name, oi.snapshot_price, oi.quantity,
-                       oi.discount_amount, SUM(oip.quantity) as served_quantity
+            WITH confirmed_lines AS (
+                SELECT 
+                    bl.item_name,
+                    SUM(bl.quantity_served) as qty,
+                    SUM(bl.quantity_served * bl.unit_price) as gross,
+                    SUM(bl.subtotal) as net
+                FROM bill_lines bl
+                JOIN bills b ON b.id = bl.bill_id
+                WHERE b.tenant_id = $1 AND b.status = 'CONFIRMED'
+                GROUP BY bl.item_name
+            ),
+            open_lines AS (
+                SELECT 
+                    oi.snapshot_name as item_name,
+                    SUM(oip.quantity) as qty,
+                    SUM(oip.quantity * oi.snapshot_price) as gross,
+                    SUM(oip.quantity * oi.snapshot_price) as net
                 FROM order_item_parts oip
                 JOIN order_items oi ON oi.id = oip.order_item_id
                 JOIN orders o ON o.id = oi.order_id
-                WHERE o.tenant_id = $1 AND oip.status = 'SERVED'
-                GROUP BY oi.id
+                JOIN table_sessions ts ON ts.id = o.session_id
+                WHERE o.tenant_id = $1 AND ts.status = 'OPEN' AND oip.status = 'SERVED'
+                GROUP BY oi.snapshot_name
+            ),
+            combined AS (
+                SELECT item_name, qty, gross, net FROM confirmed_lines
+                UNION ALL
+                SELECT item_name, qty, gross, net FROM open_lines
             )
-            SELECT snapshot_name as item_name, SUM(served_quantity) as total_served,
-                   SUM(served_quantity * snapshot_price - FLOOR(discount_amount::numeric * served_quantity / quantity)) as total_amount
-            FROM served_lines
-            GROUP BY snapshot_name
+            SELECT 
+                item_name,
+                SUM(qty) as total_served,
+                SUM(gross) as gross_amount,
+                SUM(net) as total_amount
+            FROM combined
+            GROUP BY item_name
             ORDER BY total_served DESC
             LIMIT 15
         `, [staff.tenantId]);

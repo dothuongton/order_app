@@ -426,14 +426,18 @@ CREATE TABLE IF NOT EXISTS promotions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. Promotion Redemptions (Theo dõi lượt sử dụng khuyến mãi atomic)
+-- 7. Promotion Redemptions (Theo dõi lượt sử dụng khuyến mãi atomic & snapshot)
 CREATE TABLE IF NOT EXISTS promotion_redemptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL,
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
     session_id UUID NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
     discount_amount BIGINT NOT NULL,
+    snapshot_title VARCHAR(255),
+    snapshot_code VARCHAR(64),
+    snapshot_discount_type VARCHAR(32),
+    snapshot_discount_value BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -464,3 +468,15 @@ CREATE TABLE IF NOT EXISTS uploaded_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_uploaded_images_tenant ON uploaded_images(tenant_id);
+-- 10. Revoked Staff Tokens & Schema Migrations Tracking
+CREATE TABLE IF NOT EXISTS revoked_staff_tokens (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_revoked_staff_tokens_expiry ON revoked_staff_tokens (expires_at);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename VARCHAR(255) PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

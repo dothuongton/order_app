@@ -170,18 +170,32 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     setActionError(null);
     try {
       if (billSummary.unresolvedCount > 0) {
-        // Automatically accept and serve any remaining items before settlement
-        await request(`/staff/sessions/${table.active_session_id}/accept-all`, { method: 'POST' }).catch(() => {});
-        await request(`/staff/sessions/${table.active_session_id}/serve-all`, { method: 'POST' }).catch(() => {});
+        setActionError('Còn món chưa được tiếp nhận hoặc phục vụ. Vui lòng hoàn tất hoặc hủy trước khi chốt hóa đơn.');
+        setIsSettling(false);
+        return;
       }
 
-      // Re-fetch latest summary to get updated settlementVersion if items were served
-      const latestSummary = await request<any>(`/staff/sessions/${table.active_session_id}/bill-summary`).catch(() => billSummary);
+      // Capture the exact amount and version the staff viewed on screen
+      const displayedAmount = billSummary.validBillTotal;
+      const displayedVersion = billSummary.settlementVersion;
+
+      // Verify with server summary to prevent closing on stale data without re-confirmation
+      const latestSummary = await request<any>(`/staff/sessions/${table.active_session_id}/bill-summary`).catch(() => null);
+      if (latestSummary && (latestSummary.validBillTotal !== displayedAmount || latestSummary.settlementVersion !== displayedVersion)) {
+        await loadSessionData();
+        setShowConfirmSettlement(false);
+        setActionError(
+          `Số tiền thanh toán hoặc thông tin đơn đã thay đổi (từ ${displayedAmount.toLocaleString('vi-VN')}đ sang ${(latestSummary.validBillTotal ?? 0).toLocaleString('vi-VN')}đ). Vui lòng kiểm tra và xác nhận lại hóa đơn mới.`
+        );
+        setIsSettling(false);
+        return;
+      }
 
       await request(`/staff/sessions/${table.active_session_id}/confirm-payment-and-close`, {
         method: 'POST',
         body: JSON.stringify({
-          settlementVersion: latestSummary?.settlementVersion || billSummary.settlementVersion,
+          settlementVersion: displayedVersion,
+          expectedAmount: displayedAmount,
           note: settlementNote.trim() || undefined,
           requestId: `pay-${Date.now()}`
         })
@@ -190,7 +204,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       onRefresh();
       onClose();
     } catch (err: any) {
-      setActionError(err.message || 'Lỗi xác nhận thanh toán');
+      if (err.code === 'PRICE_CHANGED' || err.code === 'PROMOTION_EXHAUSTED' || err.status === 409 || err.message?.includes('thay đổi') || err.message?.includes('hết lượt')) {
+        await loadSessionData();
+        setShowConfirmSettlement(false);
+        setActionError(err.message || 'Số tiền thanh toán hoặc khuyến mãi đã thay đổi. Vui lòng kiểm tra và xác nhận lại hóa đơn mới.');
+      } else {
+        setActionError(err.message || 'Lỗi xác nhận thanh toán');
+      }
       setIsSettling(false);
     }
   };

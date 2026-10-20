@@ -11,6 +11,7 @@ export interface StaffUser {
     tenantId: string;
     tenantName?: string;
     tenantSlug?: string;
+    tenantStatus?: string;
     logoUrl?: string | null;
     coverUrl?: string | null;
     description?: string | null;
@@ -70,7 +71,7 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             SELECT 
                 u.id, u.email, u.full_name, u.is_platform_admin,
                 m.tenant_id, m.role, m.permissions, m.is_active,
-                t.name as tenant_name, t.slug as tenant_slug,
+                t.name as tenant_name, t.slug as tenant_slug, t.status as tenant_status,
                 t.logo_url as tenant_logo_url, t.cover_url as tenant_cover_url,
                 t.description as tenant_description, t.phone as tenant_phone,
                 t.address as tenant_address, t.opening_hours as tenant_opening_hours
@@ -88,6 +89,74 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
         }
 
         const row = resMem.rows[0];
+        const tenantStatus = (row.tenant_status || 'active').toLowerCase();
+
+        // Enforce tenant lifecycle status for staff (Issue #6 / Issue #19)
+        if (tenantStatus === 'archived') {
+            const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+            const pathToCheck = (req.originalUrl || req.path).split('?')[0];
+
+            if (isMutation) {
+                const isExistingSessionResolution =
+                    // 1. Session payment, close, and bulk serving/acceptance (Issue #6, #19)
+                    /\/sessions\/[^/]+\/(confirm-payment-and-close|close-without-charge|serve-all|accept-all)$/.test(pathToCheck) ||
+                    // 2. Existing order item handling
+                    /\/order-items\/[^/]+\/(accept|serve|cancel)$/.test(pathToCheck) ||
+                    // 3. Service request handling
+                    /\/service-requests\/[^/]+\/(accept|complete|cancel)$/.test(pathToCheck) ||
+                    // 4. Marking table ready after session closed
+                    /\/tables\/[^/]+\/mark-ready$/.test(pathToCheck) ||
+                    // 5. Auth logout
+                    pathToCheck.endsWith('/auth/logout');
+
+                if (!isExistingSessionResolution) {
+                    return res.status(403).json({
+                        error: 'SHOP_ARCHIVED',
+                        message: 'Quán ăn này đã được đưa vào lưu trữ và ngừng hoạt động hoàn toàn'
+                    });
+                }
+            } else {
+                // Allow reading dashboard snapshot, tables, session orders and bill summary for settling lingering obligations
+                const isReadOnlyRecovery =
+                    /\/sessions\/[^/]+\/(bill-summary|orders)$/.test(pathToCheck) ||
+                    pathToCheck.endsWith('/dashboard/snapshot') ||
+                    pathToCheck.endsWith('/tables') ||
+                    /\/tables\/[^/]+$/.test(pathToCheck);
+
+                if (!isReadOnlyRecovery) {
+                    return res.status(403).json({
+                        error: 'SHOP_ARCHIVED',
+                        message: 'Quán ăn này đã được đưa vào lưu trữ và ngừng hoạt động hoàn toàn'
+                    });
+                }
+            }
+        }
+
+        if (tenantStatus === 'suspended') {
+            const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+            if (isMutation) {
+                const pathToCheck = (req.originalUrl || req.path).split('?')[0];
+                const isExistingSessionResolution =
+                    // 1. Session payment, close, and bulk serving (Issue #26 / R4)
+                    /\/sessions\/[^/]+\/(confirm-payment-and-close|close-without-charge|serve-all|accept-all)$/.test(pathToCheck) ||
+                    // 2. Existing order item handling
+                    /\/order-items\/[^/]+\/(accept|serve|cancel)$/.test(pathToCheck) ||
+                    // 3. Service request handling
+                    /\/service-requests\/[^/]+\/(accept|complete|cancel)$/.test(pathToCheck) ||
+                    // 4. Marking table ready after session closed
+                    /\/tables\/[^/]+\/mark-ready$/.test(pathToCheck) ||
+                    // 5. Auth logout
+                    pathToCheck.endsWith('/auth/logout');
+
+                if (!isExistingSessionResolution) {
+                    return res.status(403).json({
+                        error: 'SHOP_SUSPENDED',
+                        message: 'Quán đang tạm ngưng hoạt động. Thao tác tạo mới/sửa đổi bị tạm dừng (chỉ cho phép thu tiền và xử lý các bàn hiện hữu).'
+                    });
+                }
+            }
+        }
+
         req.staff = {
             id: row.id,
             email: row.email,
@@ -95,6 +164,7 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             tenantId: row.tenant_id,
             tenantName: row.tenant_name,
             tenantSlug: row.tenant_slug,
+            tenantStatus: tenantStatus,
             logoUrl: row.tenant_logo_url || null,
             coverUrl: row.tenant_cover_url || null,
             description: row.tenant_description || null,

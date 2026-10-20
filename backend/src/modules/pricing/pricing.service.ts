@@ -38,7 +38,101 @@ export interface CalculatedOrderPricing {
     } | null;
 }
 
+export interface SessionPromotionEvaluation {
+    selectedPromo: any | null;
+    discountAmount: number;
+    hadExhaustedAttachedPromo: any | null;
+}
+
 export class PricingService {
+    /**
+     * Unified session-level promotion evaluation used by both quote (getBillSummary)
+     * and settlement (confirmPaymentAndCloseSession).
+     * 
+     * Enforces identical eligibility and selection order:
+     * 1. If attachedPromoIds are present: iterates in order of attached promotions,
+     *    skipping promotions that fail time/min_order, tracking exhausted caps,
+     *    and selecting the first eligible promotion with non-zero discount.
+     * 2. If attachedPromoIds is empty: selects the single best deal among active promotions
+     *    where cap is not reached, breaking ties by priority.
+     */
+    static evaluateSessionPromotion(
+        rawTotal: number,
+        attachedPromoIds: string[],
+        promotions: any[]
+    ): SessionPromotionEvaluation {
+        let selectedPromo: any = null;
+        let discountAmount = 0;
+        let hadExhaustedAttachedPromo: any = null;
+
+        if (attachedPromoIds.length > 0) {
+            // Find first eligible attached promotion
+            for (const promoId of attachedPromoIds) {
+                const promo = promotions.find(p => p.id === promoId);
+                if (!promo) continue;
+
+                const isExhausted = promo.max_redemptions !== null && 
+                    Number(promo.current_redemptions) >= Number(promo.max_redemptions);
+                if (isExhausted) {
+                    if (!hadExhaustedAttachedPromo) {
+                        hadExhaustedAttachedPromo = promo;
+                    }
+                    continue; // Check subsequent attached promotions
+                }
+
+                const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                if (rawTotal >= minOrder) {
+                    const discValue = parseInt(promo.discount_value, 10);
+                    let calc = 0;
+                    if (promo.discount_type === 'PERCENT') {
+                        calc = Math.floor((rawTotal * discValue) / 100);
+                        if (promo.max_discount_amount) {
+                            calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+                        }
+                    } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                        calc = Math.min(discValue, rawTotal);
+                    }
+                    const calculatedDiscount = Math.max(0, Math.min(calc, rawTotal));
+                    if (calculatedDiscount > 0) {
+                        discountAmount = calculatedDiscount;
+                        selectedPromo = promo;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Find best qualifying tenant promotion where cap is not reached
+            for (const promo of promotions) {
+                if (promo.max_redemptions !== null && Number(promo.current_redemptions) >= Number(promo.max_redemptions)) {
+                    continue;
+                }
+                const minOrder = parseInt(promo.min_order_amount || '0', 10);
+                if (rawTotal < minOrder) continue;
+
+                const discValue = parseInt(promo.discount_value, 10);
+                let calc = 0;
+                if (promo.discount_type === 'PERCENT') {
+                    calc = Math.floor((rawTotal * discValue) / 100);
+                    if (promo.max_discount_amount) {
+                        calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
+                    }
+                } else if (promo.discount_type === 'FIXED_AMOUNT') {
+                    calc = Math.min(discValue, rawTotal);
+                }
+                calc = Math.max(0, Math.min(calc, rawTotal));
+                if (calc > discountAmount || (calc === discountAmount && calc > 0 && promo.priority > (selectedPromo?.priority || 0))) {
+                    discountAmount = calc;
+                    selectedPromo = promo;
+                }
+            }
+        }
+
+        return {
+            selectedPromo,
+            discountAmount,
+            hadExhaustedAttachedPromo
+        };
+    }
     /**
      * Calculate order prices and promotions safely on server-side.
      * Uses single best-deal policy (non-stacking).
@@ -53,7 +147,7 @@ export class PricingService {
         }
 
         // 1. Fetch real menu item data from database
-        const itemIds = items.map(i => i.menuItemId);
+        const itemIds = Array.from(new Set(items.map(i => i.menuItemId)));
         const itemsRes = await client.query(`
             SELECT id, name, price, is_available
             FROM menu_items
@@ -69,61 +163,86 @@ export class PricingService {
             });
         }
 
-        // Fetch variants / options if requested
-        const allOptionIds: string[] = [];
-        for (const i of items) {
-            if (i.variantId) allOptionIds.push(i.variantId);
-            if (Array.isArray((i as any).variantIds)) {
-                for (const vid of (i as any).variantIds) {
-                    if (vid) allOptionIds.push(vid);
-                }
-            }
-            if (Array.isArray((i as any).optionIds)) {
-                for (const oid of (i as any).optionIds) {
-                    if (oid) allOptionIds.push(oid);
-                }
-            }
-        }
-        const uniqueRequestedOptionIds = Array.from(new Set(allOptionIds));
-        const dbVariantMap = new Map<string, { id: string; name: string; priceAdjustment: number; isAvailable: boolean }>();
-        if (uniqueRequestedOptionIds.length > 0) {
-            // First check item_options & item_option_groups
-            const optRes = await client.query(`
-                SELECT io.id, io.name, io.price_delta, io.is_available, iog.pricing_mode
-                FROM item_options io
-                JOIN item_option_groups iog ON iog.id = io.group_id
-                WHERE io.tenant_id = $1 AND io.id = ANY($2::uuid[])
-            `, [tenantId, uniqueRequestedOptionIds]);
-            for (const o of optRes.rows) {
-                const priceDelta = o.pricing_mode === 'FREE' ? 0 : (parseInt(o.price_delta, 10) || 0);
-                dbVariantMap.set(o.id, {
-                    id: o.id,
-                    name: o.name,
-                    priceAdjustment: priceDelta,
-                    isAvailable: o.is_available
-                });
-            }
+        // 2. Fetch option groups for requested items
+        const groupsRes = await client.query(`
+            SELECT id, menu_item_id, name, selection_mode, min_selections, max_selections, pricing_mode, is_active
+            FROM item_option_groups
+            WHERE tenant_id = $1 AND menu_item_id = ANY($2::uuid[])
+            ORDER BY sort_order ASC
+        `, [tenantId, itemIds]);
 
-            // Fallback for any legacy variant IDs not yet in item_options
-            const missingIds = uniqueRequestedOptionIds.filter(id => !dbVariantMap.has(id));
-            if (missingIds.length > 0) {
-                const varRes = await client.query(`
-                    SELECT id, menu_item_id, name, price_adjustment, is_available
-                    FROM menu_item_variants
-                    WHERE tenant_id = $1 AND id = ANY($2::uuid[])
-                `, [tenantId, missingIds]);
-                for (const v of varRes.rows) {
-                    dbVariantMap.set(v.id, {
-                        id: v.id,
-                        name: v.name,
-                        priceAdjustment: parseInt(v.price_adjustment, 10) || 0,
-                        isAvailable: v.is_available
-                    });
-                }
+        const itemGroupsMap = new Map<string, any[]>();
+        const groupByIdMap = new Map<string, any>();
+        for (const g of groupsRes.rows) {
+            if (!itemGroupsMap.has(g.menu_item_id)) {
+                itemGroupsMap.set(g.menu_item_id, []);
             }
+            const groupObj = {
+                id: g.id,
+                menuItemId: g.menu_item_id,
+                name: g.name,
+                selectionMode: g.selection_mode,
+                minSelections: parseInt(g.min_selections, 10) || 0,
+                maxSelections: parseInt(g.max_selections, 10) || 1,
+                pricingMode: g.pricing_mode,
+                isActive: g.is_active,
+                options: [] as any[]
+            };
+            itemGroupsMap.get(g.menu_item_id)!.push(groupObj);
+            groupByIdMap.set(g.id, groupObj);
         }
 
-        // Validate all items exist and are available
+        // 3. Fetch item_options with group details
+        const optionsRes = await client.query(`
+            SELECT io.id, io.group_id, io.menu_item_id, io.name, io.price_delta, io.is_default, io.is_available,
+                   iog.selection_mode, iog.pricing_mode, iog.is_active as group_is_active, iog.name as group_name
+            FROM item_options io
+            JOIN item_option_groups iog ON iog.id = io.group_id
+            WHERE io.tenant_id = $1 AND io.menu_item_id = ANY($2::uuid[])
+            ORDER BY io.sort_order ASC
+        `, [tenantId, itemIds]);
+
+        const itemOptionsMap = new Map<string, any>();
+        for (const o of optionsRes.rows) {
+            const optObj = {
+                id: o.id,
+                groupId: o.group_id,
+                menuItemId: o.menu_item_id,
+                name: o.name,
+                priceDelta: parseInt(o.price_delta, 10) || 0,
+                isDefault: Boolean(o.is_default),
+                isAvailable: Boolean(o.is_available),
+                selectionMode: o.selection_mode,
+                pricingMode: o.pricing_mode,
+                groupIsActive: Boolean(o.group_is_active),
+                groupName: o.group_name
+            };
+            itemOptionsMap.set(o.id, optObj);
+            const parentGroup = groupByIdMap.get(o.group_id);
+            if (parentGroup) {
+                parentGroup.options.push(optObj);
+            }
+        }
+
+        // 4. Fetch legacy variants for requested items
+        const legacyVariantsRes = await client.query(`
+            SELECT id, menu_item_id, name, price_adjustment, is_available
+            FROM menu_item_variants
+            WHERE tenant_id = $1 AND menu_item_id = ANY($2::uuid[])
+        `, [tenantId, itemIds]);
+
+        const itemLegacyVariantsMap = new Map<string, any>();
+        for (const v of legacyVariantsRes.rows) {
+            itemLegacyVariantsMap.set(v.id, {
+                id: v.id,
+                menuItemId: v.menu_item_id,
+                name: v.name,
+                priceAdjustment: parseInt(v.price_adjustment, 10) || 0,
+                isAvailable: v.is_available
+            });
+        }
+
+        // 5. Validate all line items, enforce option groups, and calculate prices
         let rawSubtotal = 0;
         const lineItems: {
             menuItemId: string;
@@ -148,23 +267,99 @@ export class PricingService {
                 throw new Error(`Số lượng món "${dbItem.name}" phải lớn hơn 0`);
             }
 
-            let itemPrice = dbItem.price;
-            const itemVids = [
+            const rawOptionIds = [
                 ...(item.variantId ? [item.variantId] : []),
                 ...(Array.isArray((item as any).variantIds) ? (item as any).variantIds : []),
                 ...(Array.isArray((item as any).optionIds) ? (item as any).optionIds : [])
-            ];
-            const uniqueItemVids = Array.from(new Set(itemVids.filter(Boolean)));
-            const variantNames: string[] = [];
+            ].filter(Boolean);
 
-            for (const vid of uniqueItemVids) {
-                const dbVariant = dbVariantMap.get(vid);
-                if (dbVariant) {
-                    if (!dbVariant.isAvailable) {
-                        throw { status: 409, code: 'VARIANT_UNAVAILABLE', message: `Tùy chọn "${dbVariant.name}" của món "${dbItem.name}" hiện đã hết hàng` };
+            if (rawOptionIds.length > 20) {
+                throw { status: 400, code: 'TOO_MANY_OPTIONS', message: `Số lượng tùy chọn của món "${dbItem.name}" vượt quá giới hạn cho phép` };
+            }
+
+            const uniqueOptionIds = Array.from(new Set(rawOptionIds));
+            if (uniqueOptionIds.length !== rawOptionIds.length) {
+                throw { status: 400, code: 'DUPLICATE_OPTION', message: `Không thể chọn trùng lặp tùy chọn trong cùng một món "${dbItem.name}"` };
+            }
+
+            let itemPrice = dbItem.price;
+            const variantNames: string[] = [];
+            const groupSelectionsCount = new Map<string, number>();
+            let legacyVariantCount = 0;
+
+            for (const oid of uniqueOptionIds) {
+                if (itemOptionsMap.has(oid)) {
+                    const opt = itemOptionsMap.get(oid)!;
+                    if (opt.menuItemId !== item.menuItemId) {
+                        throw { status: 400, code: 'INVALID_OPTION', message: `Tùy chọn "${opt.name}" không thuộc về món "${dbItem.name}"` };
                     }
-                    itemPrice = Math.max(0, itemPrice + dbVariant.priceAdjustment);
-                    variantNames.push(dbVariant.name);
+                    if (!opt.groupIsActive) {
+                        throw { status: 400, code: 'INVALID_OPTION', message: `Nhóm tùy chọn "${opt.groupName}" hiện đang tạm ngừng phục vụ` };
+                    }
+                    if (!opt.isAvailable) {
+                        throw { status: 409, code: 'VARIANT_UNAVAILABLE', message: `Tùy chọn "${opt.name}" của món "${dbItem.name}" hiện đã hết hàng` };
+                    }
+
+                    groupSelectionsCount.set(opt.groupId, (groupSelectionsCount.get(opt.groupId) || 0) + 1);
+                    const delta = opt.pricingMode === 'FREE' ? 0 : opt.priceDelta;
+                    itemPrice = Math.max(0, itemPrice + delta);
+                    variantNames.push(opt.name);
+                } else if (itemLegacyVariantsMap.has(oid)) {
+                    const leg = itemLegacyVariantsMap.get(oid)!;
+                    if (leg.menuItemId !== item.menuItemId) {
+                        throw { status: 400, code: 'INVALID_OPTION', message: `Biến thể "${leg.name}" không thuộc về món "${dbItem.name}"` };
+                    }
+                    if (!leg.isAvailable) {
+                        throw { status: 409, code: 'VARIANT_UNAVAILABLE', message: `Biến thể "${leg.name}" của món "${dbItem.name}" hiện đã hết hàng` };
+                    }
+
+                    legacyVariantCount++;
+                    if (legacyVariantCount > 1) {
+                        throw { status: 400, code: 'INVALID_OPTION', message: `Món "${dbItem.name}" chỉ được chọn tối đa 1 biến thể truyền thống` };
+                    }
+
+                    itemPrice = Math.max(0, itemPrice + leg.priceAdjustment);
+                    variantNames.push(leg.name);
+                } else {
+                    throw { status: 400, code: 'INVALID_OPTION', message: `Mã tùy chọn không tồn tại hoặc không thuộc món "${dbItem.name}"` };
+                }
+            }
+
+            // Enforce cardinality & constraints for all active groups belonging to this menu item
+            const activeGroups = (itemGroupsMap.get(item.menuItemId) || []).filter((g: any) => g.isActive);
+            for (const group of activeGroups) {
+                let count = groupSelectionsCount.get(group.id) || 0;
+                if (count === 0 && group.minSelections > 0) {
+                    const defaultOption = group.options.find((o: any) => o.isDefault && o.isAvailable);
+                    if (defaultOption) {
+                        count = 1;
+                        groupSelectionsCount.set(group.id, 1);
+                        const delta = defaultOption.pricingMode === 'FREE' ? 0 : defaultOption.priceDelta;
+                        itemPrice = Math.max(0, itemPrice + delta);
+                        variantNames.push(defaultOption.name);
+                    }
+                }
+
+                if (count < group.minSelections) {
+                    throw {
+                        status: 400,
+                        code: 'OPTION_REQUIRED',
+                        message: `Vui lòng chọn ít nhất ${group.minSelections} lựa chọn cho nhóm "${group.name}" của món "${dbItem.name}"`
+                    };
+                }
+                if (group.selectionMode === 'SINGLE' && count > 1) {
+                    throw {
+                        status: 400,
+                        code: 'INVALID_OPTION',
+                        message: `Nhóm tùy chọn "${group.name}" chỉ cho phép chọn 1 lựa chọn duy nhất`
+                    };
+                }
+                if (group.maxSelections > 0 && count > group.maxSelections) {
+                    throw {
+                        status: 400,
+                        code: 'INVALID_OPTION',
+                        message: `Nhóm tùy chọn "${group.name}" cho phép tối đa ${group.maxSelections} lựa chọn`
+                    };
                 }
             }
 
@@ -173,7 +368,7 @@ export class PricingService {
             rawSubtotal += lineSub;
             lineItems.push({
                 menuItemId: item.menuItemId,
-                variantId: item.variantId || uniqueItemVids[0],
+                variantId: item.variantId || uniqueOptionIds[0],
                 variantName,
                 name: dbItem.name,
                 basePrice: itemPrice,

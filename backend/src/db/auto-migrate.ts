@@ -153,11 +153,12 @@ export async function ensureSchemaOnBoot() {
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
                 promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
-                order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+                order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
                 session_id UUID NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
                 discount_amount BIGINT NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            ALTER TABLE promotion_redemptions ALTER COLUMN order_id DROP NOT NULL;
 
             ALTER TABLE orders ADD COLUMN IF NOT EXISTS applied_promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL;
             ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_total BIGINT NOT NULL DEFAULT 0;
@@ -222,13 +223,24 @@ export async function ensureSchemaOnBoot() {
             );
         `);
 
-        // 5. revoked tokens table
+        // 5. Revoked tokens tables & schema migrations tracking
         await client.query(`
             CREATE TABLE IF NOT EXISTS revoked_tokens (
                 jti VARCHAR(255) PRIMARY KEY,
                 user_id UUID NOT NULL,
                 revoked_at TIMESTAMPTZ DEFAULT NOW(),
                 expires_at TIMESTAMPTZ NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS revoked_staff_tokens (
+                token_hash VARCHAR(64) PRIMARY KEY,
+                expires_at TIMESTAMPTZ NOT NULL,
+                revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_revoked_staff_tokens_expiry ON revoked_staff_tokens (expires_at);
+
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                filename VARCHAR(255) PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         `);
 
@@ -252,7 +264,8 @@ export async function ensureSchemaOnBoot() {
 
         console.log('✅ Auto-migrations completed successfully.');
     } catch (err) {
-        console.error('⚠️ Auto-migration error:', err);
+        console.error('❌ Auto-migration error:', err);
+        throw err;
     } finally {
         if (client) client.release();
     }

@@ -4,6 +4,7 @@ import { Router, Request, Response } from 'express';
 import { StaffService } from './staff.service.js';
 import { GuestService } from '../guest/guest.service.js';
 import { authenticateStaff, requirePermission } from '../../middleware/auth.js';
+import { staffMutationLimiter } from '../../middleware/security.js';
 import { config } from '../../config/index.js';
 import { query, withTransaction } from '../../db/pool.js';
 
@@ -14,6 +15,7 @@ staffRouter.param('id', (req, res, next, id) => {
 });
 
 staffRouter.use(authenticateStaff);
+staffRouter.use(staffMutationLimiter);
 
 // 1. Dashboard snapshot
 staffRouter.get('/dashboard/snapshot', async (req: Request, res: Response) => {
@@ -164,7 +166,14 @@ staffRouter.post(
         try {
             const staff = req.staff!;
             const sessionId = req.params.id;
-            const { settlementVersion, note, requestId } = req.body || {};
+            const { settlementVersion, note, requestId, expectedAmount } = req.body || {};
+
+            if (expectedAmount === undefined || typeof expectedAmount !== 'number' || isNaN(expectedAmount) || expectedAmount < 0) {
+                return res.status(400).json({
+                    error: 'MISSING_EXPECTED_AMOUNT',
+                    message: 'Vui lòng cung cấp số tiền thanh toán dự kiến (expectedAmount) hợp lệ'
+                });
+            }
 
             const result = await StaffService.confirmPaymentAndCloseSession(
                 staff.tenantId,
@@ -172,7 +181,8 @@ staffRouter.post(
                 settlementVersion,
                 staff.id,
                 note,
-                requestId
+                requestId,
+                Number(expectedAmount)
             );
 
             return res.json(result);
@@ -340,6 +350,11 @@ function normalizeOptionGroups(data: any): Array<{
                     sortOrder
                 };
             });
+
+            // If a SINGLE required group has no explicit default, default to the first available option
+            if (selectionMode === 'SINGLE' && minSelections > 0 && !options.some((o: any) => o.isDefault) && options.length > 0) {
+                options[0].isDefault = true;
+            }
 
             return {
                 id: grpId,

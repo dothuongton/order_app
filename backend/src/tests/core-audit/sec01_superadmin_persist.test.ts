@@ -66,12 +66,14 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
             WHERE email = 'superadmin@qrorder.vn'
         `, [defaultHash]);
     });
+
     it('does not recreate a default platform admin when the account is absent during migration', async () => {
         const original = await query(`SELECT * FROM users WHERE is_platform_admin = true`);
         expect(original.rows).toHaveLength(1);
         const user = original.rows[0];
         await query('DELETE FROM users WHERE id = $1', [user.id]);
         try {
+            await query(`DELETE FROM schema_migrations WHERE filename = '004_superadmin_user.sql'`);
             await migrate();
             await ensureSchemaOnBoot();
             const result = await query('SELECT id FROM users WHERE is_platform_admin = true');
@@ -83,4 +85,30 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
         }
     });
 
+    it('calling default seed() outside test environment does not wipe markers or operational data (Issue #25)', async () => {
+        // Create custom marker record in tenants
+        const markerName = 'Safe Seed Marker Tenant';
+        await query(`
+            INSERT INTO tenants (id, name, slug, status)
+            VALUES ('88888888-8888-8888-8888-888888888888', $1, 'safe-seed-marker', 'active')
+            ON CONFLICT (id) DO UPDATE SET name = $1
+        `, [markerName]);
+
+        const prevEnv = process.env.NODE_ENV;
+        try {
+            // Simulate development environment (outside test)
+            process.env.NODE_ENV = 'development';
+
+            // Call default seed() with no arguments
+            await seed();
+
+            // Verify marker record was NOT wiped by seed()
+            const check = await query(`SELECT name FROM tenants WHERE id = '88888888-8888-8888-8888-888888888888'`);
+            expect(check.rowCount).toBe(1);
+            expect(check.rows[0].name).toBe(markerName);
+        } finally {
+            process.env.NODE_ENV = prevEnv;
+            await query(`DELETE FROM tenants WHERE id = '88888888-8888-8888-8888-888888888888'`);
+        }
+    });
 });

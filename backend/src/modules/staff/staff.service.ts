@@ -5,6 +5,7 @@ import qrcode from 'qrcode';
 import { z } from 'zod';
 import { validate, requestedQuantity } from '../../utils/validation.js';
 import { partAmount } from '../../utils/billing.js';
+import { PricingService } from '../pricing/pricing.service.js';
 import { PoolClient } from 'pg';
 
 async function lockOpenSession(client: PoolClient, tenantId: string, sessionId: string) {
@@ -611,7 +612,8 @@ export class StaffService {
         clientSettlementVersion: number,
         userId: string,
         note?: string,
-        requestId?: string
+        requestId?: string,
+        expectedAmount?: number
     ) {
         return await withTransaction(async (client) => {
             // 1. Lock Session row
@@ -686,18 +688,21 @@ export class StaffService {
             // 4. Calculate final served lines
             const servedPartsRes = await client.query(`
                 SELECT 
+                    o.order_number,
                     oi.id as order_item_id,
                     oi.snapshot_name,
                     oi.snapshot_variant_name,
                     oi.snapshot_price,
                     oi.quantity as original_quantity,
                     oi.discount_amount,
+                    oi.applied_promotion_id,
                     SUM(oip.quantity) as quantity_served
                 FROM order_item_parts oip
                 JOIN order_items oi ON oi.id = oip.order_item_id
                 JOIN orders o ON o.id = oi.order_id
                 WHERE o.session_id = $1 AND oip.status = 'SERVED'
-                GROUP BY oi.id, oi.snapshot_name, oi.snapshot_variant_name, oi.snapshot_price
+                GROUP BY o.order_number, oi.created_at, oi.id, oi.snapshot_name, oi.snapshot_variant_name, oi.snapshot_price, oi.applied_promotion_id
+                ORDER BY o.order_number ASC, oi.created_at ASC, oi.id ASC
             `, [sessionId]);
 
             const rawServedTotal = servedPartsRes.rows.reduce((sum, r) => sum + Number(r.snapshot_price) * parseInt(r.quantity_served, 10), 0);
@@ -708,44 +713,72 @@ export class StaffService {
                 return sum + Math.max(0, price * qty - sub);
             }, 0);
 
-            // Check best promotion for rawServedTotal on the session
+            // Fetch active promotions for tenant
             const promoRes = await client.query(`
-                SELECT id, code, title, discount_type, discount_value, min_order_amount, max_discount_amount, priority
+                SELECT id, code, title, discount_type, discount_value, min_order_amount, max_discount_amount, priority, max_redemptions, current_redemptions
                 FROM promotions
                 WHERE tenant_id = $1 AND is_active = true
                   AND (start_time IS NULL OR NOW() >= start_time)
                   AND (end_time IS NULL OR NOW() <= end_time)
-                  AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
                 ORDER BY priority DESC, created_at DESC
             `, [tenantId]);
 
-            let bestPromo: any = null;
-            let sessionDiscount = 0;
-            for (const promo of promoRes.rows) {
-                const minOrder = parseInt(promo.min_order_amount || '0', 10);
-                if (rawServedTotal < minOrder) continue;
-                const discValue = parseInt(promo.discount_value, 10);
-                let calc = 0;
-                if (promo.discount_type === 'PERCENT') {
-                    calc = Math.floor((rawServedTotal * discValue) / 100);
-                    if (promo.max_discount_amount) {
-                        calc = Math.min(calc, parseInt(promo.max_discount_amount, 10));
-                    }
-                } else if (promo.discount_type === 'FIXED_AMOUNT') {
-                    calc = Math.min(discValue, rawServedTotal);
-                }
-                calc = Math.max(0, Math.min(calc, rawServedTotal));
-                if (calc > sessionDiscount || (calc === sessionDiscount && calc > 0 && promo.priority > (bestPromo?.priority || 0))) {
-                    sessionDiscount = calc;
-                    bestPromo = promo;
-                }
+            const attachedPromoIds = Array.from(new Set(
+                servedPartsRes.rows
+                    .map(r => r.applied_promotion_id)
+                    .filter((id): id is string => Boolean(id))
+            ));
+            const promoEval = PricingService.evaluateSessionPromotion(rawServedTotal, attachedPromoIds, promoRes.rows);
+            const selectedPromo = promoEval.selectedPromo;
+            const sessionDiscount = promoEval.discountAmount;
+            const hadExhaustedAttachedPromo = promoEval.hadExhaustedAttachedPromo;
+
+            if (attachedPromoIds.length > 0 && !selectedPromo && hadExhaustedAttachedPromo && expectedAmount !== undefined && expectedAmount < rawServedTotal) {
+                throw {
+                    status: 409,
+                    code: 'PROMOTION_EXHAUSTED',
+                    message: `Chương trình khuyến mãi "${hadExhaustedAttachedPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                };
             }
 
-            let finalAmount = 0;
+            let finalAmount = Math.max(0, rawServedTotal - sessionDiscount);
             const billLinesToInsert: any[] = [];
 
-            if (confirmedItemDiscountTotal === 0 && sessionDiscount > 0) {
-                finalAmount = Math.max(0, rawServedTotal - sessionDiscount);
+            if (sessionDiscount > 0 && selectedPromo) {
+                // Atomically claim promotion cap (BUS-06)
+                const claimRes = await client.query(`
+                    UPDATE promotions
+                    SET current_redemptions = current_redemptions + 1, updated_at = NOW()
+                    WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+                    RETURNING id
+                `, [selectedPromo.id]);
+
+                if (claimRes.rowCount === 0) {
+                    throw {
+                        status: 409,
+                        code: 'PROMOTION_EXHAUSTED',
+                        message: `Chương trình khuyến mãi "${selectedPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                    };
+                }
+
+                // Record session-level promotion redemption with metadata snapshot (BUS-05, R7)
+                await client.query(`
+                    INSERT INTO promotion_redemptions (
+                        tenant_id, promotion_id, session_id, discount_amount,
+                        snapshot_title, snapshot_code, snapshot_discount_type, snapshot_discount_value
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `, [
+                    tenantId,
+                    selectedPromo.id,
+                    sessionId,
+                    sessionDiscount,
+                    selectedPromo.title,
+                    selectedPromo.code,
+                    selectedPromo.discount_type,
+                    selectedPromo.discount_value
+                ]);
+
                 const lineRaw = servedPartsRes.rows.map(r => Number(r.snapshot_price) * parseInt(r.quantity_served, 10));
                 const lineDiscounts = lineRaw.map(amt => rawServedTotal > 0 ? Number(BigInt(amt) * BigInt(sessionDiscount) / BigInt(rawServedTotal)) : 0);
                 let rem = sessionDiscount - lineDiscounts.reduce((s, v) => s + v, 0);
@@ -768,21 +801,11 @@ export class StaffService {
                         subtotal
                     });
                 });
-
-                if (bestPromo) {
-                    await client.query(`
-                        UPDATE promotions
-                        SET current_redemptions = current_redemptions + 1, updated_at = NOW()
-                        WHERE id = $1
-                    `, [bestPromo.id]);
-                }
             } else {
-                for (const r of servedPartsRes.rows) {
+                servedPartsRes.rows.forEach(r => {
                     const qty = parseInt(r.quantity_served, 10);
                     const price = Number(r.snapshot_price);
-                    const subtotal = partAmount(price, qty, r.original_quantity, Number(r.discount_amount || 0));
-                    finalAmount += subtotal;
-
+                    const subtotal = price * qty;
                     billLinesToInsert.push({
                         orderItemId: r.order_item_id,
                         itemName: r.snapshot_name,
@@ -791,7 +814,16 @@ export class StaffService {
                         unitPrice: price,
                         subtotal
                     });
-                }
+                });
+            }
+
+            // Protect against unexpected price change / race condition (BUS-04)
+            if (expectedAmount !== undefined && finalAmount !== expectedAmount) {
+                throw {
+                    status: 409,
+                    code: 'PRICE_CHANGED',
+                    message: `Số tiền thanh toán đã thay đổi (dự kiến ${expectedAmount.toLocaleString('vi-VN')}đ, thực tế ${finalAmount.toLocaleString('vi-VN')}đ). Vui lòng kiểm tra và xác nhận lại hóa đơn.`
+                };
             }
 
             // 5. Insert Manual Settlement Confirmation record

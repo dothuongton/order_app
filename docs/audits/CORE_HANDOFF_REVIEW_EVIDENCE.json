@@ -1,0 +1,53 @@
+{
+  "head": "3bd9b31ce22b7bca1ea51c6f0ab50c9ecf032ed3",
+  "cases": [
+    {
+      "id": "R1-default-admin",
+      "productionMigrationCreatesAdmin": false,
+      "acceptsPublishedDefault": false
+    },
+    {
+      "id": "R2-session-percent",
+      "raw": 240000,
+      "actual": 216000,
+      "expected": 216000
+    },
+    {
+      "id": "R2b-session-cap",
+      "raw": 120000,
+      "actual": 108000,
+      "expected": 108000
+    },
+    {
+      "id": "R3-price-change",
+      "displayed": 100000,
+      "missingQuoteStatus": 400,
+      "httpStatus": 409,
+      "expectedConflict": 409
+    },
+    {
+      "id": "R4-suspended",
+      "payStatus": 200,
+      "serveStatus": 409
+    },
+    {
+      "id": "R5-net-report",
+      "settled": 100000,
+      "reportedGross": 120000,
+      "reportedNet": 100000
+    },
+    {
+      "id": "R6-mutable-promo-snapshot",
+      "before": "Review snapshot original",
+      "after": "Review snapshot original",
+      "redemptionsAfterDeletion": 1,
+      "promotionsAfterDeletion": 1,
+      "totalAfterDeletion": 100000
+    },
+    {
+      "id": "R7-readiness",
+      "migrationTableMissing": true,
+      "status": 503
+    }
+  ]
+}

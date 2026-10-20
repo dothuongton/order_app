@@ -1,0 +1,343 @@
+#!/usr/bin/env node
+import { execSync } from 'child_process';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+/**
+ * Validates PR file boundaries according to Issue #2, Issue #5, and Issue #29.
+ * 
+ * Rules for SangVuxx (CMS Super Admin lane):
+ * Allowed paths:
+ *   - backend/src/modules/admin/**
+ *   - frontend/src/pages/admin/** (EXCEPT AdminLogin.tsx)
+ *   - frontend/src/components/admin/**
+ *   - frontend/src/hooks/admin/**
+ *   - frontend/src/api/admin/** and frontend/src/api/admin.ts
+ *   - frontend/src/types/admin/** and frontend/src/types/admin.ts
+ *   - backend/src/tests/admin-cms/**
+ *   - docs/admin-cms/**
+ * Blocked paths:
+ *   - frontend/src/pages/admin/AdminLogin.tsx
+ *   - Any file in backend/src/modules/cms/** (this is shop CMS, not platform super admin)
+ *   - Any file in frontend/src/pages/staff/**
+ *   - Shared auth, middleware, database, types, routes, configs
+ * 
+ * Enforcement Boundary & Policy Protection Architecture:
+ * 
+ * 1. Code-Level Enforcement:
+ *    - scripts/check-file-boundaries.mjs maps authorized authors strictly to their respective lanes.
+ *    - SangVuxx is restricted to SANG_ALLOWED_PREFIXES and SANG_ALLOWED_EXACT, and blocked from SANG_BLOCKED_EXACT.
+ *    - Core authors (dothuongton, codex, antigravity) are blocked from Sang's lane files.
+ *    - Unknown authors fail closed.
+ *    - Conflicting lane labels fail closed.
+ *    - Diff inspection rejects debugger statements and known leaked keys.
+ * 
+ * 2. CI Pipeline Integrity:
+ *    - In .github/workflows/ci.yml, the boundary check step executes the trusted version of this script
+ *      from the target base branch (e.g. origin/main) so that an unreviewed PR branch cannot bypass checks
+ *      by tampering with the local script file.
+ *    - fetch-depth: 0 is enforced in all CI checkout steps so the base reference is always available.
+ * 
+ * 3. Required GitHub Repository Configuration (Must be configured by Repository Owner @dothuongton):
+ *    - Branch Protection on `main`:
+ *      * "Require a pull request before merging" (at least 1 approving review).
+ *      * "Require status checks to pass before merging" with check `File Boundary & Hygiene Gate`.
+ *      * "Require branches to be up to date before merging".
+ *    - CODEOWNERS file (optional enhancement): Assign .github/ and scripts/ to @dothuongton.
+ *    NOTE: Code checks running inside a PR branch cannot enforce repository-level settings;
+ *    these branch protection rules must be applied in GitHub repository settings.
+ */
+
+export const SANG_ALLOWED_PREFIXES = [
+    'backend/src/modules/admin/',
+    'frontend/src/pages/admin/',
+    'frontend/src/components/admin/',
+    'frontend/src/hooks/admin/',
+    'frontend/src/api/admin/',
+    'frontend/src/types/admin/',
+    'backend/src/tests/admin-cms/',
+    'docs/admin-cms/'
+];
+
+export const SANG_ALLOWED_EXACT = [
+    'frontend/src/api/admin.ts',
+    'frontend/src/types/admin.ts'
+];
+
+export const SANG_BLOCKED_EXACT = [
+    'frontend/src/pages/admin/AdminLogin.tsx'
+];
+
+export function isSangPath(filePath) {
+    const normalized = filePath.replace(/\\/g, '/');
+    if (SANG_BLOCKED_EXACT.includes(normalized)) {
+        return false;
+    }
+    return SANG_ALLOWED_PREFIXES.some(prefix => normalized.startsWith(prefix)) ||
+           SANG_ALLOWED_EXACT.includes(normalized);
+}
+
+export function resolveLaneFromAuthorAndLabels(authorInput, labelsInput = '') {
+    if (!authorInput || typeof authorInput !== 'string' || authorInput.trim() === '') {
+        return { lane: null, error: 'Lane detection error: PR author is required (must not be empty)' };
+    }
+
+    const cleanAuthor = authorInput.trim().toLowerCase();
+    const SANG_AUTHORS = new Set(['sangvuxx', 'sangvux']);
+    const CORE_AUTHORS = new Set(['dothuongton', 'core', 'antigravity', 'codex', 'github-actions[bot]']);
+
+    let authorLane = null;
+    if (SANG_AUTHORS.has(cleanAuthor)) {
+        authorLane = 'sang';
+    } else if (CORE_AUTHORS.has(cleanAuthor)) {
+        authorLane = 'core';
+    } else {
+        return {
+            lane: null,
+            error: `Lane detection error: Unknown or unauthorized author "${authorInput}". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity).`
+        };
+    }
+
+    // Parse labels if present: only lane labels are inspected, ordinary labels (priority:P1, bug, etc.) are ignored
+    if (labelsInput && typeof labelsInput === 'string') {
+        const tokens = labelsInput.trim().split(/[\s,]+/).filter(Boolean);
+        let hasSangLabel = false;
+        let hasCoreLabel = false;
+
+        for (const token of tokens) {
+            const lower = token.toLowerCase();
+            if (lower === 'lane:cms-super-admin' || lower === 'lane:admin') {
+                hasSangLabel = true;
+            } else if (lower === 'lane:core') {
+                hasCoreLabel = true;
+            }
+        }
+
+        if (hasSangLabel && hasCoreLabel) {
+            return {
+                lane: null,
+                error: `Lane detection error: Conflicting lane labels present on PR (${labelsInput}).`
+            };
+        }
+
+        if (authorLane === 'sang' && hasCoreLabel) {
+            return {
+                lane: null,
+                error: `Lane detection error: Author "${authorInput}" belongs to Sang lane but PR has conflicting label "lane:core".`
+            };
+        }
+
+        if (authorLane === 'core' && hasSangLabel) {
+            return {
+                lane: null,
+                error: `Lane detection error: Author "${authorInput}" belongs to Core lane but PR has conflicting Sang lane label.`
+            };
+        }
+    }
+
+    return { lane: authorLane, error: null };
+}
+
+export function resolveLane(identifier) {
+    if (!identifier || typeof identifier !== 'string' || identifier.trim() === '') {
+        return { lane: null, error: 'Lane detection error: author or lane identifier is required (must not be empty)' };
+    }
+
+    const tokens = identifier.trim().split(/[\s,]+/).filter(Boolean);
+    const SANG_TOKENS = new Set(['sangvuxx', 'sangvux', 'lane:cms-super-admin', 'lane:admin']);
+    const CORE_TOKENS = new Set(['dothuongton', 'core', 'antigravity', 'codex', 'lane:core', 'github-actions[bot]']);
+
+    let hasSang = false;
+    let hasCore = false;
+
+    for (const token of tokens) {
+        const lower = token.toLowerCase();
+        if (SANG_TOKENS.has(lower)) {
+            hasSang = true;
+        } else if (CORE_TOKENS.has(lower)) {
+            hasCore = true;
+        }
+    }
+
+    if (hasSang && hasCore) {
+        return { lane: null, error: `Lane detection error: Conflicting lane metadata in "${identifier}". PR cannot belong to both Core and Sang lanes.` };
+    }
+
+    if (hasSang) return { lane: 'sang', error: null };
+    if (hasCore) return { lane: 'core', error: null };
+
+    return {
+        lane: null,
+        error: `Lane detection error: Unknown or unauthorized lane identifier "${identifier}". Must map strictly to Sang (SangVuxx) or Core (dothuongton/codex/antigravity).`
+    };
+}
+
+export function validateAuthorFiles(author, files, labels = '') {
+    const violations = [];
+    const laneResult = (typeof author === 'string' && labels)
+        ? resolveLaneFromAuthorAndLabels(author, labels)
+        : resolveLane(author);
+
+    if (laneResult.error) {
+        violations.push(laneResult.error);
+        return {
+            valid: false,
+            violations
+        };
+    }
+
+    const { lane } = laneResult;
+
+    for (const file of files) {
+        const normalized = file.replace(/\\/g, '/');
+
+        if (lane === 'sang') {
+            // Rules for Sang: only allowed to touch CMS Super Admin files
+            if (SANG_BLOCKED_EXACT.includes(normalized)) {
+                violations.push(`Sang lane violation: Explicitly forbidden core file: ${normalized}`);
+                continue;
+            }
+
+            const allowed = isSangPath(normalized);
+            if (!allowed) {
+                violations.push(`Sang lane violation: File outside CMS Super Admin allowlist: ${normalized}`);
+            }
+        } else {
+            // Rules for Core / other authors: MUST NOT touch Sang's lane files
+            if (isSangPath(normalized)) {
+                violations.push(`Core lane violation: Core cannot touch Super Admin lane file: ${normalized}`);
+            }
+        }
+    }
+
+    return {
+        valid: violations.length === 0,
+        violations
+    };
+}
+
+export function parseChangedFilesFromDiffStatus(statusOutput) {
+    const files = new Set();
+    const lines = statusOutput.split('\n').map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+        const parts = line.split(/\t+/);
+        if (parts.length >= 2) {
+            const code = parts[0];
+            if (code.startsWith('R') || code.startsWith('C')) {
+                // Renamed or copied: validate both source and destination
+                if (parts[1]) files.add(parts[1]);
+                if (parts[2]) files.add(parts[2]);
+            } else {
+                if (parts[1]) files.add(parts[1]);
+            }
+        }
+    }
+    return Array.from(files);
+}
+
+export function validateDiffForSecretsAndDebug(diffText) {
+    const violations = [];
+    const lines = diffText.split('\n');
+    let currentFile = '';
+
+    const FORBIDDEN_PATTERNS = [
+        { regex: /\bdebugger;?/, name: 'debugger statement' },
+        { regex: /console\.log\(['"`](DEBUG|TEST_SECRET)/i, name: 'debug log' },
+        { regex: new RegExp(['-WvfchB2Y7C', '_HM1-9_Ym1gXJEBqfy0zeZr5da3PVDiY'].join('')), name: 'known leaked VAPID key' },
+        { regex: /(BEGIN PRIVATE KEY)/, name: 'raw private key in source' }
+    ];
+
+    for (const line of lines) {
+        if (line.startsWith('diff --git ')) {
+            const parts = line.split(' ');
+            currentFile = parts[parts.length - 1].replace(/^b\//, '');
+            continue;
+        }
+
+        // Only scan added lines in application code (skip documentation, test mocks and this script itself)
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+            if (
+                currentFile.endsWith('.md') ||
+                currentFile.includes('tests/') ||
+                currentFile.includes('check-file-boundaries.mjs')
+            ) {
+                continue;
+            }
+
+            for (const pattern of FORBIDDEN_PATTERNS) {
+                if (pattern.regex.test(line)) {
+                    violations.push(`Found ${pattern.name} in ${currentFile}: ${line.trim()}`);
+                }
+            }
+        }
+    }
+
+    return {
+        valid: violations.length === 0,
+        violations
+    };
+}
+
+export function runCli(argv = process.argv, env = process.env) {
+    let baseRef = argv[2] || 'origin/main';
+    // Priority: Explicit argv[3] > PR_AUTHOR > GITHUB_ACTOR (PR_LABELS is used for compatibility check only)
+    const author = argv[3] || env.PR_AUTHOR || env.GITHUB_ACTOR || '';
+    const labels = env.PR_LABELS || '';
+
+    // Verify that the requested baseRef exists. Fail closed if untrusted or missing!
+    try {
+        execSync(`git rev-parse --verify ${baseRef}`, { stdio: 'ignore' });
+    } catch {
+        console.error(`❌ Base reference "${baseRef}" cannot be resolved in local git repository.`);
+        console.error(`To perform a trusted file boundary check, ensure the target base branch is fetched:`);
+        console.error(`  git fetch origin <base_branch>`);
+        console.error(`or pass a valid base reference:`);
+        console.error(`  node scripts/check-file-boundaries.mjs <trusted_base_ref> [author]`);
+        process.exit(1);
+    }
+
+    try {
+        const diffStatusRaw = execSync(`git diff --name-status ${baseRef}...HEAD`, { encoding: 'utf-8' });
+        const changedFiles = parseChangedFilesFromDiffStatus(diffStatusRaw);
+
+        const boundaryCheck = validateAuthorFiles(author, changedFiles, labels);
+        if (!boundaryCheck.valid) {
+            console.error('❌ File Boundary Violation:');
+            boundaryCheck.violations.forEach(v => console.error(`  - ${v}`));
+            process.exit(1);
+        }
+
+        const diffText = execSync(`git diff ${baseRef}...HEAD`, { encoding: 'utf-8' });
+        const secretCheck = validateDiffForSecretsAndDebug(diffText);
+        if (!secretCheck.valid) {
+            console.error('❌ Diff Hygiene Violation:');
+            secretCheck.violations.forEach(v => console.error(`  - ${v}`));
+            process.exit(1);
+        }
+
+        console.log('✅ File boundaries and diff hygiene checks passed successfully.');
+    } catch (err) {
+        console.error('Error checking PR boundaries:', err.message);
+        process.exit(1);
+    }
+}
+
+// Auto-run when executed directly via CLI, executed from a trusted temp file, or piped via stdin
+export function isMainModule() {
+    const argv1 = process.argv[1];
+    if (!argv1) return false;
+    if (argv1 === '-' || argv1 === '[stdin]') return true;
+
+    try {
+        const scriptRealPath = fs.realpathSync(fileURLToPath(import.meta.url));
+        const argvRealPath = fs.realpathSync(path.resolve(argv1));
+        return scriptRealPath === argvRealPath;
+    } catch {
+        return Boolean(argv1 && (argv1.endsWith('.mjs') || argv1.endsWith('.js')) && !argv1.includes('vitest'));
+    }
+}
+
+if (isMainModule()) {
+    runCli();
+}

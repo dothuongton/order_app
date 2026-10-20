@@ -1,0 +1,104 @@
+name: CI & File Boundary Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  boundary-check:
+    name: "File Boundary & Hygiene Gate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Boundary Check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if git cat-file -e "origin/$BASE_REF:scripts/check-file-boundaries.mjs" 2>/dev/null; then
+              echo "Executing trusted boundary check script from origin/$BASE_REF"
+              TMP_GUARD="${RUNNER_TEMP:-/tmp}/trusted-boundary-$$.mjs"
+              git show "origin/$BASE_REF:scripts/check-file-boundaries.mjs" > "$TMP_GUARD"
+              node "$TMP_GUARD" "origin/$BASE_REF"
+              EXIT_CODE=$?
+              rm -f "$TMP_GUARD"
+              exit $EXIT_CODE
+            else
+              echo "Bootstrap mode: executing local boundary check script"
+              node scripts/check-file-boundaries.mjs "origin/$BASE_REF"
+            fi
+          else
+            echo "Direct push to main, skipping PR boundary check."
+          fi
+
+  build-and-test:
+    name: "Build & Test"
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: qr_order_db
+          POSTGRES_USER: qr_user
+          POSTGRES_PASSWORD: qr_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package.json
+            frontend/package.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Run backend tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://qr_user:qr_password@localhost:5432/qr_order_db
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-with-minimum-32-chars-long-valid
+          GUEST_COOKIE_SECRET: test-guest-cookie-secret-with-minimum-32-chars
+        run: npm test

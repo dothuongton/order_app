@@ -15,6 +15,8 @@ import { securityHeaders, protectOrigin, isAllowedOrigin, loginLimiter, guestWri
 
 export const app = express();
 app.disable('x-powered-by');
+// Trust only the 1st reverse proxy hop (Render / Docker upstream proxy), preventing X-Forwarded-For spoofing (OPS-02)
+app.set('trust proxy', 1);
 app.use(securityHeaders);
 app.use(protectOrigin);
 
@@ -31,9 +33,74 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser(config.guestCookieSecret));
 
-// Health check
-app.get('/health', (req: Request, res: Response) => {
-    return res.json({ status: 'ok', time: new Date().toISOString(), commit: process.env.RENDER_GIT_COMMIT || undefined });
+// Health checks: separate liveness and readiness probes (OPS-01)
+app.get('/health/liveness', (req: Request, res: Response) => {
+    return res.status(200).json({
+        status: 'ok',
+        check: 'liveness',
+        time: new Date().toISOString()
+    });
+});
+
+const REQUIRED_MIGRATIONS = [
+    '000_base_schema.sql',
+    '008_promotion_redemption_snapshots.sql'
+];
+
+app.get('/health/readiness', async (req: Request, res: Response) => {
+    try {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Database readiness check timed out')), 2000)
+        );
+        const dbCheckPromise = query(
+            'SELECT COUNT(DISTINCT filename) AS count FROM schema_migrations WHERE filename = ANY($1)',
+            [REQUIRED_MIGRATIONS]
+        );
+
+        const result: any = await Promise.race([dbCheckPromise, timeoutPromise]);
+        if (!result || !result.rows || result.rows.length === 0 || Number(result.rows[0].count) < REQUIRED_MIGRATIONS.length) {
+            return res.status(503).json({
+                status: 'error',
+                check: 'readiness',
+                database: 'schema_incomplete',
+                time: new Date().toISOString()
+            });
+        }
+
+        return res.status(200).json({
+            status: 'ok',
+            check: 'readiness',
+            database: 'connected',
+            time: new Date().toISOString(),
+            commit: process.env.RENDER_GIT_COMMIT || undefined
+        });
+    } catch {
+        return res.status(503).json({
+            status: 'error',
+            check: 'readiness',
+            database: 'disconnected',
+            message: 'Database service unavailable'
+        });
+    }
+});
+
+app.get('/health', async (req: Request, res: Response) => {
+    try {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Database check timed out')), 2000)
+        );
+        await Promise.race([query('SELECT 1'), timeoutPromise]);
+        return res.status(200).json({
+            status: 'ok',
+            time: new Date().toISOString(),
+            commit: process.env.RENDER_GIT_COMMIT || undefined
+        });
+    } catch {
+        return res.status(503).json({
+            status: 'error',
+            message: 'Service Unavailable'
+        });
+    }
 });
 
 // Public image serving endpoint (with immutable caching for max performance)
@@ -116,9 +183,30 @@ app.use((req: Request, res: Response) => {
 
 // Central error handler
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    console.error('Unhandled Server Error:', err);
+    // Malformed JSON / body parser syntax error (do not leak internal parser details or request body)
+    if (err instanceof SyntaxError && (err as any).status === 400 && 'body' in err) {
+        return res.status(400).json({
+            error: 'BAD_REQUEST',
+            message: 'Dữ liệu định dạng không hợp lệ'
+        });
+    }
+
+    if (err.type === 'entity.parse.failed' || (err.status === 400 && !err.code)) {
+        return res.status(400).json({
+            error: 'BAD_REQUEST',
+            message: 'Dữ liệu yêu cầu không hợp lệ'
+        });
+    }
+
+    // Central safe error logging: omit raw body, tokens, and credentials
+    console.error('Unhandled Server Error:', {
+        message: err.message,
+        code: err.code,
+        status: err.status || 500
+    });
+
     res.status(err.status || 500).json({
         error: err.code || 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Đã có lỗi xảy ra trên máy chủ'
+        message: err.status ? (err.message || 'Yêu cầu không hợp lệ') : 'Đã có lỗi xảy ra trên máy chủ'
     });
 });
