@@ -465,7 +465,20 @@ CREATE TABLE IF NOT EXISTS uploaded_images (
 
 CREATE INDEX IF NOT EXISTS idx_uploaded_images_tenant ON uploaded_images(tenant_id);
 
--- 10. Default Platform Super Admin User (initial bootstrap only)
+-- 10. Revoked Staff Tokens & Schema Migrations Tracking
+CREATE TABLE IF NOT EXISTS revoked_staff_tokens (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_revoked_staff_tokens_expiry ON revoked_staff_tokens (expires_at);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename VARCHAR(255) PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 11. Default Platform Super Admin User (initial bootstrap only)
 INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
 VALUES (
     '99999999-9999-9999-9999-999999999999',

@@ -223,13 +223,24 @@ export async function ensureSchemaOnBoot() {
             );
         `);
 
-        // 5. revoked tokens table
+        // 5. Revoked tokens tables & schema migrations tracking
         await client.query(`
             CREATE TABLE IF NOT EXISTS revoked_tokens (
                 jti VARCHAR(255) PRIMARY KEY,
                 user_id UUID NOT NULL,
                 revoked_at TIMESTAMPTZ DEFAULT NOW(),
                 expires_at TIMESTAMPTZ NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS revoked_staff_tokens (
+                token_hash VARCHAR(64) PRIMARY KEY,
+                expires_at TIMESTAMPTZ NOT NULL,
+                revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_revoked_staff_tokens_expiry ON revoked_staff_tokens (expires_at);
+
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                filename VARCHAR(255) PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         `);
 
@@ -253,7 +264,8 @@ export async function ensureSchemaOnBoot() {
 
         console.log('✅ Auto-migrations completed successfully.');
     } catch (err) {
-        console.error('⚠️ Auto-migration error:', err);
+        console.error('❌ Auto-migration error:', err);
+        throw err;
     } finally {
         if (client) client.release();
     }

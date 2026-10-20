@@ -31,9 +31,58 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser(config.guestCookieSecret));
 
-// Health check
-app.get('/health', (req: Request, res: Response) => {
-    return res.json({ status: 'ok', time: new Date().toISOString(), commit: process.env.RENDER_GIT_COMMIT || undefined });
+// Health checks: separate liveness and readiness probes (OPS-01)
+app.get('/health/liveness', (req: Request, res: Response) => {
+    return res.status(200).json({
+        status: 'ok',
+        check: 'liveness',
+        time: new Date().toISOString()
+    });
+});
+
+app.get('/health/readiness', async (req: Request, res: Response) => {
+    try {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Database readiness check timed out')), 2000)
+        );
+        const dbCheckPromise = query('SELECT 1 FROM schema_migrations LIMIT 1').catch(() => query('SELECT 1'));
+
+        await Promise.race([dbCheckPromise, timeoutPromise]);
+
+        return res.status(200).json({
+            status: 'ok',
+            check: 'readiness',
+            database: 'connected',
+            time: new Date().toISOString(),
+            commit: process.env.RENDER_GIT_COMMIT || undefined
+        });
+    } catch {
+        return res.status(503).json({
+            status: 'error',
+            check: 'readiness',
+            database: 'disconnected',
+            message: 'Database service unavailable'
+        });
+    }
+});
+
+app.get('/health', async (req: Request, res: Response) => {
+    try {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Database check timed out')), 2000)
+        );
+        await Promise.race([query('SELECT 1'), timeoutPromise]);
+        return res.status(200).json({
+            status: 'ok',
+            time: new Date().toISOString(),
+            commit: process.env.RENDER_GIT_COMMIT || undefined
+        });
+    } catch {
+        return res.status(503).json({
+            status: 'error',
+            message: 'Service Unavailable'
+        });
+    }
 });
 
 // Public image serving endpoint (with immutable caching for max performance)
