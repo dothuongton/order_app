@@ -5,7 +5,7 @@
 - Bắt đầu tại [docs/specs](docs/specs/README.md): thứ tự đọc, sai khác với code hiện tại và nguồn tài liệu.
 - Theo dõi [25 module V4 và khoảng trống triển khai](docs/specs/V4_IMPLEMENTATION_MAP.md). Vá core/CMS hiện tại không đồng nghĩa hoàn tất V4.
 - Quy tắc cộng tác: [AGENTS.md](AGENTS.md); [Karpathy skill trong repo](.agents/skills/karpathy-guidelines/SKILL.md), ghim nguồn và phiên bản.
-- Issue#2 chia ownership, #24 theo dõi core review, #35 chứa đánh giá Muse và kế hoạch liên quan. Spec Muse là đề xuất đối chiếu, không thay master/addendum.
+- [EpicV4#50](https://github.com/dothuongton/order_app/issues/50) và [Sprint0#51](https://github.com/dothuongton/order_app/issues/51) theo dõi hệthốngđích; [#2](https://github.com/dothuongton/order_app/issues/2) chia ownership, [#24](https://github.com/dothuongton/order_app/issues/24) theo dõi core review, [#35](https://github.com/dothuongton/order_app/issues/35) chứa đánh giá Muse và kế hoạch liên quan. Spec Muse là đề xuất đối chiếu, không thay master/addendum.
 
 Phần dưới giữ README của bản QRv1.2 để tra cứu code/cách chạy hiện hữu. Các giới hạn v1.2 không phải quyết định loại bỏ tính năng trong đặc tả V4. Trạng thái thực tế phải xem code/issue và bằng chứng review.
 

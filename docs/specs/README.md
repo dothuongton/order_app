@@ -24,3 +24,10 @@ Dùng Planned / In Progress / Tested / Released kèm issue, commit/PR, migration
 Issue #2 giữ ownership: Sang làm admin module/UI riêng, core/auth/schema/shared do dothuongton giữ. Task mới đi theo module trong ma trận, chỉ giao khi contract/dependency rõ. Mỗi lane một việc tại một thời điểm trên working directory riêng. Mọi thay đổi đi qua review trước merge; main auto-deploy Render.
 
 Tài liệu đang được đưa vào nhánh docs riêng để review và merge tách khỏi code. Khi chưa merge, đọc qua link nhánh/PR được gắn trong issue; không giả định clone main đã có các tệp này.
+
+## Theo dõi trênGitHub
+
+- [EpicV4#50](https://github.com/dothuongton/order_app/issues/50) — hệthốngđích25module.
+- [Sprint0#51](https://github.com/dothuongton/order_app/issues/51) — kiếntrúc/MVP/migration/owner.
+- [Claim#52](https://github.com/dothuongton/order_app/issues/52) — requirementaddendum.
+- [Checkout#53](https://github.com/dothuongton/order_app/issues/53) — requirementaddendum.

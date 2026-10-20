@@ -44,3 +44,10 @@ ID trong bảng là ID **module của spec**, khác với mã lỗi audit SEC/BU
 ## Nợ cần giải quyết trước nghiệm thu code hiện tại
 
 #24 và các follow-up #27/#28/#29/#32/#34 vẫn còn acceptance chưa đạt ở re-review30981bc. #35 là roadmap đề xuất Muse đã hiệu chỉnh, không thay masterV4. Root docs/issue sẽ dẫn epicV4/Sprint0 riêng để theo dõi 25module.
+
+## Theo dõi trênGitHub
+
+- [EpicV4#50](https://github.com/dothuongton/order_app/issues/50) — hệthốngđích25module.
+- [Sprint0#51](https://github.com/dothuongton/order_app/issues/51) — kiếntrúc/MVP/migration/owner.
+- [Claim#52](https://github.com/dothuongton/order_app/issues/52) — requirementaddendum.
+- [Checkout#53](https://github.com/dothuongton/order_app/issues/53) — requirementaddendum.
