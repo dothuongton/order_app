@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useGuest } from '../context/GuestContext.js';
+import { useGuest, getCartItemKey } from '../context/GuestContext.js';
 import { ShoppingBag, X, Plus, Minus, Trash2, Send, AlertTriangle, Tag, Sparkles } from 'lucide-react';
 
 interface CartDrawerProps {
@@ -134,7 +134,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {cart.map((item) => (
             <div
-              key={`${item.menuItemId}-${(item.optionIds || item.variantIds || []).slice().sort().join(',')}-${item.variantName || item.variantId || ''}-${item.note || ''}`}
+              key={getCartItemKey(item)}
               className="bg-slate-50 rounded-xl p-3 border border-slate-200/80 flex items-center justify-between gap-3"
             >
               <div className="flex-1 min-w-0">
@@ -158,14 +158,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
               {/* Quantity Controls */}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => updateCartQuantity(item.menuItemId, item.quantity - 1, item.note, item.variantId, item.variantName, item.optionIds)}
+                  onClick={() => updateCartQuantity(item.menuItemId, item.quantity - 1, item.note, item.variantId, item.variantName, item.optionIds, item.variantIds)}
                   className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 active:bg-slate-100"
                 >
                   {item.quantity === 1 ? <Trash2 className="w-4 h-4 text-rose-500" /> : <Minus className="w-3.5 h-3.5" />}
                 </button>
                 <span className="font-bold text-sm w-5 text-center">{item.quantity}</span>
                 <button
-                  onClick={() => updateCartQuantity(item.menuItemId, item.quantity + 1, item.note, item.variantId, item.variantName, item.optionIds)}
+                  onClick={() => updateCartQuantity(item.menuItemId, item.quantity + 1, item.note, item.variantId, item.variantName, item.optionIds, item.variantIds)}
                   className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 active:bg-slate-100"
                 >
                   <Plus className="w-3.5 h-3.5" />
