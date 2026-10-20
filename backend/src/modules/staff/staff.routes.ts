@@ -341,6 +341,11 @@ function normalizeOptionGroups(data: any): Array<{
                 };
             });
 
+            // If a SINGLE required group has no explicit default, default to the first available option
+            if (selectionMode === 'SINGLE' && minSelections > 0 && !options.some((o: any) => o.isDefault) && options.length > 0) {
+                options[0].isDefault = true;
+            }
+
             return {
                 id: grpId,
                 name: String(g.name || '').trim(),
