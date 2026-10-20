@@ -376,7 +376,7 @@ export class AdminService {
         input = validate(updateShopSchema, input);
 
         return await withTransaction(async (client) => {
-            const currentRes = await client.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
+            const currentRes = await client.query('SELECT * FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
             if (currentRes.rows.length === 0) {
                 throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy nhà hàng');
             }
@@ -392,7 +392,7 @@ export class AdminService {
                 }
             }
 
-            // Prevent archiving tenant if there are open table sessions (Release 54 coordination)
+            // Prevent archiving tenant if there are open table sessions (Release 54 / Issue #90 coordination)
             if (input.status === 'archived') {
                 const openSessionsCheck = await client.query(
                     "SELECT COUNT(*) as count FROM table_sessions WHERE tenant_id = $1 AND status = 'OPEN'",
@@ -401,8 +401,8 @@ export class AdminService {
                 const openCount = parseInt(openSessionsCheck.rows[0]?.count || '0', 10);
                 if (openCount > 0) {
                     throw new AdminApiError(
-                        400,
-                        'CANNOT_ARCHIVE_ACTIVE_SESSIONS',
+                        409,
+                        'SHOP_HAS_OPEN_SESSIONS',
                         `Không thể lưu trữ quán khi vẫn còn ${openCount} phiên bàn đang mở (OPEN). Vui lòng hoàn tất thanh toán hoặc đóng các phiên trước khi lưu trữ.`
                     );
                 }
