@@ -3,16 +3,19 @@ import { pool, withTransaction } from './pool.js';
 import { fileURLToPath } from 'url';
 import { config } from '../config/index.js';
 
-export async function seed(force: boolean = false) {
+export async function seed(force: boolean = true) {
     if (process.env.NODE_ENV === 'test' && !new URL(config.databaseUrl).pathname.startsWith('/qr_order_test_')) {
         throw new Error('Tests may only seed an isolated qr_order_test_ database');
+    }
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== 'true') {
+        console.warn('⚠️ Seeding demo data is blocked in production unless ALLOW_PROD_SEED=true.');
+        return;
     }
     console.log('🌱 Checking database seed status...');
 
     await withTransaction(async (client) => {
         // In production/runtime, avoid wiping live operational data on server restart
-        const isTest = process.env.NODE_ENV === 'test';
-        if (!isTest && !force && process.env.FORCE_SEED !== 'true') {
+        if (!force && process.env.FORCE_SEED !== 'true') {
             const tenantCheck = await client.query(`SELECT COUNT(*) FROM tenants`);
             const userCheck = await client.query(`SELECT COUNT(*) FROM users`);
             if (parseInt(tenantCheck.rows[0].count, 10) > 0 && parseInt(userCheck.rows[0].count, 10) > 0) {
@@ -163,12 +166,12 @@ export async function seed(force: boolean = false) {
             RETURNING id, name, price;
         `, [phoCoId, catSnacks, catDrinks, catToppings]);
 
-        // 7. Super Admin User
+        // 7. Super Admin User (initial seed only, never overwrite)
         const superAdminHash = await bcrypt.hash('admin123', 10);
         await client.query(`
             INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
             VALUES ('99999999-9999-9999-9999-999999999999', 'superadmin@qrorder.vn', $1, 'Hệ Thống Super Admin', '0999999999', true)
-            ON CONFLICT (email) DO UPDATE SET is_platform_admin = true;
+            ON CONFLICT (email) DO NOTHING;
         `, [superAdminHash]);
 
         // 8. Banners for Pho Co
@@ -214,20 +217,22 @@ export async function seed(force: boolean = false) {
         `, [phoCoId, JSON.stringify(initialThemeConfig)]);
 
         console.log(`✅ Seeded ${tablesRes.rows.length} tables and ${itemsRes.rows.length} snack menu items for ${phoCoId}`);
-        console.log(`💡 Demo Credentials:`);
-        console.log(`   - Super Admin: superadmin@qrorder.vn / admin123`);
-        console.log(`   - Quản lý / Manager: admin@phoco.vn / 123456`);
-        console.log(`   - Phục vụ / Waiter: phucvu@phoco.vn / 123456`);
-        console.log(`   - Thu ngân / Cashier: thungan@phoco.vn / 123456`);
-        console.log(`   - Bàn A01 QR ID: qr-phoco-a01`);
-        console.log(`   - Bàn A02 QR ID: qr-phoco-a02`);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`💡 Demo Credentials:`);
+            console.log(`   - Super Admin: superadmin@qrorder.vn / admin123`);
+            console.log(`   - Quản lý / Manager: admin@phoco.vn / 123456`);
+            console.log(`   - Phục vụ / Waiter: phucvu@phoco.vn / 123456`);
+            console.log(`   - Thu ngân / Cashier: thungan@phoco.vn / 123456`);
+            console.log(`   - Bàn A01 QR ID: qr-phoco-a01`);
+            console.log(`   - Bàn A02 QR ID: qr-phoco-a02`);
+        }
     });
 
     console.log('🌱 Seeding finished successfully.');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    seed().then(() => process.exit(0)).catch((err) => {
+    seed(false).then(() => process.exit(0)).catch((err) => {
         console.error('Seed error:', err);
         process.exit(1);
     });

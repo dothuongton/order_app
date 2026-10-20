@@ -16,7 +16,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: AUTO_SEED
-        value: "true"
+        value: "false"
 
 databases:
   - name: order-app-db

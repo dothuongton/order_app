@@ -1,5 +1,5 @@
 -- Migration 004: Ensure Super Admin user exists for Multi-Tenant CMS portal
--- Password is 'admin123' hashed with bcrypt (cost factor 10)
+-- Bootstrap only if user does not exist. Never overwrite password or elevate existing accounts on rerun.
 INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
 VALUES (
     '99999999-9999-9999-9999-999999999999',
@@ -9,7 +9,4 @@ VALUES (
     '0999999999',
     true
 )
-ON CONFLICT (email) DO UPDATE SET
-    is_platform_admin = true,
-    password_hash = EXCLUDED.password_hash,
-    full_name = 'Hệ Thống Super Admin';
+ON CONFLICT (email) DO NOTHING;
