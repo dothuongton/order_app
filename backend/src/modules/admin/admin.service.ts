@@ -347,6 +347,22 @@ export class AdminService {
                 }
             }
 
+            // Prevent archiving tenant if there are open table sessions (Release 54 coordination)
+            if (input.status === 'archived') {
+                const openSessionsCheck = await client.query(
+                    "SELECT COUNT(*) as count FROM table_sessions WHERE tenant_id = $1 AND status = 'OPEN'",
+                    [tenantId]
+                );
+                const openCount = parseInt(openSessionsCheck.rows[0]?.count || '0', 10);
+                if (openCount > 0) {
+                    throw new AdminApiError(
+                        400,
+                        'CANNOT_ARCHIVE_ACTIVE_SESSIONS',
+                        `Không thể lưu trữ quán khi vẫn còn ${openCount} phiên bàn đang mở (OPEN). Vui lòng hoàn tất thanh toán hoặc đóng các phiên trước khi lưu trữ.`
+                    );
+                }
+            }
+
             const updatedName = input.name ?? current.name;
             const updatedSlug = input.slug ?? current.slug;
             const updatedStatus = input.status ?? current.status;

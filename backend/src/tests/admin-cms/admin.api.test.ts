@@ -412,6 +412,39 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
                 body: JSON.stringify({ status: 'active' })
             });
         });
+
+        it('blocks transition to archived if tenant has open table sessions', async () => {
+            // Find a table for seed tenant
+            const tableRes = await query('SELECT id FROM tables WHERE tenant_id = $1 LIMIT 1', [seedTenantId]);
+            const tableId = tableRes.rows[0].id;
+
+            // Create an OPEN session
+            const sessionRes = await query(
+                `INSERT INTO table_sessions (tenant_id, table_id, status, opened_at)
+                 VALUES ($1, $2, 'OPEN', NOW()) RETURNING id`,
+                [seedTenantId, tableId]
+            );
+            const sessionId = sessionRes.rows[0].id;
+
+            try {
+                // Attempt to archive seed tenant
+                const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({ status: 'archived' })
+                });
+
+                expect(res.status).toBe(400);
+                const data: any = await res.json();
+                expect(data.error).toBe('CANNOT_ARCHIVE_ACTIVE_SESSIONS');
+            } finally {
+                // Clean up session: mark CLOSED so seed tenant remains clean
+                await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE id = $1`, [sessionId]);
+            }
+        });
     });
 
     // =========================================================================
