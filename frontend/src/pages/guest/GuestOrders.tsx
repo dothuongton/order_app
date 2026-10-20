@@ -3,7 +3,9 @@ import { useGuest } from '../../context/GuestContext.js';
 import { Clock, CheckCircle2, AlertCircle, XCircle, RefreshCw } from 'lucide-react';
 
 export const GuestOrders: React.FC = () => {
-  const { orders, refreshOrdersAndBill } = useGuest();
+  const { orders, refreshOrdersAndBill, session, isSessionClosed } = useGuest();
+  const isUnopened = !session && !isSessionClosed;
+  const isClosed = Boolean(isSessionClosed || session?.status === 'CLOSED');
 
   const getStatusBadge = (status: string, item: any) => {
     switch (status) {
@@ -58,11 +60,31 @@ export const GuestOrders: React.FC = () => {
 
       {orders.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-slate-200/80 p-6">
-          <Clock className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-          <h3 className="font-semibold text-slate-700">Chưa có yêu cầu nào được gửi</h3>
-          <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
-            Hãy chọn các món trong mục Thực đơn và nhấn gửi để nhân viên tiếp nhận và phục vụ
-          </p>
+          {isUnopened ? (
+            <>
+              <Clock className="w-12 h-12 mx-auto mb-3 text-amber-400" />
+              <h3 className="font-semibold text-slate-800">Bàn chưa mở gọi món</h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                Vui lòng liên hệ nhân viên để mở bàn trước khi gửi yêu cầu gọi món
+              </p>
+            </>
+          ) : isClosed ? (
+            <>
+              <CheckCircle2 className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+              <h3 className="font-semibold text-slate-800">Phiên bàn đã kết thúc</h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                Cảm ơn quý khách đã dùng bữa! Quý khách có thể xem lại hóa đơn ở mục Tổng bill
+              </p>
+            </>
+          ) : (
+            <>
+              <Clock className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+              <h3 className="font-semibold text-slate-700">Chưa có yêu cầu nào được gửi</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                Hãy chọn các món trong mục Thực đơn và nhấn gửi để nhân viên tiếp nhận và phục vụ
+              </p>
+            </>
+          )}
         </div>
       ) : (
         orders.map((order) => (
