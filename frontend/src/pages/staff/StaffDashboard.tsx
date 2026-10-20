@@ -108,7 +108,8 @@ export const StaffDashboard: React.FC = () => {
 
     const handleOrderCreated = (payload: any) => {
       const tableName = payload?.tableName || 'Bàn';
-      playOrderSound(tableName);
+      const eventId = payload?.orderId ? `order-${payload.orderId}` : undefined;
+      playOrderSound(tableName, eventId);
       showToast({
         title: `🔔 Khách gọi món mới (${tableName})`,
         message: `Lượt gọi #${payload?.orderNumber || 'mới'} gồm ${payload?.itemsCount || 1} món`,
@@ -122,7 +123,8 @@ export const StaffDashboard: React.FC = () => {
       const tableName = payload?.tableName || 'Bàn';
       const isCheckout = payload?.type === 'CHECKOUT';
       const count = payload?.callCount;
-      playAlertSound(tableName, payload?.type);
+      const eventId = payload?.requestId ? `req-${payload.requestId}-${count || 1}` : undefined;
+      playAlertSound(tableName, payload?.type, eventId);
       showToast({
         title: isCheckout
           ? `💳 Yêu cầu thanh toán (${tableName}) ${count && count > 1 ? `• Nhắc lần ${count}` : ''}`

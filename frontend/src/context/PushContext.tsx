@@ -7,7 +7,8 @@ export type PushPermissionState =
   | 'http_insecure'           // Non-localhost HTTP, iOS/browser requires HTTPS for Push
   | 'ios_need_install'        // iOS Safari tab, requires Add to Home Screen first
   | 'default'                 // Permission not yet requested
-  | 'granted'                 // Permission granted and subscribed
+  | 'granted'                 // Permission granted and subscribed with backend
+  | 'sync_error'              // Browser has subscription but backend sync failed / needs retry
   | 'denied';                 // Permission blocked by user
 
 interface PushContextType {
@@ -35,7 +36,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, currentTenant } = useAuth();
   const [state, setState] = useState<PushPermissionState>('default');
   const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -98,19 +99,23 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // 3. Permission is 'granted', check active subscription in ServiceWorker
+    // If user is logged out, clear subscription state (no false positives)
+    if (!user || !currentTenant) {
+      setIsSubscribed(false);
+      setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
+      return;
+    }
+
+    // 3. Permission is 'granted', check active subscription in ServiceWorker and sync with backend
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         const sub = await reg.pushManager.getSubscription();
         if (sub) {
-          setIsSubscribed(true);
-          setState('granted');
-          // Re-sync subscription with backend so PostgreSQL always has this device's endpoint
-          try {
-            const subJson = sub.toJSON();
-            if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
-              request('/staff/push/subscribe', {
+          const subJson = sub.toJSON();
+          if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
+            try {
+              await request('/staff/push/subscribe', {
                 method: 'POST',
                 body: JSON.stringify({
                   endpoint: subJson.endpoint,
@@ -119,10 +124,19 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     auth: subJson.keys.auth
                   }
                 })
-              }).catch(() => {});
+              });
+              setIsSubscribed(true);
+              setState('granted');
+              setErrorMessage(null);
+              return;
+            } catch (err: any) {
+              console.warn('[Push] Backend sync error:', err.message);
+              setIsSubscribed(false);
+              setState('sync_error');
+              setErrorMessage('Chưa đồng bộ được thông báo với máy chủ quán. Vui lòng bấm để kết nối lại.');
+              return;
             }
-          } catch {}
-          return;
+          }
         }
       }
       setIsSubscribed(false);
@@ -131,7 +145,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setState('default');
       setIsSubscribed(false);
     }
-  }, []);
+  }, [user, currentTenant]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
@@ -219,7 +233,10 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setState('granted');
       setIsSubscribed(true);
+      setErrorMessage(null);
     } catch (err: any) {
+      setIsSubscribed(false);
+      setState('sync_error');
       setErrorMessage(err.message || 'Lỗi khi bật thông báo');
       throw err;
     } finally {
