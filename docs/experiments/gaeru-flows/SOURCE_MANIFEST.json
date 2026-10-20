@@ -1,0 +1,24 @@
+{
+  "targetRepository": "dothuongton/order_app",
+  "targetBase": "92f81cb83a961dd74caffb98a6316fd73b3ac147",
+  "integrationBranch": "codex/gaeru-flow-experiment",
+  "sourceRepository": "dothuongton/gaeru-soft-source",
+  "sourceCommit": "3f36c9b4733ed9e48a934935ee0d95c55a54c489",
+  "originalSpecSHA256": "375b78f2206e8eeed403948fbdcda5c56de195c846921c6df31c260e80ebd029",
+  "implementationStatus": "documentation_only",
+  "sourceTests": {
+    "command": "node --test tests/*.test.mjs",
+    "tests": 276,
+    "passed": 276,
+    "failed": 0,
+    "scope": "in-memory SQLite D1 adapter, pure functions and React SSR; no live Cloudflare, Postgres, browser/device or deployment verification",
+    "node": "v26.4.0",
+    "testOnlyDependencies": {
+      "typescript": "5.9.3",
+      "react": "19.2.6",
+      "react-dom": "19.2.6",
+      "qrcode.react": "4.2.0",
+      "lucide-react": "1.31.0"
+    }
+  }
+}
