@@ -102,4 +102,34 @@ describe('OPS-01: Startup Error Propagation, Migration Tracking, and Health Prob
 
         connectSpy.mockRestore();
     });
+
+    it('returns 503 schema_incomplete from /health/readiness when required migration revision is missing (Issue #32)', async () => {
+        // Temporarily delete required 008 migration from schema_migrations
+        await query(`DELETE FROM schema_migrations WHERE filename = '008_promotion_redemption_snapshots.sql'`);
+
+        const res = await fetch(`${baseUrl}/health/readiness`);
+        expect(res.status).toBe(503);
+        const body: any = await res.json();
+        expect(body.status).toBe('error');
+        expect(body.database).toBe('schema_incomplete');
+
+        // Restore migration record
+        await query(`INSERT INTO schema_migrations (filename) VALUES ('008_promotion_redemption_snapshots.sql') ON CONFLICT DO NOTHING`);
+
+        const resRestored = await fetch(`${baseUrl}/health/readiness`);
+        expect(resRestored.status).toBe(200);
+    });
+
+    it('classifies malformed JSON as 400 BAD_REQUEST without leaking parser internals or request body (Issue #36)', async () => {
+        const res = await fetch(`${baseUrl}/api/v1/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{"username": "admin", "password":'
+        });
+
+        expect(res.status).toBe(400);
+        const body: any = await res.json();
+        expect(body.error).toBe('BAD_REQUEST');
+        expect(body.message).not.toMatch(/JSON|SyntaxError|position|Unexpected/i);
+    });
 });

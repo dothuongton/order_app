@@ -87,14 +87,29 @@ Khi thực hiện diễn tập khôi phục trên môi trường cô lập:
 3. Chạy toàn bộ test suite (`npm test`).
 4. Gửi Pull Request và kiểm tra CI GitHub Actions.
 
-### 4.2 Rollback Migration khẩn cấp
-Nếu bản migration mới gây lỗi schema trong lúc vận hành:
-1. Chạy tệp down-migration tương ứng:
-   ```bash
-   psql $DATABASE_URL -f backend/src/db/migrations/<XXX>_down.sql
-   ```
-2. Xóa bản ghi migration khỏi bảng theo dõi:
-   ```sql
-   DELETE FROM schema_migrations WHERE filename = '<XXX>.sql';
-   ```
-3. Khởi động lại dịch vụ backend và giám sát log `/health/readiness`.
+### 4.2 Chiến Lược Rollback và Xử Lý Lỗi Schema (Issue #34)
+
+Không được mô tả việc xóa bản ghi trong `schema_migrations` như một thao tác đảo ngược DDL. Khi restart, runner sẽ tự động quét thư mục `migrations/` và chạy lại bất kỳ tệp `.sql` nào chưa có trong `schema_migrations`.
+
+Có 3 kịch bản ứng phó sự cố:
+
+#### Kịch bản 1: Rollback Ứng Dụng (Application Rollback)
+Nếu code ứng dụng mới gặp lỗi runtime nhưng schema cơ sở dữ liệu tương thích ngược:
+1. Re-deploy bản phát hành (Docker image / Git commit) ổn định trước đó trên Render.
+2. Kiểm tra `/health/liveness` và `/health/readiness` để đảm bảo hệ thống nhận diện đúng trạng thái kết nối.
+
+#### Kịch bản 2: Vá Tiếp (Forward-Fix - Khuyến nghị cho Schema)
+Thay vì đảo ngược schema trên cơ sở dữ liệu đang có dữ liệu sống (production live data):
+1. Viết một tệp migration tăng dần mới (ví dụ: `009_fix_constraint.sql`).
+2. Viết test kiểm tra migration mới và tương thích ngược dữ liệu hiện hữu.
+3. Deploy bản vá lên production; auto-migrate sẽ thực thi migration tiếp theo một cách an toàn và ghi nhận vào `schema_migrations`.
+
+#### Kịch bản 3: Khôi phục Dữ liệu / Rollback Schema Khẩn Cấp
+Nếu bắt buộc phải đảo ngược schema do lỗi cấu trúc nghiêm trọng:
+1. Tạm dừng lưu lượng hoặc bật chế độ bảo trì để ngăn chặn việc ghi dữ liệu mới.
+2. Sao lưu database snapshot hiện tại (`pg_dump`).
+3. Kiểm tra điều kiện dữ liệu (Preconditions):
+   - Ví dụ: Nếu rollback nới lỏng constraint (như `007_session_promotion_redemptions.sql` cho phép `order_id` mang giá trị `NULL`), việc áp đặt lại `NOT NULL` sẽ thất bại nếu trong bảng đã có bản ghi redemption với `order_id IS NULL`. Cần xử lý dữ liệu hoặc chuyển hướng sang forward-fix.
+4. Chạy tệp down-migration cụ thể ngoài phạm vi tự động (runner `migrate.ts` đã được cấu hình loại trừ tất cả tệp `*_down.sql`).
+5. Nếu khôi phục cơ sở dữ liệu từ bản sao lưu trước triển khai, rollback application code về commit tương ứng để schema revision trong code và cơ sở dữ liệu đồng nhất.
+6. Xác nhận `/health/readiness` trả về 200 OK trước khi mở lại lưu lượng cho khách hàng.
