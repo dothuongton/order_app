@@ -183,6 +183,68 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             const data: any = await res.json();
             expect(data.error).toBe('BAD_REQUEST');
         });
+
+        it('supports sorting by allowlisted fields (name, revenue, orders, created_at) (Issue #86)', async () => {
+            // Sort by name ASC
+            const resNameAsc = await fetch(`${baseUrl}/api/v1/admin/shops?sortBy=name&order=asc&limit=10`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resNameAsc.status).toBe(200);
+            const dataNameAsc: any = await resNameAsc.json();
+            expect(Array.isArray(dataNameAsc.shops)).toBe(true);
+
+            // Sort by revenue DESC
+            const resRevDesc = await fetch(`${baseUrl}/api/v1/admin/shops?sortBy=revenue&order=desc&limit=10`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resRevDesc.status).toBe(200);
+            const dataRevDesc: any = await resRevDesc.json();
+            expect(Array.isArray(dataRevDesc.shops)).toBe(true);
+            for (let i = 1; i < dataRevDesc.shops.length; i++) {
+                expect(dataRevDesc.shops[i - 1].totalRevenue).toBeGreaterThanOrEqual(dataRevDesc.shops[i].totalRevenue);
+            }
+
+            // Reject invalid sortBy field
+            const resInvalidSort = await fetch(`${baseUrl}/api/v1/admin/shops?sortBy=unauthorized_column`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resInvalidSort.status).toBe(400);
+
+            // Reject invalid order direction
+            const resInvalidOrder = await fetch(`${baseUrl}/api/v1/admin/shops?order=diagonal`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resInvalidOrder.status).toBe(400);
+        });
+
+        it('guarantees stable multi-page pagination consistency without duplicate shops (Issue #86)', async () => {
+            const resP1 = await fetch(`${baseUrl}/api/v1/admin/shops?page=1&limit=1`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resP1.status).toBe(200);
+            const dataP1: any = await resP1.json();
+
+            if (dataP1.pagination.total > 1) {
+                const resP2 = await fetch(`${baseUrl}/api/v1/admin/shops?page=2&limit=1`, {
+                    headers: { 'Authorization': `Bearer ${superAdminToken}` }
+                });
+                expect(resP2.status).toBe(200);
+                const dataP2: any = await resP2.json();
+
+                expect(dataP1.shops[0].id).not.toBe(dataP2.shops[0].id);
+                expect(dataP1.pagination.total).toBe(dataP2.pagination.total);
+            }
+        });
+
+        it('handles non-matching search cleanly with empty array and 0 total (Issue #86)', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops?search=xyz-non-existent-unique-slug-999`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+            expect(data.shops).toEqual([]);
+            expect(data.pagination.total).toBe(0);
+        });
     });
 
     // =========================================================================

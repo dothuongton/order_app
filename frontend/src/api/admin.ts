@@ -49,7 +49,7 @@ export const AdminApi = {
     /**
      * List shops with search, status filtering, and pagination
      */
-    async getShops(params: FetchShopsParams = {}): Promise<ShopsListResponse> {
+    async getShops(params: FetchShopsParams = {}, signal?: AbortSignal): Promise<ShopsListResponse> {
         const queryParams = new URLSearchParams();
         if (params.page) queryParams.set('page', params.page.toString());
         if (params.limit) queryParams.set('limit', params.limit.toString());
@@ -61,7 +61,8 @@ export const AdminApi = {
         const qs = queryParams.toString();
         const endpoint = qs ? `/admin/shops?${qs}` : '/admin/shops';
         return request<ShopsListResponse>(endpoint, {
-            headers: getAdminHeaders()
+            headers: getAdminHeaders(),
+            signal
         });
     },
 
