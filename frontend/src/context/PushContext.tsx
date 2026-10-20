@@ -6,9 +6,11 @@ export type PushPermissionState =
   | 'unsupported'             // Browser doesn't support Push API / ServiceWorker
   | 'http_insecure'           // Non-localhost HTTP, iOS/browser requires HTTPS for Push
   | 'ios_need_install'        // iOS Safari tab, requires Add to Home Screen first
+  | 'server_disabled'         // Server has not configured VAPID or disabled push
   | 'default'                 // Permission not yet requested
   | 'granted'                 // Permission granted and subscribed with backend
   | 'sync_error'              // Browser has subscription but backend sync failed / needs retry
+  | 'key_mismatch'            // Server VAPID key was rotated; re-subscribe needed
   | 'denied';                 // Permission blocked by user
 
 interface PushContextType {
@@ -24,7 +26,7 @@ interface PushContextType {
 
 const PushContext = createContext<PushContextType | null>(null);
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+export function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
@@ -33,6 +35,21 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+export function areApplicationServerKeysEqual(subKey: ArrayBuffer | null, serverKey: string): boolean {
+  if (!subKey || !serverKey) return false;
+  try {
+    const expected = urlBase64ToUint8Array(serverKey);
+    const actual = new Uint8Array(subKey);
+    if (actual.byteLength !== expected.byteLength) return false;
+    for (let i = 0; i < actual.byteLength; i++) {
+      if (actual[i] !== expected[i]) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -93,12 +110,6 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    if (hasNotification && Notification.permission === 'default') {
-      setState('default');
-      setIsSubscribed(false);
-      return;
-    }
-
     // If user is logged out, clear subscription state (no false positives)
     if (!user || !currentTenant) {
       setIsSubscribed(false);
@@ -106,12 +117,41 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // 3. Permission is 'granted', check active subscription in ServiceWorker and sync with backend
+    // 3. Query server push availability and public key
+    let serverInfo: { available: boolean; enabled: boolean; publicKey?: string; reason?: string } | null = null;
+    try {
+      serverInfo = await request<{ available: boolean; enabled: boolean; publicKey?: string; reason?: string }>('/staff/push/public-key');
+    } catch (err: any) {
+      console.warn('[Push] Error querying server push status:', err?.message);
+    }
+
+    if (!serverInfo || !serverInfo.available || !serverInfo.publicKey) {
+      setState('server_disabled');
+      setIsSubscribed(false);
+      return;
+    }
+
+    if (hasNotification && Notification.permission === 'default') {
+      setState('default');
+      setIsSubscribed(false);
+      return;
+    }
+
+    // 4. Permission is 'granted', check active subscription in ServiceWorker and sync with backend
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         const sub = await reg.pushManager.getSubscription();
         if (sub) {
+          // Check for VAPID key rotation
+          const keyMatches = areApplicationServerKeysEqual(sub.options?.applicationServerKey || null, serverInfo.publicKey);
+          if (!keyMatches) {
+            setState('key_mismatch');
+            setIsSubscribed(false);
+            setErrorMessage('Khóa thông báo trên máy chủ đã thay đổi. Vui lòng bấm để kết nối lại.');
+            return;
+          }
+
           const subJson = sub.toJSON();
           if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
             try {
@@ -184,6 +224,13 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Thiết bị hoặc trình duyệt không hỗ trợ Web Push');
       }
 
+      // Check VAPID availability from backend first
+      const serverInfo = await request<{ available: boolean; enabled: boolean; publicKey?: string; reason?: string }>('/staff/push/public-key');
+      if (!serverInfo.available || !serverInfo.publicKey) {
+        setState('server_disabled');
+        throw new Error('Hệ thống thông báo đẩy (Web Push) chưa được cấu hình hoặc kích hoạt trên máy chủ quán');
+      }
+
       // Request browser permission
       const permission = await Notification.requestPermission();
       if (permission === 'denied') {
@@ -197,22 +244,32 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Register Service Worker
-      const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-      await navigator.serviceWorker.ready;
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      const registration = await navigator.serviceWorker.ready;
 
-      // Get VAPID public key from backend
-      const { publicKey } = await request<{ publicKey: string }>('/staff/push/public-key');
-      if (!publicKey) {
-        throw new Error('Không lấy được VAPID public key từ server');
+      // Check existing subscription and rotate if key changed
+      let subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        const keyMatches = areApplicationServerKeysEqual(subscription.options?.applicationServerKey || null, serverInfo.publicKey);
+        if (!keyMatches) {
+          const oldEndpoint = subscription.endpoint;
+          await subscription.unsubscribe().catch(() => {});
+          await request('/staff/push/unsubscribe', {
+            method: 'POST',
+            body: JSON.stringify({ endpoint: oldEndpoint })
+          }).catch(() => {});
+          subscription = null;
+        }
       }
 
-      const convertedKey = urlBase64ToUint8Array(publicKey);
-
-      // Subscribe to PushManager
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: convertedKey as any
-      });
+      // Subscribe anew if needed
+      if (!subscription) {
+        const convertedKey = urlBase64ToUint8Array(serverInfo.publicKey);
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedKey as any
+        });
+      }
 
       const subJson = subscription.toJSON();
       if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) {
@@ -236,7 +293,9 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setErrorMessage(null);
     } catch (err: any) {
       setIsSubscribed(false);
-      setState('sync_error');
+      if (state !== 'server_disabled' && state !== 'denied' && state !== 'ios_need_install' && state !== 'http_insecure') {
+        setState('sync_error');
+      }
       setErrorMessage(err.message || 'Lỗi khi bật thông báo');
       throw err;
     } finally {
@@ -285,11 +344,15 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       let endpoint: string | undefined;
       if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+        const reg = await navigator.serviceWorker.getRegistration();
         if (reg) {
           const sub = await reg.pushManager.getSubscription();
           if (sub) endpoint = sub.endpoint;
         }
+      }
+
+      if (!endpoint) {
+        throw new Error('Thiết bị chưa có đăng ký thông báo với trình duyệt. Vui lòng bật lại thông báo.');
       }
 
       await request('/staff/push/test', {

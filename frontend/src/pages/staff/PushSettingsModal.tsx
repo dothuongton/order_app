@@ -102,6 +102,16 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   <span className="text-xs font-black text-emerald-800">Đã bật thông báo đẩy</span>
                 </>
+              ) : state === 'server_disabled' ? (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                  <span className="text-xs font-black text-amber-800">Máy chủ chưa kích hoạt</span>
+                </>
+              ) : state === 'key_mismatch' ? (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span className="text-xs font-black text-amber-800">Cần cập nhật khóa</span>
+                </>
               ) : state === 'http_insecure' ? (
                 <>
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
@@ -146,7 +156,40 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
         </div>
 
         {/* Content by State */}
-        {state === 'http_insecure' ? (
+        {state === 'server_disabled' ? (
+          /* Case -1: Server push unconfigured or disabled */
+          <div className="space-y-3 bg-amber-50/80 border border-amber-200 p-4 rounded-2xl text-xs text-amber-900">
+            <div className="flex items-center gap-2 font-bold text-amber-950">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span>Máy chủ chưa kích hoạt Web Push (VAPID)</span>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Hệ thống thông báo đẩy trên máy chủ quán chưa được cài đặt cặp khóa VAPID. Quản trị viên cần khai báo biến môi trường <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[10px]">VAPID_PUBLIC_KEY</code> và <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[10px]">VAPID_PRIVATE_KEY</code> trên Render.
+            </p>
+            <div className="p-2.5 bg-white/80 border border-amber-200/60 rounded-xl text-[11px] text-slate-600">
+              💡 Khi đang mở ứng dụng, chuông báo và giọng nói tiếng Việt vẫn hoạt động bình thường qua kết nối Socket trực tiếp.
+            </div>
+          </div>
+        ) : state === 'key_mismatch' ? (
+          /* Case -0.5: Key mismatch / rotation */
+          <div className="space-y-3 bg-amber-50/80 border border-amber-200 p-4 rounded-2xl text-xs text-amber-900">
+            <div className="flex items-center gap-2 font-bold text-amber-950">
+              <RefreshCw className="w-4 h-4 text-amber-600" />
+              <span>Khóa thông báo máy chủ đã thay đổi</span>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Cặp khóa VAPID trên máy chủ đã được cập nhật. Vui lòng bấm nút bên dưới để cập nhật lại kết nối cho thiết bị này.
+            </p>
+            <button
+              onClick={handleSubscribe}
+              disabled={isLoading}
+              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>{isLoading ? 'Đang cập nhật...' : 'Cập nhật và kết nối lại ngay'}</span>
+            </button>
+          </div>
+        ) : state === 'http_insecure' ? (
           /* Case 0: Insecure HTTP on mobile */
           <div className="space-y-3 bg-rose-50 border border-rose-200 p-4 rounded-2xl text-xs text-rose-900">
             <div className="flex items-center gap-2 font-bold text-rose-950">

@@ -453,6 +453,10 @@ export const StaffDashboard: React.FC = () => {
             className={`w-9 h-9 rounded-xl transition flex items-center justify-center border text-xs font-bold relative shrink-0 ${
               pushState === 'granted' && isPushSubscribed
                 ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/25'
+                : pushState === 'key_mismatch'
+                ? 'text-amber-400 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25 animate-pulse'
+                : pushState === 'server_disabled'
+                ? 'text-slate-500 bg-slate-800/40 border-slate-700/50'
                 : pushState === 'http_insecure'
                 ? 'text-rose-400 bg-rose-500/15 border-rose-500/30 hover:bg-rose-500/25'
                 : pushState === 'denied'
@@ -461,7 +465,7 @@ export const StaffDashboard: React.FC = () => {
                 ? 'text-amber-400 bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/25 animate-pulse'
                 : 'text-slate-300 bg-slate-800/80 border-slate-700 hover:bg-slate-800'
             }`}
-            title={`Thông báo đẩy: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
+            title={`Thông báo đẩy: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'server_disabled' ? 'Chưa bật trên máy chủ' : pushState === 'key_mismatch' ? 'Cần cập nhật khóa' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
           >
             <BellRing className="w-4 h-4" />
             {pushState === 'granted' && isPushSubscribed && (
@@ -519,8 +523,22 @@ export const StaffDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Push notification prompt if not yet subscribed */}
-      {(!isPushSubscribed && (pushState === 'default' || pushState === 'granted')) && (
+      {/* Key mismatch notification prompt */}
+      {pushState === 'key_mismatch' && (
+        <div
+          onClick={() => setShowPushModal(true)}
+          className="bg-amber-500/20 border-b border-amber-500/30 text-amber-200 px-4 py-2 text-xs font-semibold flex items-center justify-between cursor-pointer hover:bg-amber-500/30 transition"
+        >
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-amber-400 shrink-0 animate-spin" />
+            <span>Khóa thông báo máy chủ đã thay đổi: Nhấn để cập nhật lại</span>
+          </div>
+          <span className="text-[10px] text-amber-300 font-bold underline shrink-0">Cập nhật</span>
+        </div>
+      )}
+
+      {/* Push notification prompt if not yet subscribed and server is available */}
+      {(!isPushSubscribed && pushState !== 'server_disabled' && pushState !== 'key_mismatch' && (pushState === 'default' || pushState === 'granted')) && (
         <div
           onClick={() => setShowPushModal(true)}
           className="bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 px-4 py-2.5 text-xs font-black flex items-center justify-between cursor-pointer transition shadow-md"
