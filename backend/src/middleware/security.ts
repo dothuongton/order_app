@@ -17,6 +17,10 @@ export function securityHeaders(_req: Request, res: Response, next: NextFunction
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader(
+        'Content-Security-Policy-Report-Only',
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'none';"
+    );
     if (config.nodeEnv === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();
 }
@@ -38,6 +42,26 @@ export const loginLimiter = rateLimit({
 export const guestWriteLimiter = rateLimit({
     windowMs: 60 * 1000, limit: 30,
     skip: req => ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+    keyGenerator: (req) => {
+        const token = (req.headers['x-guest-token'] as string) || req.cookies?.guest_token;
+        if (token) return `guest_${token}`;
+        return req.ip || 'unknown';
+    },
+    validate: { keyGeneratorIpFallback: false },
     standardHeaders: 'draft-8', legacyHeaders: false,
     message: { error: 'RATE_LIMITED', message: 'Bạn gửi yêu cầu quá nhanh. Vui lòng thử lại sau.' }
+});
+
+export const staffMutationLimiter = rateLimit({
+    windowMs: 60 * 1000, limit: 120,
+    skip: req => ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+    keyGenerator: (req) => {
+        const staff = (req as any).staff;
+        if (staff?.userId) return `staff_${staff.userId}`;
+        if (staff?.tenantId) return `tenant_${staff.tenantId}`;
+        return req.ip || 'unknown';
+    },
+    validate: { keyGeneratorIpFallback: false },
+    standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'RATE_LIMITED', message: 'Thao tác quá nhanh. Vui lòng thử lại sau.' }
 });

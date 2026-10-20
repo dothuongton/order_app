@@ -29,6 +29,22 @@ cmsRouter.post('/upload', async (req: Request, res: Response) => {
 
         const { mimeType, sizeBytes } = decodeImage(data);
 
+        // Check per-tenant upload storage quota (50MB cap per tenant)
+        const MAX_TENANT_STORAGE_BYTES = 50 * 1024 * 1024;
+        const usageRes = await query(`
+            SELECT COALESCE(SUM(size_bytes), 0) as total_used
+            FROM uploaded_images
+            WHERE tenant_id = $1
+        `, [tenantId]);
+
+        const currentTotal = parseInt(usageRes.rows[0].total_used, 10);
+        if (currentTotal + sizeBytes > MAX_TENANT_STORAGE_BYTES) {
+            return res.status(413).json({
+                error: 'STORAGE_QUOTA_EXCEEDED',
+                message: 'Dung lượng ảnh của quán đã đạt giới hạn (50MB). Vui lòng xóa bớt ảnh cũ trước khi tải tiếp.'
+            });
+        }
+
         const insertRes = await query(`
             INSERT INTO uploaded_images (tenant_id, filename, mime_type, size_bytes, data_base64)
             VALUES ($1, $2, $3, $4, $5)
