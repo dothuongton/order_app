@@ -5,7 +5,8 @@ import { config } from '../../config/index.js';
 
 import { deferUntilCommit } from '../../utils/transaction-effects.js';
 
-// Configure Web Push VAPID credentials
+// Configure Web Push VAPID credentials safely
+let pushInitError: string | null = null;
 if (config.isPushEnabled && config.vapidPublicKey && config.vapidPrivateKey) {
     try {
         webpush.setVapidDetails(
@@ -13,8 +14,9 @@ if (config.isPushEnabled && config.vapidPublicKey && config.vapidPrivateKey) {
             config.vapidPublicKey,
             config.vapidPrivateKey
         );
-    } catch (err) {
-        console.warn('⚠️ Failed to initialize webpush details:', err);
+    } catch (err: any) {
+        pushInitError = err?.message || 'FAILED_TO_SET_VAPID_DETAILS';
+        console.warn('⚠️ Failed to initialize webpush details:', pushInitError);
     }
 }
 
@@ -41,16 +43,54 @@ export interface PushNotificationPayload {
 
 export class PushService {
     /**
+     * Get availability status of Web Push on this server
+     */
+    static getAvailability(): { available: boolean; enabled: boolean; reason: string | null; publicKey: string } {
+        if (!config.isPushEnabled) {
+            return {
+                available: false,
+                enabled: false,
+                reason: config.pushReason || 'NOT_CONFIGURED',
+                publicKey: ''
+            };
+        }
+        if (pushInitError) {
+            return {
+                available: false,
+                enabled: false,
+                reason: 'INITIALIZATION_FAILED',
+                publicKey: ''
+            };
+        }
+        return {
+            available: true,
+            enabled: true,
+            reason: null,
+            publicKey: config.vapidPublicKey
+        };
+    }
+
+    /**
      * Get public VAPID key to send to client for PushManager.subscribe()
      */
     static getPublicKey(): string {
-        return config.vapidPublicKey;
+        const { available, publicKey } = this.getAvailability();
+        return available ? publicKey : '';
     }
 
     /**
      * Upsert a staff push subscription linked to authenticated user and tenant
      */
     static async subscribe(tenantId: string, userId: string, input: PushSubscriptionInput) {
+        const availability = this.getAvailability();
+        if (!availability.available) {
+            throw {
+                status: 400,
+                code: 'PUSH_NOT_CONFIGURED',
+                message: 'Hệ thống Web Push chưa được cấu hình hoặc khả dụng trên máy chủ quán'
+            };
+        }
+
         if (!input.endpoint || typeof input.keys?.p256dh !== 'string' || !input.keys.p256dh || input.keys.p256dh.length > 256 || typeof input.keys?.auth !== 'string' || !input.keys.auth || input.keys.auth.length > 128) {
             throw { status: 400, code: 'INVALID_SUBSCRIPTION', message: 'Dữ liệu subscription không hợp lệ' };
         }
@@ -118,8 +158,9 @@ export class PushService {
      */
     static async sendToStaff(tenantId: string, payload: PushNotificationPayload) {
         if (deferUntilCommit(() => PushService.sendToStaff(tenantId, payload))) return { sentCount: 0, deferred: true };
-        if (!config.isPushEnabled) {
-            return { sentCount: 0, disabled: true };
+        const availability = this.getAvailability();
+        if (!availability.available) {
+            return { sentCount: 0, disabled: true, reason: availability.reason };
         }
         try {
             // Find subscriptions of active members in this tenant
@@ -211,8 +252,8 @@ export class PushService {
 
             return { sentCount: successfulCount, totalTarget: validSubs.length };
         } catch (error) {
-            // Log controlled message without exposing secrets
-            console.error('[WebPush] Error dispatching push notifications:', (error as any).message || error);
+            // Log controlled message without exposing secrets or endpoints
+            console.error('[WebPush] Error dispatching push notifications:', (error as any).message || 'UNKNOWN_ERROR');
             return { sentCount: 0 };
         }
     }
@@ -221,24 +262,37 @@ export class PushService {
      * Send test notification to staff member's device
      */
     static async sendTest(tenantId: string, userId: string, endpoint?: string) {
-        if (!config.isPushEnabled) {
-            throw { status: 400, code: 'PUSH_NOT_CONFIGURED', message: 'Hệ thống Web Push chưa được cấu hình VAPID keys' };
+        const availability = this.getAvailability();
+        if (!availability.available) {
+            throw {
+                status: 400,
+                code: 'PUSH_NOT_CONFIGURED',
+                message: 'Hệ thống Web Push chưa được cấu hình hoặc khả dụng trên máy chủ quán'
+            };
         }
-        let subQuery = `
+
+        if (!endpoint || typeof endpoint !== 'string') {
+            throw {
+                status: 400,
+                code: 'CURRENT_ENDPOINT_REQUIRED',
+                message: 'Yêu cầu cung cấp endpoint của thiết bị hiện tại để gửi thử nghiệm'
+            };
+        }
+
+        assertPushEndpoint(endpoint);
+
+        const subRes = await query(`
             SELECT id, endpoint, p256dh, auth
             FROM staff_push_subscriptions
-            WHERE tenant_id = $1 AND user_id = $2
-        `;
-        const params: any[] = [tenantId, userId];
+            WHERE tenant_id = $1 AND user_id = $2 AND endpoint = $3
+        `, [tenantId, userId, endpoint]);
 
-        if (endpoint) {
-            subQuery += ` AND endpoint = $3`;
-            params.push(endpoint);
-        }
-
-        const subRes = await query(subQuery, params);
         if (subRes.rows.length === 0) {
-            throw { status: 404, code: 'NO_SUBSCRIPTION', message: 'Chưa tìm thấy thiết bị nào được đăng ký Web Push' };
+            throw {
+                status: 404,
+                code: 'DEVICE_NOT_REGISTERED',
+                message: 'Thiết bị này chưa được đăng ký trong danh sách nhận thông báo của quán'
+            };
         }
 
         const sub = subRes.rows[0];
@@ -264,18 +318,55 @@ export class PushService {
             }
         });
 
-        assertPushEndpoint(sub.endpoint);
-        await webpush.sendNotification(pushSubscription, pushData, {
-            TTL: 60,
-            urgency: 'high'
-        });
+        try {
+            await webpush.sendNotification(pushSubscription, pushData, {
+                TTL: 60,
+                urgency: 'high'
+            });
 
-        await query(`
-            UPDATE staff_push_subscriptions
-            SET last_success_at = NOW()
-            WHERE id = $1
-        `, [sub.id]).catch(() => {});
+            await query(`
+                UPDATE staff_push_subscriptions
+                SET last_success_at = NOW()
+                WHERE id = $1
+            `, [sub.id]).catch(() => {});
 
-        return { success: true, message: 'Đã gửi thông báo thử nghiệm thành công tới thiết bị' };
+            return {
+                success: true,
+                acceptedByProvider: true,
+                message: 'Máy chủ APNs/FCM đã tiếp nhận thông báo thử nghiệm. Thiết bị sẽ hiển thị chuông khi nhận được dữ liệu từ Apple/Google.'
+            };
+        } catch (err: any) {
+            const statusCode = err.statusCode || err.status;
+            if (statusCode === 404 || statusCode === 410) {
+                await query(`
+                    DELETE FROM staff_push_subscriptions
+                    WHERE id = $1
+                `, [sub.id]).catch(() => {});
+                throw {
+                    status: 410,
+                    code: 'SUBSCRIPTION_EXPIRED',
+                    message: 'Đăng ký thông báo của thiết bị này đã hết hạn tại APNs/FCM và đã được xóa khỏi hệ thống. Vui lòng bật lại thông báo.'
+                };
+            }
+            if (statusCode === 401 || statusCode === 403) {
+                throw {
+                    status: 502,
+                    code: 'PROVIDER_AUTH_ERROR',
+                    message: 'Khóa VAPID bị nhà cung cấp APNs/FCM từ chối. Vui lòng kiểm tra lại cặp khóa VAPID trên máy chủ.'
+                };
+            }
+            if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET' || statusCode === 504) {
+                throw {
+                    status: 504,
+                    code: 'PROVIDER_TIMEOUT',
+                    message: 'Không thể kết nối tới máy chủ APNs/FCM của thiết bị. Vui lòng thử lại sau.'
+                };
+            }
+            throw {
+                status: 500,
+                code: 'PUSH_SEND_FAILED',
+                message: err.message || 'Lỗi gửi thông báo thử nghiệm'
+            };
+        }
     }
 }
