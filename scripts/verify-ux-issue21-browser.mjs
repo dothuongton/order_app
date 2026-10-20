@@ -118,6 +118,8 @@ async function main() {
       publicKeyStatus: 200,
       publicKeyDelayMs: 0,
       subscribeStatus: 200,
+      subscribeDelayMs: 0,
+      unsubscribeDelayMs: 0,
       testPushStatus: 200,
       testPushDelayMs: 0,
       testPushResponse: { success: true, acceptedByProvider: true },
@@ -228,6 +230,9 @@ async function main() {
       }
 
       if (urlStr.includes('/staff/push/subscribe')) {
+        if (window.__mockState.subscribeDelayMs > 0) {
+          await new Promise(r => setTimeout(r, window.__mockState.subscribeDelayMs));
+        }
         const body = options.body ? JSON.parse(options.body) : {};
         window.__mockState.syncedSubscriptions.push(body);
         if (window.__mockState.subscribeStatus !== 200) {
@@ -243,6 +248,9 @@ async function main() {
       }
 
       if (urlStr.includes('/staff/push/unsubscribe')) {
+        if (window.__mockState.unsubscribeDelayMs > 0) {
+          await new Promise(r => setTimeout(r, window.__mockState.unsubscribeDelayMs));
+        }
         return new Response(JSON.stringify({ success: true }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
@@ -715,7 +723,127 @@ async function main() {
     assert(freshEndpoint && freshEndpoint !== expiredEp, 'Expected fresh non-expired endpoint');
     console.log('  ✓ Test 15 passed: Genuine new endpoint cleanly transitions to granted and subscribed.');
 
-    console.log('\n🎉 ALL 15 BROWSER REGRESSION TESTS PASSED SUCCESSFULLY!');
+    // -------------------------------------------------------------
+    // Test 16 (R6): Late 404 test push across reconnect does NOT overwrite new active connection
+    // -------------------------------------------------------------
+    console.log('▶ Test 16 (R6): Late 404 test push across reconnect...');
+    const currentEndpointBefore404Test = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(currentEndpointBefore404Test, 'Expected active subscription before 404 test');
+
+    // Trigger test push on old endpoint with delay and 404 DEVICE_NOT_REGISTERED response
+    await cdp.evaluate('window.__mockState.testPushStatus = 404');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 200');
+    cdp.evaluate('window.__push.sendTestPush().catch(() => {})');
+
+    // While test is in-flight, reconnect creating new endpoint
+    await sleep(30);
+    await cdp.evaluate('window.__mockState.activeSubscription = null');
+    await cdp.evaluate('window.__push.subscribe()');
+    const reconnected404Endpoint = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(reconnected404Endpoint && reconnected404Endpoint !== currentEndpointBefore404Test, 'Expected fresh reconnected endpoint');
+
+    // Wait for the delayed 404 response for the old endpoint to arrive
+    await sleep(250);
+
+    // Verify the newly reconnected endpoint remains granted and subscribed!
+    state = await cdp.evaluate('window.__push.state');
+    isSubscribed = await cdp.evaluate('window.__push.isSubscribed');
+    const finalActiveEp = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(state === 'granted', `Expected state granted after late 404, got: ${state}`);
+    assert(isSubscribed === true, `Expected isSubscribed true after late 404, got: ${isSubscribed}`);
+    assert(finalActiveEp === reconnected404Endpoint, 'Active subscription must still be the reconnected endpoint');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 0');
+    await cdp.evaluate('window.__mockState.testPushStatus = 200');
+    console.log('  ✓ Test 16 passed: Late 404 of old endpoint does not overwrite newly connected subscription.');
+
+    // -------------------------------------------------------------
+    // Test 17 (R7): Tenant switch during pending subscribe resets loading (no stuck loading)
+    // -------------------------------------------------------------
+    console.log('▶ Test 17 (R7): Tenant switch during pending subscribe resets loading...');
+    await cdp.evaluate('window.__mockState.publicKeyDelayMs = 200');
+    cdp.evaluate('window.__push.subscribe().catch(() => {})');
+
+    await sleep(30);
+    let loadingDuring = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingDuring === true, 'Expected isLoading true during pending subscribe');
+
+    // Switch tenant while subscribe is pending
+    await cdp.evaluate('window.__setAuthUser({ id: "user-3", email: "manager@phoco3.vn" }); window.__setAuthTenant({ id: "tenant-3", name: "Phố Cổ 3" })');
+
+    // Loading must be reset immediately for new tenant
+    let loadingAfterSwitch = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingAfterSwitch === false, 'isLoading must be false immediately upon tenant switch');
+
+    // Wait for stale subscribe from tenant-2 to finish
+    await sleep(250);
+
+    let loadingAfterStaleFinished = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingAfterStaleFinished === false, 'isLoading must remain false after stale subscribe finishes');
+    await cdp.evaluate('window.__mockState.publicKeyDelayMs = 0');
+    console.log('  ✓ Test 17 passed: Tenant switch resets loading cleanly without stuck state.');
+
+    // -------------------------------------------------------------
+    // Test 18 (R7): Tenant switch during pending sendTest resets loading
+    // -------------------------------------------------------------
+    console.log('▶ Test 18 (R7): Tenant switch during pending sendTest resets loading...');
+    // Setup active subscription for tenant-3
+    await cdp.evaluate('window.__push.subscribe()');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 200');
+    cdp.evaluate('window.__push.sendTestPush().catch(() => {})');
+
+    await sleep(30);
+    loadingDuring = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingDuring === true, 'Expected isLoading true during pending test push');
+
+    // Switch tenant to tenant-4
+    await cdp.evaluate('window.__setAuthUser({ id: "user-4", email: "manager@phoco4.vn" }); window.__setAuthTenant({ id: "tenant-4", name: "Phố Cổ 4" })');
+
+    loadingAfterSwitch = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingAfterSwitch === false, 'isLoading must be false immediately upon tenant switch');
+
+    await sleep(250);
+    loadingAfterStaleFinished = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingAfterStaleFinished === false, 'isLoading must remain false after stale test push finishes');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 0');
+    console.log('  ✓ Test 18 passed: Pending sendTest push does not leave stuck loading upon tenant switch.');
+
+    // -------------------------------------------------------------
+    // Test 19 (R7): Stale completion from tenant-1 does NOT clear loading when tenant-2 started its own operation
+    // -------------------------------------------------------------
+    console.log('▶ Test 19 (R7): Stale operation does not clear loading of new tenant operation...');
+    // On tenant-4, start slow test push (op1: 300ms)
+    await cdp.evaluate('window.__push.subscribe()');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 300');
+    cdp.evaluate('window.__push.sendTestPush().catch(() => {})');
+
+    await sleep(30);
+    // Switch to tenant-5
+    await cdp.evaluate('window.__setAuthUser({ id: "user-5", email: "manager@phoco5.vn" }); window.__setAuthTenant({ id: "tenant-5", name: "Phố Cổ 5" })');
+
+    // In tenant-5, start subscribe operation (op2: 250ms)
+    await cdp.evaluate('window.__mockState.publicKeyDelayMs = 250');
+    cdp.evaluate('window.__push.subscribe().catch(() => {})');
+
+    await sleep(30);
+    let loadingTenant5 = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingTenant5 === true, 'Expected isLoading true for tenant-5 subscribe operation');
+
+    // Wait 120ms (total ~300ms since op1 began, so op1 finishes while op2 is still running)
+    await sleep(150);
+
+    let loadingWhileOp2Running = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingWhileOp2Running === true, 'Stale op1 completion must NOT clear loading of active op2 in tenant-5');
+
+    // Wait for op2 to finish
+    await sleep(200);
+
+    let loadingAfterOp2Finished = await cdp.evaluate('window.__push.isLoading');
+    assert(loadingAfterOp2Finished === false, 'Loading must be false after tenant-5 operation completes');
+    await cdp.evaluate('window.__mockState.publicKeyDelayMs = 0');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 0');
+    console.log('  ✓ Test 19 passed: Stale operation does not clear loading when new tenant operation is active.');
+
+    console.log('\n🎉 ALL 19 BROWSER REGRESSION TESTS PASSED SUCCESSFULLY!');
   } finally {
     if (cdp) cdp.close();
     chromeProc.kill('SIGTERM');

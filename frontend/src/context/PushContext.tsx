@@ -73,6 +73,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Track active user, tenant, and generation to discard stale in-flight responses across logout or tenant switch
   const scopeGenerationRef = useRef<number>(0);
+  const activeOperationIdRef = useRef<number>(0);
   const sessionScopeRef = useRef<{ userId?: string; tenantId?: string }>({
     userId: user?.id,
     tenantId: currentTenant?.id
@@ -103,11 +104,16 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    // When switching user or tenant (whether to null or to another non-null tenant),
+    // any previous scope's operation is abandoned.
+    // Invalidate any in-flight operation ID and reset loading state.
+    activeOperationIdRef.current += 1;
+    setIsLoading(false);
+
     if (!user || !currentTenant) {
       setIsSubscribed(false);
       setState(typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'granted' : 'default');
       setErrorMessage(null);
-      setIsLoading(false);
     }
   }, [user?.id, currentTenant?.id]);
 
@@ -307,6 +313,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Subscribe to Web Push (must be triggered by a direct user gesture)
   const subscribe = async () => {
     const isStale = createScopeGuard();
+    const opId = ++activeOperationIdRef.current;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -476,7 +483,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setErrorMessage(err.message || 'Lỗi khi bật thông báo');
       throw err;
     } finally {
-      if (!isStale()) {
+      if (!isStale() && activeOperationIdRef.current === opId) {
         setIsLoading(false);
       }
     }
@@ -485,6 +492,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Unsubscribe from Web Push
   const unsubscribe = async () => {
     const isStale = createScopeGuard();
+    const opId = ++activeOperationIdRef.current;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -536,7 +544,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setErrorMessage(err.message || 'Lỗi khi tắt thông báo');
       throw err;
     } finally {
-      if (!isStale()) {
+      if (!isStale() && activeOperationIdRef.current === opId) {
         setIsLoading(false);
       }
     }
@@ -545,6 +553,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Send a test push notification
   const sendTestPush = async () => {
     const isStale = createScopeGuard();
+    const opId = ++activeOperationIdRef.current;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -625,6 +634,24 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If database lost the device registration (404), allow re-sync without destroying browser subscription
       if (err?.status === 404 || err?.code === 'DEVICE_NOT_REGISTERED') {
         if (isStale()) return;
+
+        // R6: If the current device subscription is already different and valid (e.g. reconnected while test was in-flight),
+        // do NOT corrupt the new subscription's state!
+        try {
+          if ('serviceWorker' in navigator) {
+            const reg = await navigator.serviceWorker.getRegistration();
+            if (reg && !isStale()) {
+              const currentSub = await reg.pushManager.getSubscription();
+              if (currentSub && currentSub.endpoint !== targetEndpoint && !expiredEndpointsRef.current.has(currentSub.endpoint)) {
+                throw err;
+              }
+            }
+          }
+        } catch (innerErr) {
+          if (innerErr === err) throw err;
+        }
+
+        if (isStale()) return;
         setIsSubscribed(false);
         setState('sync_error');
         setErrorMessage('Thiết bị chưa được đồng bộ trên hệ thống máy chủ quán. Vui lòng bấm để đồng bộ lại.');
@@ -635,7 +662,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setErrorMessage(err.message || 'Lỗi gửi thông báo thử nghiệm');
       throw err;
     } finally {
-      if (!isStale()) {
+      if (!isStale() && activeOperationIdRef.current === opId) {
         setIsLoading(false);
       }
     }
