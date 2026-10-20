@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Store, User, Lock, Phone, MapPin, Sparkles } from 'lucide-react';
+import { X, Store, Lock, Eye, EyeOff } from 'lucide-react';
 import { CreateShopPayload } from '../../types/admin.js';
 
 interface CreateShopModalProps {
@@ -11,18 +11,20 @@ interface CreateShopModalProps {
 export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClose, onSubmit }) => {
     const [name, setName] = useState('');
     const [slug, setSlug] = useState('');
+    const [slugTouched, setSlugTouched] = useState(false);
     const [phone, setPhone] = useState('');
     const [address, setAddress] = useState('');
     const [ownerFullName, setOwnerFullName] = useState('');
     const [ownerEmail, setOwnerEmail] = useState('');
-    const [ownerPassword, setOwnerPassword] = useState('admin123');
+    const [ownerPassword, setOwnerPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     if (!isOpen) return null;
 
     const generateSlug = (val: string) => {
-        const normalized = val
+        return val
             .toLowerCase()
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
@@ -30,40 +32,86 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
             .replace(/[^a-z0-9\s-]/g, '')
             .trim()
             .replace(/\s+/g, '-');
-        setSlug(normalized);
     };
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
         setName(val);
-        generateSlug(val);
+        if (!slugTouched) {
+            setSlug(generateSlug(val));
+        }
+    };
+
+    const handleSlugChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setSlug(e.target.value);
+        setSlugTouched(true);
+    };
+
+    const resetForm = () => {
+        setName('');
+        setSlug('');
+        setSlugTouched(false);
+        setPhone('');
+        setAddress('');
+        setOwnerFullName('');
+        setOwnerEmail('');
+        setOwnerPassword('');
+        setShowPassword(false);
+        setError(null);
+    };
+
+    const handleClose = () => {
+        if (isSubmitting) return;
+        resetForm();
+        onClose();
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
 
-        if (!name.trim()) return setError('Vui lòng nhập tên quán.');
-        if (!slug.trim()) return setError('Vui lòng nhập slug (đường dẫn quán).');
-        if (!ownerFullName.trim()) return setError('Vui lòng nhập họ tên chủ quán.');
-        if (!ownerEmail.trim()) return setError('Vui lòng nhập email chủ quán.');
-        if (!ownerPassword || ownerPassword.length < 8) {
+        const trimmedName = name.trim();
+        const trimmedSlug = slug.trim();
+        const trimmedFullName = ownerFullName.trim();
+        const trimmedEmail = ownerEmail.trim();
+
+        if (!trimmedName) {
+            return setError('Vui lòng nhập tên quán.');
+        }
+        if (!trimmedSlug) {
+            return setError('Vui lòng nhập slug (đường dẫn quán).');
+        }
+        if (!trimmedFullName) {
+            return setError('Vui lòng nhập họ tên chủ quán.');
+        }
+        if (!trimmedEmail) {
+            return setError('Vui lòng nhập email chủ quán.');
+        }
+        if (!ownerPassword) {
+            return setError('Vui lòng nhập mật khẩu khởi tạo cho chủ quán.');
+        }
+        if (ownerPassword.length < 8) {
             return setError('Mật khẩu khởi tạo phải từ 8 ký tự trở lên.');
+        }
+        if (new TextEncoder().encode(ownerPassword).length > 72) {
+            return setError('Mật khẩu không được vượt quá 72 ký tự (giới hạn bảo mật Bcrypt).');
         }
 
         try {
             setIsSubmitting(true);
             await onSubmit({
-                name: name.trim(),
-                slug: slug.trim(),
+                name: trimmedName,
+                slug: trimmedSlug,
                 phone: phone.trim() || undefined,
                 address: address.trim() || undefined,
-                ownerFullName: ownerFullName.trim(),
-                ownerEmail: ownerEmail.trim(),
+                ownerFullName: trimmedFullName,
+                ownerEmail: trimmedEmail,
                 ownerPassword
             });
+            resetForm();
             onClose();
         } catch (err: any) {
+            // Keep user-entered metadata intact so user does not need to retype everything; show clear error
             setError(err.message || 'Không thể tạo quán. Vui lòng kiểm tra lại dữ liệu.');
         } finally {
             setIsSubmitting(false);
@@ -72,7 +120,12 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-            <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div
+                className="bg-white rounded-3xl w-full max-w-xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="create-shop-title"
+            >
                 {/* Header */}
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -80,15 +133,20 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                             <Store className="w-5 h-5" />
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-900">Tạo Quán Mới</h3>
+                            <h3 id="create-shop-title" className="text-lg font-bold text-slate-900">
+                                Tạo Quán Mới
+                            </h3>
                             <p className="text-xs text-slate-500">
                                 Khởi tạo quán kèm tài khoản quản lý và cấu hình mẫu
                             </p>
                         </div>
                     </div>
                     <button
-                        onClick={onClose}
-                        className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                        type="button"
+                        onClick={handleClose}
+                        disabled={isSubmitting}
+                        className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40 transition"
+                        aria-label="Đóng"
                     >
                         <X className="w-5 h-5" />
                     </button>
@@ -110,10 +168,11 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                             <input
                                 type="text"
                                 required
+                                disabled={isSubmitting}
                                 value={name}
                                 onChange={handleNameChange}
                                 placeholder="VD: Quán Cơm Phố Cổ"
-                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium"
+                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium disabled:opacity-60"
                             />
                         </div>
 
@@ -124,10 +183,11 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                             <input
                                 type="text"
                                 required
+                                disabled={isSubmitting}
                                 value={slug}
-                                onChange={(e) => setSlug(e.target.value)}
+                                onChange={handleSlugChange}
                                 placeholder="quan-com-pho-co"
-                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden"
+                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden disabled:opacity-60"
                             />
                         </div>
                     </div>
@@ -137,10 +197,11 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                             <label className="block text-xs font-bold text-slate-700 mb-1">Số điện thoại</label>
                             <input
                                 type="tel"
+                                disabled={isSubmitting}
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
                                 placeholder="0901234567"
-                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium"
+                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium disabled:opacity-60"
                             />
                         </div>
 
@@ -148,10 +209,11 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                             <label className="block text-xs font-bold text-slate-700 mb-1">Địa chỉ quán</label>
                             <input
                                 type="text"
+                                disabled={isSubmitting}
                                 value={address}
                                 onChange={(e) => setAddress(e.target.value)}
                                 placeholder="Số 10 Hàng Buồm, Hà Nội"
-                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium"
+                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium disabled:opacity-60"
                             />
                         </div>
                     </div>
@@ -169,10 +231,11 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                                 <input
                                     type="text"
                                     required
+                                    disabled={isSubmitting}
                                     value={ownerFullName}
                                     onChange={(e) => setOwnerFullName(e.target.value)}
                                     placeholder="Nguyễn Văn A"
-                                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium"
+                                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium disabled:opacity-60"
                                 />
                             </div>
 
@@ -183,10 +246,12 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                                 <input
                                     type="email"
                                     required
+                                    disabled={isSubmitting}
                                     value={ownerEmail}
                                     onChange={(e) => setOwnerEmail(e.target.value)}
                                     placeholder="admin@phoco.vn"
-                                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden"
+                                    autoComplete="username"
+                                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden disabled:opacity-60"
                                 />
                             </div>
                         </div>
@@ -195,13 +260,32 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                             <label className="block text-xs font-bold text-slate-700 mb-1">
                                 Mật khẩu khởi tạo <span className="text-rose-500">*</span>
                             </label>
-                            <input
-                                type="text"
-                                required
-                                value={ownerPassword}
-                                onChange={(e) => setOwnerPassword(e.target.value)}
-                                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden"
-                            />
+                            <div className="relative">
+                                <input
+                                    type={showPassword ? 'text' : 'password'}
+                                    required
+                                    disabled={isSubmitting}
+                                    value={ownerPassword}
+                                    onChange={(e) => setOwnerPassword(e.target.value)}
+                                    placeholder="Nhập mật khẩu (tối thiểu 8 ký tự, tối đa 72 ký tự)"
+                                    autoComplete="new-password"
+                                    maxLength={72}
+                                    className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden disabled:opacity-60"
+                                />
+                                <button
+                                    type="button"
+                                    tabIndex={-1}
+                                    disabled={isSubmitting}
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
+                                    aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1">
+                                Mật khẩu an toàn dành cho tài khoản quản lý quán, tối thiểu 8 ký tự.
+                            </p>
                         </div>
                     </div>
 
@@ -209,8 +293,9 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                     <div className="flex items-center gap-3 pt-4 border-t border-slate-100">
                         <button
                             type="button"
-                            onClick={onClose}
-                            className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                            disabled={isSubmitting}
+                            onClick={handleClose}
+                            className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl transition"
                         >
                             Hủy
                         </button>
