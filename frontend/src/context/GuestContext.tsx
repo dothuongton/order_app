@@ -50,9 +50,9 @@ interface GuestContextType {
   loadTableMenu: (qrId: string) => Promise<any>;
   joinSession: (qrId: string) => Promise<any>;
   fetchReceipt: (token?: string) => Promise<GuestReceipt | null>;
-  addToCart: (item: MenuItem, quantity?: number, note?: string, variant?: { id?: string; variantIds?: string[]; optionIds?: string[]; name: string; price_adjustment: number }) => void;
-  updateCartQuantity: (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => void;
-  removeFromCart: (menuItemId: string, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => void;
+  addToCart: (item: MenuItem, quantity?: number, note?: string, variant?: { id?: string; variantIds?: string[]; optionIds?: string[]; name?: string; price_adjustment?: number }) => void;
+  updateCartQuantity: (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string, optionIds?: string[], variantIds?: string[]) => void;
+  removeFromCart: (menuItemId: string, note?: string, variantId?: string, variantName?: string, optionIds?: string[], variantIds?: string[]) => void;
   clearCart: () => void;
   submitOrder: () => Promise<any>;
   requestAssistance: (note?: string) => Promise<any>;
@@ -70,6 +70,76 @@ interface ScopedGuestSession {
 const getAuthStorageKey = (qr: string) => `guest_auth_${qr}`;
 const getCartStorageKey = (qr: string, sessId?: string | null) => `guest_cart_${qr}_${sessId || 'draft'}`;
 const getReceiptStorageKey = (qr: string) => `guest_receipt_${qr}`;
+
+export const getCartItemKey = (item: {
+  menuItemId: string;
+  note?: string;
+  variantName?: string;
+  variantId?: string;
+  variantIds?: string[];
+  optionIds?: string[];
+}) => {
+  const optPart = (item.optionIds || item.variantIds || (item.variantId ? [item.variantId] : [])).slice().sort().join(',');
+  return `${item.menuItemId}::${optPart}::${item.variantName || ''}::${item.note || ''}`;
+};
+
+export const canonicalizeCartItem = (raw: any): CartItem => {
+  const quantity = Math.max(1, Number(raw.quantity) || 1);
+  const price = Math.max(0, Number(raw.price) || 0);
+  const note = typeof raw.note === 'string' && raw.note.trim().length > 0 ? raw.note.trim() : undefined;
+  const name = raw.name || '';
+  const variantName = raw.variantName || undefined;
+
+  // Modern options take precedence -> optionIds only
+  if (Array.isArray(raw.optionIds) && raw.optionIds.length > 0) {
+    const uniqueOptions = Array.from(new Set(raw.optionIds.filter(Boolean) as string[]));
+    return {
+      menuItemId: raw.menuItemId,
+      optionIds: uniqueOptions,
+      variantName,
+      name,
+      price,
+      quantity,
+      note
+    };
+  }
+
+  // Legacy multi-variants -> variantIds only
+  if (Array.isArray(raw.variantIds) && raw.variantIds.length > 0) {
+    const uniqueVariants = Array.from(new Set(raw.variantIds.filter(Boolean) as string[]));
+    return {
+      menuItemId: raw.menuItemId,
+      variantIds: uniqueVariants,
+      variantName,
+      name,
+      price,
+      quantity,
+      note
+    };
+  }
+
+  // Legacy single variant -> variantId only
+  if (raw.variantId) {
+    return {
+      menuItemId: raw.menuItemId,
+      variantId: raw.variantId,
+      variantName,
+      name,
+      price,
+      quantity,
+      note
+    };
+  }
+
+  return {
+    menuItemId: raw.menuItemId,
+    variantName,
+    name,
+    price,
+    quantity,
+    note
+  };
+};
 
 const GuestContext = createContext<GuestContextType | null>(null);
 
@@ -263,7 +333,10 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               setGuestToken(storedSession.token);
               try {
                 const savedCart = sessionStorage.getItem(getCartStorageKey(qrId, data.session.id));
-                if (savedCart) setCart(JSON.parse(savedCart));
+                if (savedCart) {
+                  const parsed = JSON.parse(savedCart);
+                  if (Array.isArray(parsed)) setCart(parsed.map(canonicalizeCartItem));
+                }
               } catch {}
               if (socket) {
                 socket.emit('join_session_room', { sessionId: data.session.id, token: storedSession.token });
@@ -403,7 +476,10 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         try {
           const savedCart = sessionStorage.getItem(getCartStorageKey(qrId, res.sessionId));
-          if (savedCart) setCart(JSON.parse(savedCart));
+          if (savedCart) {
+            const parsed = JSON.parse(savedCart);
+            if (Array.isArray(parsed)) setCart(parsed.map(canonicalizeCartItem));
+          }
         } catch {}
 
         if (socket) {
@@ -545,56 +621,67 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     item: MenuItem,
     quantity: number = 1,
     note?: string,
-    variant?: { id?: string; variantIds?: string[]; optionIds?: string[]; name: string; price_adjustment: number }
+    variant?: { id?: string; variantIds?: string[]; optionIds?: string[]; name?: string; price_adjustment?: number }
   ) => {
     setCart(prev => {
       const itemPrice = Math.max(0, Number(item.price) + (variant?.price_adjustment ? Number(variant.price_adjustment) : 0));
-      const optKey = (variant?.optionIds || variant?.variantIds || []).slice().sort().join(',');
-      const idx = prev.findIndex(c =>
-        c.menuItemId === item.id &&
-        (c.note || '') === (note || '') &&
-        (c.variantName || '') === (variant?.name || '') &&
-        ((c.optionIds || c.variantIds || []).slice().sort().join(',')) === optKey
-      );
-      if (idx > -1) {
-        return prev.map((entry, index) => index === idx ? { ...entry, quantity: entry.quantity + quantity } : entry);
-      }
-      return [...prev, {
+      const cleanNote = note?.trim() || undefined;
+
+      const rawNewItem: any = {
         menuItemId: item.id,
-        variantId: variant?.id,
-        variantIds: variant?.variantIds,
-        optionIds: variant?.optionIds,
-        variantName: variant?.name,
         name: item.name,
         price: itemPrice,
-        quantity,
-        note
-      }];
+        quantity: Math.max(1, quantity),
+        variantName: variant?.name,
+        note: cleanNote
+      };
+
+      if (variant?.optionIds && variant.optionIds.length > 0) {
+        rawNewItem.optionIds = variant.optionIds;
+      } else if (variant?.variantIds && variant.variantIds.length > 0) {
+        rawNewItem.variantIds = variant.variantIds;
+      } else if (variant?.id) {
+        rawNewItem.variantId = variant.id;
+      }
+
+      const canonicalItem = canonicalizeCartItem(rawNewItem);
+      const newKey = getCartItemKey(canonicalItem);
+
+      const idx = prev.findIndex(c => getCartItemKey(c) === newKey);
+      if (idx > -1) {
+        return prev.map((entry, index) => index === idx ? { ...entry, quantity: entry.quantity + canonicalItem.quantity } : entry);
+      }
+      return [...prev, canonicalItem];
     });
   };
 
-  const updateCartQuantity = (menuItemId: string, quantity: number, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => {
+  const updateCartQuantity = (
+    menuItemId: string,
+    quantity: number,
+    note?: string,
+    variantId?: string,
+    variantName?: string,
+    optionIds?: string[],
+    variantIds?: string[]
+  ) => {
     if (quantity <= 0) {
-      removeFromCart(menuItemId, note, variantId, variantName, optionIds);
+      removeFromCart(menuItemId, note, variantId, variantName, optionIds, variantIds);
       return;
     }
-    const optKey = optionIds ? optionIds.slice().sort().join(',') : null;
-    setCart(prev => prev.map(c => {
-      const matchesBase = c.menuItemId === menuItemId && (c.note || '') === (note || '');
-      const matchesVariant = variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || '');
-      const matchesOptions = optKey !== null ? ((c.optionIds || c.variantIds || []).slice().sort().join(',')) === optKey : true;
-      return matchesBase && matchesVariant && matchesOptions ? { ...c, quantity } : c;
-    }));
+    const targetKey = getCartItemKey({ menuItemId, note, variantName, variantId, optionIds, variantIds });
+    setCart(prev => prev.map(c => getCartItemKey(c) === targetKey ? { ...c, quantity } : c));
   };
 
-  const removeFromCart = (menuItemId: string, note?: string, variantId?: string, variantName?: string, optionIds?: string[]) => {
-    const optKey = optionIds ? optionIds.slice().sort().join(',') : null;
-    setCart(prev => prev.filter(c => {
-      const matchesBase = c.menuItemId === menuItemId && (c.note || '') === (note || '');
-      const matchesVariant = variantName !== undefined ? (c.variantName || '') === (variantName || '') : (c.variantId || '') === (variantId || '');
-      const matchesOptions = optKey !== null ? ((c.optionIds || c.variantIds || []).slice().sort().join(',')) === optKey : true;
-      return !(matchesBase && matchesVariant && matchesOptions);
-    }));
+  const removeFromCart = (
+    menuItemId: string,
+    note?: string,
+    variantId?: string,
+    variantName?: string,
+    optionIds?: string[],
+    variantIds?: string[]
+  ) => {
+    const targetKey = getCartItemKey({ menuItemId, note, variantName, variantId, optionIds, variantIds });
+    setCart(prev => prev.filter(c => getCartItemKey(c) !== targetKey));
   };
 
   // Persist cart scoped to table and session
@@ -616,57 +703,68 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Submit order with stable idempotency key
+  // Submit order with stable idempotency key and canonical payload projection
   const submitOrder = async () => {
     if (cart.length === 0) return;
     if (submittingOrder.current) return submittingOrder.current;
-    const payload = JSON.stringify(cart.map(c => ({
-      menuItemId: c.menuItemId,
-      quantity: c.quantity,
-      note: c.note,
-      variantId: c.variantId,
-      variantIds: c.variantIds,
-      optionIds: c.optionIds
-    })));
-    if (pendingOrder.current?.payload !== payload) pendingOrder.current = { payload, key: crypto.randomUUID() };
-    const idempotencyKey = pendingOrder.current.key;
-    const operation = (async () => {
 
-    try {
-      const res = await request<any>('/guest/orders', {
-        method: 'POST',
-        headers: { 'x-idempotency-key': idempotencyKey },
-        body: JSON.stringify({
-          idempotencyKey,
-          items: cart.map(c => ({
-            menuItemId: c.menuItemId,
-            quantity: c.quantity,
-            note: c.note,
-            variantId: c.variantId,
-            variantIds: c.variantIds,
-            optionIds: c.optionIds
-          }))
-        })
-      });
+    const canonicalItems = cart.map(c => {
+      const canonical = canonicalizeCartItem(c);
+      const item: any = {
+        menuItemId: canonical.menuItemId,
+        quantity: canonical.quantity
+      };
+      if (canonical.note) item.note = canonical.note;
+      if (canonical.optionIds && canonical.optionIds.length > 0) {
+        item.optionIds = canonical.optionIds;
+      } else if (canonical.variantIds && canonical.variantIds.length > 0) {
+        item.variantIds = canonical.variantIds;
+      } else if (canonical.variantId) {
+        item.variantId = canonical.variantId;
+      }
+      return item;
+    });
 
-      pendingOrder.current = null;
-      playSuccessSound();
-      const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
-      showToast({
-        title: 'Đặt món thành công!',
-        message: `Đã gửi ${itemCount} món đến nhân viên quán.`,
-        type: 'success',
-        duration: 4500
-      });
-      clearCart();
-      await refreshOrdersAndBill();
-      return res;
-    } catch (err: any) {
-      throw err;
+    const payload = JSON.stringify(canonicalItems);
+    if (pendingOrder.current?.payload !== payload) {
+      pendingOrder.current = { payload, key: crypto.randomUUID() };
     }
+    const idempotencyKey = pendingOrder.current.key;
+
+    const operation = (async () => {
+      try {
+        const res = await request<any>('/guest/orders', {
+          method: 'POST',
+          headers: { 'x-idempotency-key': idempotencyKey },
+          body: JSON.stringify({
+            idempotencyKey,
+            items: canonicalItems
+          })
+        });
+
+        pendingOrder.current = null;
+        playSuccessSound();
+        const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
+        showToast({
+          title: 'Đặt món thành công!',
+          message: `Đã gửi ${itemCount} món đến nhân viên quán.`,
+          type: 'success',
+          duration: 4500
+        });
+        clearCart();
+        await refreshOrdersAndBill();
+        return res;
+      } catch (err: any) {
+        throw err;
+      }
     })();
+
     submittingOrder.current = operation;
-    try { return await operation; } finally { submittingOrder.current = null; }
+    try {
+      return await operation;
+    } finally {
+      submittingOrder.current = null;
+    }
   };
 
   const requestAssistance = async (note?: string) => {

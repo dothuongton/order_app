@@ -79,8 +79,6 @@ export const GuestMenu: React.FC = () => {
       }, 0);
 
       addToCart(activeItem, quantity, note.trim() || undefined, {
-        id: optionIds[0],
-        variantIds: optionIds,
         optionIds,
         name: variantName,
         price_adjustment: priceAdj
@@ -91,7 +89,6 @@ export const GuestMenu: React.FC = () => {
       const priceAdj = selectedList.reduce((sum, o) => sum + (Number(o.price_adjustment) || 0), 0);
       const variantIds = selectedList.map(o => o.id).filter(Boolean);
       addToCart(activeItem, quantity, note.trim() || undefined, {
-        id: variantIds[0],
         variantIds,
         name: variantName,
         price_adjustment: priceAdj
