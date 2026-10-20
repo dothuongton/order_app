@@ -229,13 +229,25 @@ describe('SEC-06: Tenant Status Lifecycle & Operational Matrix (Issue #6)', () =
         // Now tenant is transitioned to ARCHIVED
         await query(`UPDATE tenants SET status = 'archived' WHERE id = $1`, [tenantId]);
 
-        // General staff operations (dashboard snapshot, creating new tables) are BLOCKED
+        // Creating new menu categories or new tables or opening new sessions is BLOCKED
+        const catRes = await fetch(`${baseUrl}/api/v1/staff/menu/categories`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: 'Blocked Category' })
+        });
+        expect(catRes.status).toBe(403);
+        const catData: any = await catRes.json();
+        expect(catData.error).toBe('SHOP_ARCHIVED');
+
+        // Reading recovery views (dashboard snapshot, bill summary) is ALLOWED for settling lingering obligations
         const dashRes = await fetch(`${baseUrl}/api/v1/staff/dashboard/snapshot`, {
             headers: { 'Authorization': `Bearer ${managerToken}`, 'x-tenant-id': tenantId }
         });
-        expect(dashRes.status).toBe(403);
-        const dashData: any = await dashRes.json();
-        expect(dashData.error).toBe('SHOP_ARCHIVED');
+        expect(dashRes.status).toBe(200);
 
         // Reading bill summary of the pending session is ALLOWED
         const billRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${archSessionId}/bill-summary`, {
@@ -263,5 +275,148 @@ describe('SEC-06: Tenant Status Lifecycle & Operational Matrix (Issue #6)', () =
 
         const sessionCheck = await query(`SELECT status FROM table_sessions WHERE id = $1`, [archSessionId]);
         expect(sessionCheck.rows[0].status).toBe('CLOSED');
+    });
+
+    it('allows staff to resolve lingering PENDING and ACCEPTED items and settle when shop is archived (Issue #6, #19)', async () => {
+        // 1. In active status, open a table session with items in PENDING and ACCEPTED states
+        await query(`UPDATE tenants SET status = 'active' WHERE id = $1`, [tenantId]);
+
+        const tableRes = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-UNRESOLVED', 'qr-unresolved') RETURNING id`, [tenantId]);
+        const testTableId = tableRes.rows[0].id;
+
+        const openRes = await fetch(`${baseUrl}/api/v1/staff/tables/${testTableId}/open`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+        expect(openRes.status).toBe(201);
+        const { sessionId } = await openRes.json() as any;
+
+        const itemRes = await query(`SELECT id, price FROM menu_items WHERE tenant_id = $1 LIMIT 1`, [tenantId]);
+        const menuItem = itemRes.rows[0];
+
+        const orderRes = await query(`
+            INSERT INTO orders (tenant_id, session_id, order_number, idempotency_key, source)
+            VALUES ($1, $2, 1001, gen_random_uuid()::text, 'STAFF_POS')
+            RETURNING id
+        `, [tenantId, sessionId]);
+        const orderId = orderRes.rows[0].id;
+
+        const orderItemRes = await query(`
+            INSERT INTO order_items (tenant_id, order_id, menu_item_id, snapshot_name, snapshot_price, quantity)
+            VALUES ($1, $2, $3, 'Món Unresolved', $4, 2)
+            RETURNING id
+        `, [tenantId, orderId, menuItem.id, menuItem.price]);
+        const orderItemId = orderItemRes.rows[0].id;
+
+        // One part ACCEPTED, one part PENDING
+        await query(`
+            INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
+            VALUES ($1, $2, 'ACCEPTED', 1), ($1, $2, 'PENDING', 1)
+        `, [tenantId, orderItemId]);
+
+        // 2. Shop is archived by Super Admin
+        await query(`UPDATE tenants SET status = 'archived' WHERE id = $1`, [tenantId]);
+
+        // 3. UI modal can load dashboard snapshot and session bill-summary
+        const snapshotRes = await fetch(`${baseUrl}/api/v1/staff/dashboard/snapshot`, {
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId
+            }
+        });
+        expect(snapshotRes.status).toBe(200);
+
+        const initialBillRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/bill-summary`, {
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId
+            }
+        });
+        expect(initialBillRes.status).toBe(200);
+        const initialBillData: any = await initialBillRes.json();
+        expect(initialBillData.unresolvedCount).toBe(2);
+
+        // 4. Staff cannot immediately close while items are unresolved (UNRESOLVED_ITEMS)
+        const prematurePayRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/confirm-payment-and-close`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                settlementVersion: 1,
+                expectedAmount: Number(menuItem.price) * 2
+            })
+        });
+        expect(prematurePayRes.status).toBe(400);
+        const errData: any = await prematurePayRes.json();
+        expect(errData.error).toBe('UNRESOLVED_ITEMS');
+
+        // 5. Staff accepts all pending and serves all accepted via recovery routes
+        const acceptRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/accept-all`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId
+            }
+        });
+        expect(acceptRes.status).toBe(200);
+
+        const serveRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/serve-all`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId
+            }
+        });
+        expect(serveRes.status).toBe(200);
+
+        // 6. Get updated quote
+        const billRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/bill-summary`, {
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId
+            }
+        });
+        expect(billRes.status).toBe(200);
+        const billData: any = await billRes.json();
+        expect(billData.unresolvedCount).toBe(0);
+        expect(billData.rawBillTotal).toBe(Number(menuItem.price) * 2);
+        expect(billData.validBillTotal).toBe(billData.rawBillTotal - billData.totalDiscount);
+
+        // 7. Settlement succeeds cleanly
+        const payRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/confirm-payment-and-close`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                settlementVersion: billData.settlementVersion,
+                expectedAmount: billData.validBillTotal
+            })
+        });
+        expect(payRes.status).toBe(200);
+
+        // 8. Mark table ready succeeds
+        const readyRes = await fetch(`${baseUrl}/api/v1/staff/tables/${testTableId}/mark-ready`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${managerToken}`,
+                'x-tenant-id': tenantId
+            }
+        });
+        expect(readyRes.status).toBe(200);
+
+        // 9. Session is CLOSED
+        const finalSession = await query(`SELECT status FROM table_sessions WHERE id = $1`, [sessionId]);
+        expect(finalSession.rows[0].status).toBe('CLOSED');
     });
 });

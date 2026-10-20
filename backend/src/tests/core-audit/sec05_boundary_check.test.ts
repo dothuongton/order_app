@@ -1,19 +1,43 @@
 import { describe, it, expect } from 'vitest';
-import { validateAuthorFiles, validateDiffForSecretsAndDebug } from '../../../../scripts/check-file-boundaries.mjs';
+import {
+    validateAuthorFiles,
+    validateDiffForSecretsAndDebug,
+    resolveLane,
+    parseChangedFilesFromDiffStatus
+} from '../../../../scripts/check-file-boundaries.mjs';
 
-describe('SEC-05: CI File Boundary & Hygiene Gate (Issue #5)', () => {
-    it('allows valid CMS Super Admin files for SangVuxx lane (including components, tests, docs)', () => {
+describe('SEC-05: CI File Boundary & Hygiene Gate (Issue #5, Issue #29)', () => {
+    it('allows valid CMS Super Admin files for SangVuxx lane (including components, tests, docs, and exact admin.ts files)', () => {
         const allowedFiles = [
             'backend/src/modules/admin/shops.controller.ts',
             'frontend/src/pages/admin/AdminDashboard.tsx',
             'frontend/src/pages/admin/AdminShops.tsx',
             'frontend/src/components/admin/ShopCard.tsx',
+            'frontend/src/api/admin.ts',
+            'frontend/src/types/admin.ts',
             'backend/src/tests/admin-cms/shops.test.ts',
             'docs/admin-cms/contract.md'
         ];
         const res = validateAuthorFiles('SangVuxx', allowedFiles);
         expect(res.valid).toBe(true);
         expect(res.violations).toHaveLength(0);
+    });
+
+    it('blocks Sang exact files (frontend/src/api/admin.ts, frontend/src/types/admin.ts) for Core authors', () => {
+        const coreWithSangApi = [
+            'backend/src/modules/guest/guest.service.ts',
+            'frontend/src/api/admin.ts'
+        ];
+        const res1 = validateAuthorFiles('dothuongton', coreWithSangApi);
+        expect(res1.valid).toBe(false);
+        expect(res1.violations.some(v => v.includes('Core cannot touch Super Admin lane file'))).toBe(true);
+
+        const coreWithSangTypes = [
+            'frontend/src/types/admin.ts'
+        ];
+        const res2 = validateAuthorFiles('codex', coreWithSangTypes);
+        expect(res2.valid).toBe(false);
+        expect(res2.violations.some(v => v.includes('Core cannot touch Super Admin lane file'))).toBe(true);
     });
 
     it('blocks Sang components, tests, and docs for Core authors', () => {
@@ -47,10 +71,25 @@ describe('SEC-05: CI File Boundary & Hygiene Gate (Issue #5)', () => {
         expect(res2.valid).toBe(false);
     });
 
-    it('fails closed when author or lane is unknown', () => {
-        const res = validateAuthorFiles('random-bot', ['backend/src/modules/guest/guest.service.ts']);
+    it('fails closed when author or lane is unknown or attempted bypass via branch substring', () => {
+        const res1 = validateAuthorFiles('random-bot', ['backend/src/modules/guest/guest.service.ts']);
+        expect(res1.valid).toBe(false);
+        expect(res1.violations.some(v => v.includes('Unknown or unauthorized lane'))).toBe(true);
+
+        // Branch substring bypass attempt must not grant permissions
+        const res2 = validateAuthorFiles('feature/cms-super-admin-bypass', ['backend/src/modules/admin/shops.ts']);
+        expect(res2.valid).toBe(false);
+        expect(res2.violations.some(v => v.includes('Unknown or unauthorized lane'))).toBe(true);
+    });
+
+    it('fails closed when lane metadata is conflicting', () => {
+        const res = validateAuthorFiles('SangVuxx dothuongton', ['backend/src/modules/guest/guest.service.ts']);
         expect(res.valid).toBe(false);
-        expect(res.violations.some(v => v.includes('Unknown or unauthorized lane'))).toBe(true);
+        expect(res.violations.some(v => v.includes('Conflicting lane metadata'))).toBe(true);
+
+        const resLabelConflict = validateAuthorFiles('lane:cms-super-admin lane:core', ['backend/src/modules/guest/guest.service.ts']);
+        expect(resLabelConflict.valid).toBe(false);
+        expect(resLabelConflict.violations.some(v => v.includes('Conflicting lane metadata'))).toBe(true);
     });
 
     it('blocks AdminLogin.tsx for SangVuxx lane', () => {
@@ -114,5 +153,20 @@ describe('SEC-05: CI File Boundary & Hygiene Gate (Issue #5)', () => {
         const res = validateAuthorFiles('Antigravity', coreAllowedFiles);
         expect(res.valid).toBe(true);
         expect(res.violations).toHaveLength(0);
+    });
+
+    it('parses both source and destination on renamed files and handles deleted files in diff status', () => {
+        const statusOutput = `
+M\tbackend/src/modules/guest/guest.service.ts
+R100\tfrontend/src/old/path.ts\tfrontend/src/new/path.ts
+D\tfrontend/src/deprecated/file.ts
+A\tbackend/src/modules/admin/new.ts
+`;
+        const parsed = parseChangedFilesFromDiffStatus(statusOutput);
+        expect(parsed).toContain('backend/src/modules/guest/guest.service.ts');
+        expect(parsed).toContain('frontend/src/old/path.ts');
+        expect(parsed).toContain('frontend/src/new/path.ts');
+        expect(parsed).toContain('frontend/src/deprecated/file.ts');
+        expect(parsed).toContain('backend/src/modules/admin/new.ts');
     });
 });

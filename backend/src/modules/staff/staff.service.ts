@@ -687,6 +687,7 @@ export class StaffService {
             // 4. Calculate final served lines
             const servedPartsRes = await client.query(`
                 SELECT 
+                    o.order_number,
                     oi.id as order_item_id,
                     oi.snapshot_name,
                     oi.snapshot_variant_name,
@@ -699,7 +700,8 @@ export class StaffService {
                 JOIN order_items oi ON oi.id = oip.order_item_id
                 JOIN orders o ON o.id = oi.order_id
                 WHERE o.session_id = $1 AND oip.status = 'SERVED'
-                GROUP BY oi.id, oi.snapshot_name, oi.snapshot_variant_name, oi.snapshot_price, oi.applied_promotion_id
+                GROUP BY o.order_number, oi.created_at, oi.id, oi.snapshot_name, oi.snapshot_variant_name, oi.snapshot_price, oi.applied_promotion_id
+                ORDER BY o.order_number ASC, oi.created_at ASC, oi.id ASC
             `, [sessionId]);
 
             const rawServedTotal = servedPartsRes.rows.reduce((sum, r) => sum + Number(r.snapshot_price) * parseInt(r.quantity_served, 10), 0);
@@ -720,12 +722,24 @@ export class StaffService {
                 ORDER BY priority DESC, created_at DESC
             `, [tenantId]);
 
-            const attachedPromoId = servedPartsRes.rows.find(r => r.applied_promotion_id)?.applied_promotion_id;
+            const attachedPromoIds = Array.from(new Set(
+                servedPartsRes.rows
+                    .map(r => r.applied_promotion_id)
+                    .filter((id): id is string => Boolean(id))
+            ));
             let selectedPromo: any = null;
             let sessionDiscount = 0;
 
-            if (attachedPromoId) {
-                const attachedPromo = promoRes.rows.find(p => p.id === attachedPromoId);
+            if (attachedPromoIds.length > 0) {
+                let attachedPromo: any = null;
+                for (const promoId of attachedPromoIds) {
+                    const found = promoRes.rows.find(p => p.id === promoId);
+                    if (found) {
+                        attachedPromo = found;
+                        break;
+                    }
+                }
+
                 if (attachedPromo) {
                     const isExhausted = attachedPromo.max_redemptions !== null && Number(attachedPromo.current_redemptions) >= Number(attachedPromo.max_redemptions);
                     if (isExhausted) {

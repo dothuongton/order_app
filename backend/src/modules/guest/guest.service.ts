@@ -397,14 +397,19 @@ export class GuestService {
             // Calculate pricing and promotions server-side using PricingService
             const pricing = await PricingService.calculateOrderPricing(client, tenantId, input.items);
 
-            // Check if this session already had a promotion applied in a previous order (BUS-02, R2)
+            // Check if this session already had a promotion applied in an active, non-cancelled previous order (BUS-02, R2)
             const existingPromoCheck = await client.query(`
                 SELECT o.applied_promotion_id, p.title, p.code, p.discount_type, p.discount_value, p.max_discount_amount,
                        COALESCE(SUM(o.discount_total), 0) as total_discount_given
                 FROM orders o
                 JOIN promotions p ON p.id = o.applied_promotion_id
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN order_item_parts oip ON oip.order_item_id = oi.id
                 WHERE o.session_id = $1 AND o.applied_promotion_id IS NOT NULL
+                  AND oip.status != 'CANCELLED'
+                  AND p.is_active = true
                 GROUP BY o.applied_promotion_id, p.title, p.code, p.discount_type, p.discount_value, p.max_discount_amount
+                ORDER BY MIN(o.order_number) ASC
                 LIMIT 1
             `, [sessionId]);
 
@@ -915,13 +920,28 @@ export class GuestService {
             ORDER BY priority DESC, created_at DESC
         `, [tenantId]);
 
-        const attachedPromoId = partsRes.rows.find(r => r.applied_promotion_id)?.applied_promotion_id;
+        // Select attached promotion strictly from active, non-cancelled item parts (Issue #28)
+        const activeParts = partsRes.rows.filter(r => r.status === 'SERVED' || r.status === 'ACCEPTED');
+        const candidateParts = activeParts.length > 0 ? activeParts : partsRes.rows.filter(r => r.status !== 'CANCELLED');
+        const attachedPromoIds = Array.from(new Set(
+            candidateParts
+                .map(r => r.applied_promotion_id)
+                .filter((id): id is string => Boolean(id))
+        ));
         let selectedPromo: any = null;
         let sessionDiscount = 0;
 
-        if (attachedPromoId) {
-            // If session had a promotion attached, verify it is still valid and not exhausted
-            const validAttached = promosRes.rows.find(p => p.id === attachedPromoId);
+        if (attachedPromoIds.length > 0) {
+            // Find the first attached promotion that is still active and valid in promosRes
+            let validAttached: any = null;
+            for (const promoId of attachedPromoIds) {
+                const found = promosRes.rows.find(p => p.id === promoId);
+                if (found) {
+                    validAttached = found;
+                    break;
+                }
+            }
+
             if (validAttached) {
                 const minOrder = parseInt(validAttached.min_order_amount || '0', 10);
                 if (rawConfirmedTotal >= minOrder) {

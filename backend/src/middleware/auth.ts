@@ -98,7 +98,15 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
 
             if (isMutation) {
                 const isExistingSessionResolution =
-                    /\/sessions\/[^/]+\/(confirm-payment-and-close|close-without-charge)$/.test(pathToCheck) ||
+                    // 1. Session payment, close, and bulk serving/acceptance (Issue #6, #19)
+                    /\/sessions\/[^/]+\/(confirm-payment-and-close|close-without-charge|serve-all|accept-all)$/.test(pathToCheck) ||
+                    // 2. Existing order item handling
+                    /\/order-items\/[^/]+\/(accept|serve|cancel)$/.test(pathToCheck) ||
+                    // 3. Service request handling
+                    /\/service-requests\/[^/]+\/(accept|complete|cancel)$/.test(pathToCheck) ||
+                    // 4. Marking table ready after session closed
+                    /\/tables\/[^/]+\/mark-ready$/.test(pathToCheck) ||
+                    // 5. Auth logout
                     pathToCheck.endsWith('/auth/logout');
 
                 if (!isExistingSessionResolution) {
@@ -108,9 +116,14 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
                     });
                 }
             } else {
-                // Allow reading bill summary of existing open sessions for settlement
-                const isSessionRead = /\/sessions\/[^/]+\/bill-summary$/.test(pathToCheck);
-                if (!isSessionRead) {
+                // Allow reading dashboard snapshot, tables, session orders and bill summary for settling lingering obligations
+                const isReadOnlyRecovery =
+                    /\/sessions\/[^/]+\/(bill-summary|orders)$/.test(pathToCheck) ||
+                    pathToCheck.endsWith('/dashboard/snapshot') ||
+                    pathToCheck.endsWith('/tables') ||
+                    /\/tables\/[^/]+$/.test(pathToCheck);
+
+                if (!isReadOnlyRecovery) {
                     return res.status(403).json({
                         error: 'SHOP_ARCHIVED',
                         message: 'Quán ăn này đã được đưa vào lưu trữ và ngừng hoạt động hoàn toàn'

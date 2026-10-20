@@ -1,0 +1,44 @@
+{
+  "head": "21a3fca",
+  "results": [
+    {
+      "id": "cancelled-first-promotion",
+      "quote": 60000,
+      "pay": 409,
+      "error": "PRICE_CHANGED",
+      "reloaded": 60000,
+      "retry": 409,
+      "message": "Số tiền thanh toán đã thay đổi (dự kiến 60.000đ, thực tế 40.000đ). Vui lòng kiểm tra và xác nhận lại hóa đơn."
+    },
+    {
+      "id": "archived-accepted-session",
+      "dashboard": 403,
+      "serve": 403,
+      "serveError": "SHOP_ARCHIVED",
+      "settle": 400,
+      "settleError": "UNRESOLVED_ITEMS"
+    },
+    {
+      "id": "lane-bypass",
+      "coreOnSangFile": {
+        "valid": true,
+        "violations": []
+      },
+      "unknownOnCoreFile": {
+        "valid": true,
+        "violations": []
+      },
+      "sangOwnedApi": {
+        "valid": false,
+        "violations": [
+          "Sang lane violation: File outside CMS Super Admin allowlist: frontend/src/api/admin.ts",
+          "Sang lane violation: File outside CMS Super Admin allowlist: frontend/src/types/admin.ts"
+        ]
+      }
+    },
+    {
+      "id": "seed-default-preservation",
+      "markerPreserved": false
+    }
+  ]
+}

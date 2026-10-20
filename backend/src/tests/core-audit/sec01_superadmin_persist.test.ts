@@ -84,4 +84,31 @@ describe('SEC-01: Super Admin password & role persistence (Issue #3)', () => {
                 [user.id, user.email, user.password_hash, user.full_name, user.phone]);
         }
     });
+
+    it('calling default seed() outside test environment does not wipe markers or operational data (Issue #25)', async () => {
+        // Create custom marker record in tenants
+        const markerName = 'Safe Seed Marker Tenant';
+        await query(`
+            INSERT INTO tenants (id, name, slug, status)
+            VALUES ('88888888-8888-8888-8888-888888888888', $1, 'safe-seed-marker', 'active')
+            ON CONFLICT (id) DO UPDATE SET name = $1
+        `, [markerName]);
+
+        const prevEnv = process.env.NODE_ENV;
+        try {
+            // Simulate development environment (outside test)
+            process.env.NODE_ENV = 'development';
+
+            // Call default seed() with no arguments
+            await seed();
+
+            // Verify marker record was NOT wiped by seed()
+            const check = await query(`SELECT name FROM tenants WHERE id = '88888888-8888-8888-8888-888888888888'`);
+            expect(check.rowCount).toBe(1);
+            expect(check.rows[0].name).toBe(markerName);
+        } finally {
+            process.env.NODE_ENV = prevEnv;
+            await query(`DELETE FROM tenants WHERE id = '88888888-8888-8888-8888-888888888888'`);
+        }
+    });
 });

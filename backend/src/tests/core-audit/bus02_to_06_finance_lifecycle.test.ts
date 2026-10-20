@@ -460,4 +460,88 @@ describe('Financial Lifecycle & Session Promotion Suite (BUS-02, BUS-03, BUS-04,
 
         expect(settled.totalAmount).toBe(100000);
     });
+
+    it('BUS-02e: Cancelled round promo does not poison quote vs settlement for subsequent rounds (Issue #28)', async () => {
+        // Repro: Round 1 (60k) uses promoA (10k); turn off A; Round 2 (60k) uses promoB (20k); cancel Round 1; serve Round 2.
+        await query(`UPDATE promotions SET is_active = false WHERE tenant_id = $1`, [tenantId]);
+
+        // Promo A: 10,000đ off
+        const promoARes = await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, is_active, priority)
+            VALUES ($1, 'PROMO-A', 'Promo A 10k', 'FIXED_AMOUNT', 10000, 0, true, 1)
+            RETURNING id
+        `, [tenantId]);
+        const promoAId = promoARes.rows[0].id;
+
+        const tableRes = await query(`INSERT INTO tables (tenant_id, table_number, public_qr_id) VALUES ($1, 'T-REG28', 'qr-reg28') RETURNING id`, [tenantId]);
+        const tId = tableRes.rows[0].id;
+
+        const session = await StaffService.openSession(tenantId, tId, waiterId);
+
+        // Round 1: 60k order using Promo A
+        const round1 = await GuestService.createOrder(tenantId, session.sessionId, tId, {
+            idempotencyKey: 'reg28-round-1',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        // Turn off Promo A, activate Promo B (20k off)
+        await query(`UPDATE promotions SET is_active = false WHERE id = $1`, [promoAId]);
+        const promoBRes = await query(`
+            INSERT INTO promotions (tenant_id, code, title, discount_type, discount_value, min_order_amount, is_active, priority)
+            VALUES ($1, 'PROMO-B', 'Promo B 20k', 'FIXED_AMOUNT', 20000, 0, true, 2)
+            RETURNING id
+        `, [tenantId]);
+        const promoBId = promoBRes.rows[0].id;
+
+        // Round 2: 60k order using Promo B
+        await GuestService.createOrder(tenantId, session.sessionId, tId, {
+            idempotencyKey: 'reg28-round-2',
+            items: [{ menuItemId: nemChuaId, quantity: 1 }]
+        });
+
+        // Accept all pending items
+        await StaffService.acceptAllPending(tenantId, session.sessionId, waiterId);
+
+        // Cancel Round 1 item completely (1 of 1)
+        const round1ItemRes = await query(`SELECT id FROM order_items WHERE order_id = $1`, [round1.orderId]);
+        await StaffService.cancelOrderItem(tenantId, round1ItemRes.rows[0].id, 1, 'Customer cancelled round 1', waiterId, false);
+
+        // Serve Round 2
+        await StaffService.serveAllAccepted(tenantId, session.sessionId, waiterId);
+
+        // Quote verification:
+        // Round 1 is cancelled (0đ), Round 2 is served (60k).
+        // Candidate basket is Round 2 with Promo B (20k discount).
+        // Valid bill total must be 40,000đ (NOT 60,000đ from dead Promo A!).
+        const quote = await GuestService.getBillSummary(tenantId, session.sessionId);
+        expect(quote.rawBillTotal).toBe(60000);
+        expect(quote.totalDiscount).toBe(20000);
+        expect(quote.validBillTotal).toBe(40000);
+        expect(quote.appliedPromotions).toHaveLength(1);
+        expect(quote.appliedPromotions[0].id).toBe(promoBId);
+
+        // Settlement verification:
+        // Must succeed without 409 PRICE_CHANGED or stuck session
+        const settled = await StaffService.confirmPaymentAndCloseSession(
+            tenantId,
+            session.sessionId,
+            quote.settlementVersion,
+            waiterId,
+            undefined,
+            undefined,
+            quote.validBillTotal
+        );
+
+        expect(settled.totalAmount).toBe(40000);
+
+        // Verify bill_lines line up with bill total
+        const billRes = await query(`SELECT id FROM bills WHERE session_id = $1`, [session.sessionId]);
+        const billLinesRes = await query(`SELECT subtotal FROM bill_lines WHERE bill_id = $1`, [billRes.rows[0].id]);
+        const totalLineAmount = billLinesRes.rows.reduce((sum, r) => sum + parseInt(r.subtotal, 10), 0);
+        expect(totalLineAmount).toBe(40000);
+        expect(settled.lines.reduce((sum: number, r: any) => sum + r.subtotal, 0)).toBe(40000);
+
+        const sessionStatus = await query(`SELECT status FROM table_sessions WHERE id = $1`, [session.sessionId]);
+        expect(sessionStatus.rows[0].status).toBe('CLOSED');
+    });
 });
