@@ -1,0 +1,53 @@
+{
+  "baseSha": "aceb9066b6819e28232517bcc402d0390d80fff5",
+  "sourceSha256": "e18d879292c3ced8345643d36b9b1a8af4046aa87222aa125271e06478c54f84",
+  "sourcePreserved": true,
+  "openPRs": [
+    92,
+    78,
+    72
+  ],
+  "activeSangIssue": 18,
+  "activeCoreIssue": 57,
+  "newIssues": {
+    "security": {
+      "number": 93,
+      "id": 5939401627,
+      "url": "https://github.com/dothuongton/order_app/issues/93"
+    },
+    "tables": {
+      "number": 94,
+      "id": 5939401993,
+      "url": "https://github.com/dothuongton/order_app/issues/94"
+    },
+    "menu": {
+      "number": 95,
+      "id": 5939402373,
+      "url": "https://github.com/dothuongton/order_app/issues/95"
+    },
+    "members": {
+      "number": 96,
+      "id": 5939402752,
+      "url": "https://github.com/dothuongton/order_app/issues/96"
+    },
+    "operations": {
+      "number": 97,
+      "id": 5939403141,
+      "url": "https://github.com/dothuongton/order_app/issues/97"
+    },
+    "cms": {
+      "number": 98,
+      "id": 5939403438,
+      "url": "https://github.com/dothuongton/order_app/issues/98"
+    },
+    "export": {
+      "number": 99,
+      "id": 5939403845,
+      "url": "https://github.com/dothuongton/order_app/issues/99"
+    }
+  },
+  "reviewType": "code inspection and backlog planning only",
+  "runtimeTestsRun": false,
+  "productionMutations": false,
+  "mainProtected": false
+}

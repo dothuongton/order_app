@@ -35,3 +35,22 @@ Epic80 → queue85 → các issue86–91 qua native sub-issues. Blocked-by đã 
 Issue89 chờ helper/SHA của phần core41 và issue90 chờ contract/SHA của phần core6, không buộc đóng toàn bộ umbrella41/6 để tránh vòng phụ thuộc giữa integration hai lane. Những phần đã bàn giao có thể tích hợp theo SHA được Codex duyệt; không tự kết luận dependency sẵn sàng chỉ vì tài liệu đã viết.
 
 Native dependencies là công cụ theo dõi, không thay branch protection, required review hoặc việc giữ tệp một issue/lane; cấu hình repository tiếp tục theo#5.
+
+
+## Bổ sung đề xuất SuperAdmin toàn diện (main aceb906)
+
+PR92/#18 đang giữ CreateShopModal; không tạo hotfix trùng hoặc đổi scope PR. Core PR78/#57 vẫn riêng. Nguồn và ma trận SA01–20: [assessment](../proposals/MUSE_SUPERADMIN_FULL_ASSESSMENT_2026-10-20.md), [Muse nguyên văn](../proposals/MUSE_SUPERADMIN_FULL_PROPOSAL_2026-10-20.md).
+
+| Issue Sang mới | Phạm vi độc quyền | Gate |
+|---|---|---|
+| #93 | Admin guard/error + writer audit adapter | Core36/83 contract/SHA qua6; không auth/schema |
+| #94 | Admin table support | Sau47/89/90/93 + core table capability |
+| #95 | Admin menu/promotion support | Sau94 + core menu/promotion capability |
+| #96 | Membership support | Sau95/82 + identity policy/capability |
+| #97 | Operations phi tài chính | Sau96 + core actor/reason/quantity/idempotency |
+| #98 | Draft/publish/rollback support | Sau97 + core revision/publish/event contract |
+| #99 | Audit export bounded/CSV safe | Sau84 + export/redaction contract |
+
+#94–98 và99 phase later, không cản pilot. #93 prelaunch từng phần đã đủ handoff; không đợi toàn bộ MFA/identity rollout. Mọi bước vẫn serial trong lane Sang, không dùng dependency khác nhau để mở nhiều branch cùng sửa connector files. Read-only46/47 hoàn tất từng lát sau hotfix; không fork nghiệp vụ mutation.
+
+Core handoff trong#6 có tên capability, policy/actor/scope, DTO/errors, exact mergedSHA và test evidence. Không có nghĩa main đã có đủ safe service để gọi: table/menu còn inline routes, CMS saveDraft thiếu expected revision. Không tự bật global lock/reset, impersonation, support role, template CRUD/refund/reversal. #53 giữ paymentstate/ledger mới.
