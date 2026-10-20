@@ -338,6 +338,90 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(detailsStr).not.toContain('password_hash');
         });
 
+        it('rejects duplicate owner email without linkExistingOwner flag with 409', async () => {
+            const conflictPayload = {
+                name: 'Quán Trùng Email Owner',
+                slug: `conflict-email-${Date.now()}`,
+                ownerFullName: 'Lê Hoàng Nam',
+                ownerEmail: `nam.${Date.now()}@buncha.vn`,
+                ownerPassword: 'AnotherPassword123!'
+            };
+
+            // First create shop
+            const res1 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify(conflictPayload)
+            });
+            expect(res1.status).toBe(201);
+
+            // Attempt to create another shop with same email without linking flag
+            const res2 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    ...conflictPayload,
+                    name: 'Quán Thứ Hai',
+                    slug: `second-shop-${Date.now()}`
+                })
+            });
+            expect(res2.status).toBe(409);
+            const data2: any = await res2.json();
+            expect(data2.error).toBe('OWNER_EMAIL_EXISTS');
+        });
+
+        it('successfully links existing owner without altering password when linkExistingOwner is true', async () => {
+            const existingEmail = `nam.${Date.now()}@buncha.vn`;
+            const initPayload = {
+                name: 'Quán Gốc',
+                slug: `orig-shop-${Date.now()}`,
+                ownerFullName: 'Chủ Quán Cũ',
+                ownerEmail: existingEmail,
+                ownerPassword: 'OriginalSecretPassword123!'
+            };
+
+            const res1 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify(initPayload)
+            });
+            expect(res1.status).toBe(201);
+
+            // Check original password hash
+            const userBefore = await query('SELECT password_hash FROM users WHERE email = $1', [existingEmail]);
+            const origHash = userBefore.rows[0].password_hash;
+
+            // Link existing owner to second shop
+            const res2 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    name: 'Quán Chi Nhánh',
+                    slug: `branch-shop-${Date.now()}`,
+                    ownerFullName: 'Chủ Quán Cũ',
+                    ownerEmail: existingEmail,
+                    linkExistingOwner: true
+                })
+            });
+            expect(res2.status).toBe(201);
+
+            // Verify password hash was NOT altered
+            const userAfter = await query('SELECT password_hash FROM users WHERE email = $1', [existingEmail]);
+            expect(userAfter.rows[0].password_hash).toBe(origHash);
+        });
+
         it('rejects duplicate shop slug and rolls back transaction', async () => {
             const dupPayload = {
                 name: 'Quán Trùng Slug',

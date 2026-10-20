@@ -96,6 +96,7 @@ export interface CreateShopPayload {
     ownerFullName: string;
     ownerEmail: string;
     ownerPassword?: string;
+    linkExistingOwner?: boolean;
 }
 
 export interface UpdateShopPayload {

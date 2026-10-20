@@ -261,16 +261,43 @@ export class AdminService {
             const tenant = tenantRes.rows[0];
             const tenantId = tenant.id;
 
-            // 2. Create or find Owner User (preserve existing user's password if already registered)
-            const passwordHash = await bcrypt.hash(input.ownerPassword, 10);
-            const userRes = await client.query(`
-                INSERT INTO users (email, password_hash, full_name, phone)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (email) DO UPDATE SET email = users.email
-                RETURNING id, email, full_name
-            `, [input.ownerEmail, passwordHash, input.ownerFullName, input.phone || null]);
+            // Check existing owner account (Issue #82: explicit onboarding vs linking)
+            const normalizedEmail = input.ownerEmail.trim().toLowerCase();
+            const existingUserRes = await client.query(
+                'SELECT id, email, full_name, password_hash FROM users WHERE LOWER(email) = LOWER($1)',
+                [normalizedEmail]
+            );
 
-            const ownerUser = userRes.rows[0];
+            const userExists = existingUserRes.rows.length > 0;
+            if (userExists && !input.linkExistingOwner) {
+                throw new AdminApiError(409, 'OWNER_EMAIL_EXISTS', `Tài khoản với email "${input.ownerEmail}" đã tồn tại trên hệ thống. Vui lòng xác nhận liên kết tài khoản hoặc sử dụng email khác.`);
+            }
+
+            if (!userExists && input.linkExistingOwner) {
+                throw new AdminApiError(404, 'NOT_FOUND', `Không tìm thấy tài khoản với email "${input.ownerEmail}" để liên kết.`);
+            }
+
+            // 2. Create or link Owner User
+            let ownerUser: { id: string; email: string; full_name: string };
+            let ownerMode: 'created_new' | 'linked_existing';
+
+            if (userExists) {
+                ownerUser = {
+                    id: existingUserRes.rows[0].id,
+                    email: existingUserRes.rows[0].email,
+                    full_name: existingUserRes.rows[0].full_name
+                };
+                ownerMode = 'linked_existing';
+            } else {
+                const passwordHash = await bcrypt.hash(input.ownerPassword!, 10);
+                const userRes = await client.query(`
+                    INSERT INTO users (email, password_hash, full_name, phone)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id, email, full_name
+                `, [normalizedEmail, passwordHash, input.ownerFullName, input.phone || null]);
+                ownerUser = userRes.rows[0];
+                ownerMode = 'created_new';
+            }
 
             // 3. Create Membership as owner
             await client.query(`
@@ -328,7 +355,8 @@ export class AdminService {
                 name: input.name,
                 slug: input.slug,
                 ownerEmail: input.ownerEmail,
-                ownerFullName: input.ownerFullName
+                ownerFullName: input.ownerFullName,
+                ownerMode
             })]);
 
             return {
