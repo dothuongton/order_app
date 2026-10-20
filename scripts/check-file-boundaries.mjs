@@ -1,0 +1,108 @@
+#!/usr/bin/env node
+import { execSync } from 'child_process';
+import path from 'path';
+
+/**
+ * Validates PR file boundaries according to Issue #2 and Issue #5.
+ * 
+ * Rules for SangVuxx (CMS Super Admin lane):
+ * Allowed paths:
+ *   - backend/src/modules/admin/**
+ *   - frontend/src/pages/admin/** (EXCEPT AdminLogin.tsx)
+ * Blocked paths:
+ *   - frontend/src/pages/admin/AdminLogin.tsx
+ *   - Any file in backend/src/modules/cms/** (this is shop CMS, not platform super admin)
+ *   - Any file in frontend/src/pages/staff/**
+ *   - Shared auth, middleware, database, types, routes, configs
+ */
+
+const SANG_ALLOWED_PREFIXES = [
+    'backend/src/modules/admin/',
+    'frontend/src/pages/admin/'
+];
+
+const SANG_BLOCKED_EXACT = [
+    'frontend/src/pages/admin/AdminLogin.tsx'
+];
+
+export function validateAuthorFiles(author, files) {
+    const isSang = author && (author.toLowerCase().includes('sangvux') || author.toLowerCase().includes('cms-super-admin'));
+    if (!isSang) {
+        return { valid: true, violations: [] };
+    }
+
+    const violations = [];
+    for (const file of files) {
+        const normalized = file.replace(/\\/g, '/');
+        if (SANG_BLOCKED_EXACT.includes(normalized)) {
+            violations.push(`Explicitly forbidden file: ${normalized}`);
+            continue;
+        }
+
+        const isAllowed = SANG_ALLOWED_PREFIXES.some(prefix => normalized.startsWith(prefix));
+        if (!isAllowed) {
+            violations.push(`File outside CMS Super Admin allowlist: ${normalized}`);
+        }
+    }
+
+    return {
+        valid: violations.length === 0,
+        violations
+    };
+}
+
+export function validateDiffForSecretsAndDebug(diffText) {
+    const violations = [];
+    const addedLines = diffText.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++'));
+
+    const FORBIDDEN_PATTERNS = [
+        { regex: /debugger;?/, name: 'debugger statement' },
+        { regex: /console\.log\(['"`](DEBUG|TEST_SECRET)/i, name: 'debug log' },
+        { regex: /(-WvfchB2Y7C_HM1-9_Ym1gXJEBqfy0zeZr5da3PVDiY)/, name: 'known leaked VAPID key' },
+        { regex: /(BEGIN PRIVATE KEY)/, name: 'raw private key in source' }
+    ];
+
+    for (const line of addedLines) {
+        for (const pattern of FORBIDDEN_PATTERNS) {
+            if (pattern.regex.test(line)) {
+                violations.push(`Found ${pattern.name} in added line: ${line.trim()}`);
+            }
+        }
+    }
+
+    return {
+        valid: violations.length === 0,
+        violations
+    };
+}
+
+// CLI execution
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename || '')) {
+    const baseRef = process.argv[2] || 'origin/main';
+    const author = process.argv[3] || process.env.GITHUB_ACTOR || '';
+
+    try {
+        const changedFilesRaw = execSync(`git diff --name-only ${baseRef}...HEAD`, { encoding: 'utf-8' });
+        const changedFiles = changedFilesRaw.split('\n').map(s => s.trim()).filter(Boolean);
+
+        const boundaryCheck = validateAuthorFiles(author, changedFiles);
+        if (!boundaryCheck.valid) {
+            console.error('❌ File Boundary Violation:');
+            boundaryCheck.violations.forEach(v => console.error(`  - ${v}`));
+            process.exit(1);
+        }
+
+        const diffText = execSync(`git diff ${baseRef}...HEAD`, { encoding: 'utf-8' });
+        const secretCheck = validateDiffForSecretsAndDebug(diffText);
+        if (!secretCheck.valid) {
+            console.error('❌ Diff Hygiene Violation:');
+            secretCheck.violations.forEach(v => console.error(`  - ${v}`));
+            process.exit(1);
+        }
+
+        console.log('✅ File boundaries and diff hygiene checks passed successfully.');
+    } catch (err) {
+        console.error('Error checking PR boundaries:', err.message);
+        process.exit(1);
+    }
+}
