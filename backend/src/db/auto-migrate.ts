@@ -232,21 +232,22 @@ export async function ensureSchemaOnBoot() {
             );
         `);
 
-        // 6. Super Admin user
+        // 6. Protect table_sessions against CASCADE deletion of financial history (DATA-01)
         await client.query(`
-            INSERT INTO users (id, email, password_hash, full_name, phone, is_platform_admin)
-            VALUES (
-                '99999999-9999-9999-9999-999999999999',
-                'superadmin@qrorder.vn',
-                '$2a$10$cweMWdM3s.7gdRP1Mi5ulexKStDHK0qpYvk7mVeVKtHZaf1vU3Hva',
-                'Hệ Thống Super Admin',
-                '0999999999',
-                true
-            )
-            ON CONFLICT (email) DO UPDATE SET
-                is_platform_admin = true,
-                password_hash = EXCLUDED.password_hash,
-                full_name = 'Hệ Thống Super Admin';
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE constraint_name = 'table_sessions_table_id_fkey'
+                ) THEN
+                    ALTER TABLE table_sessions DROP CONSTRAINT table_sessions_table_id_fkey;
+                END IF;
+                ALTER TABLE table_sessions
+                    ADD CONSTRAINT table_sessions_table_id_fkey
+                    FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE RESTRICT;
+            EXCEPTION WHEN OTHERS THEN
+                NULL;
+            END $$;
         `);
 
         console.log('✅ Auto-migrations completed successfully.');
