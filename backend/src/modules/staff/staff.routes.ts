@@ -389,6 +389,13 @@ staffRouter.post('/menu/categories', requirePermission('menu.manage'), async (re
             message: 'Thêm danh mục món thành công'
         });
     } catch (err: any) {
+        if (err.code === '23505' && (err.constraint === 'idx_menu_categories_tenant_name' || err.message?.includes('idx_menu_categories_tenant_name') || err.detail?.includes('LOWER(TRIM(name))'))) {
+            return res.status(409).json({
+                error: 'CATEGORY_NAME_EXISTS',
+                code: 'CATEGORY_NAME_EXISTS',
+                message: 'Tên danh mục đã tồn tại trong quán'
+            });
+        }
         return res.status(err.status || 500).json({
             error: err.code || 'SERVER_ERROR',
             code: err.code || 'SERVER_ERROR',
@@ -490,6 +497,13 @@ const handleUpdateCategory = async (req: Request, res: Response) => {
             message: 'Cập nhật danh mục thành công'
         });
     } catch (err: any) {
+        if (err.code === '23505' && (err.constraint === 'idx_menu_categories_tenant_name' || err.message?.includes('idx_menu_categories_tenant_name') || err.detail?.includes('LOWER(TRIM(name))'))) {
+            return res.status(409).json({
+                error: 'CATEGORY_NAME_EXISTS',
+                code: 'CATEGORY_NAME_EXISTS',
+                message: 'Tên danh mục đã tồn tại trong quán'
+            });
+        }
         return res.status(err.status || 500).json({
             error: err.code || 'SERVER_ERROR',
             code: err.code || 'SERVER_ERROR',
@@ -1104,10 +1118,10 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
         const normalizedGroups = normalizeOptionGroups(parsed.data);
 
         const createdItem = await withTransaction(async (client) => {
-            // Verify category
-            const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+            // Verify category with FOR SHARE so concurrent category delete waits or fails properly
+            const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR SHARE', [category_id, staff.tenantId]);
             if (catRes.rows.length === 0) {
-                throw { status: 400, code: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' };
+                throw { status: 400, code: 'CATEGORY_NOT_FOUND', message: 'Danh mục không tồn tại hoặc đã bị xóa' };
             }
 
             // Determine sort_order
@@ -1137,6 +1151,13 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
             message: 'Thêm món mới thành công'
         });
     } catch (err: any) {
+        if (err.code === '23503' && (err.constraint === 'menu_items_category_id_fkey' || err.detail?.includes('category_id'))) {
+            return res.status(400).json({
+                error: 'CATEGORY_NOT_FOUND',
+                code: 'CATEGORY_NOT_FOUND',
+                message: 'Danh mục không tồn tại hoặc đã bị xóa'
+            });
+        }
         console.error('Staff create menu item error:', err);
         return res.status(err.status || 500).json({ error: err.code || 'SERVER_ERROR', message: err.message });
     }
@@ -1180,9 +1201,9 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
 
             let newSortOrder = sort_order;
             if (category_id && category_id !== current.category_id) {
-                const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+                const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR SHARE', [category_id, staff.tenantId]);
                 if (catRes.rows.length === 0) {
-                    throw { status: 400, code: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' };
+                    throw { status: 400, code: 'CATEGORY_NOT_FOUND', message: 'Danh mục không tồn tại hoặc đã bị xóa' };
                 }
                 // When moving to new category, put at the end if not explicitly specified
                 if (newSortOrder === undefined) {
@@ -1233,6 +1254,13 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             message: 'Cập nhật món thành công'
         });
     } catch (err: any) {
+        if (err.code === '23503' && (err.constraint === 'menu_items_category_id_fkey' || err.detail?.includes('category_id'))) {
+            return res.status(400).json({
+                error: 'CATEGORY_NOT_FOUND',
+                code: 'CATEGORY_NOT_FOUND',
+                message: 'Danh mục không tồn tại hoặc đã bị xóa'
+            });
+        }
         console.error('Staff update menu item error:', err);
         return res.status(err.status || 500).json({ error: err.code || 'SERVER_ERROR', message: err.message });
     }

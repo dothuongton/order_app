@@ -2,8 +2,10 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const PORT = 9227;
+const CHROME_PATH = process.env.CHROME_BIN || process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const PORT = parseInt(process.env.CDP_PORT || '9227', 10);
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const API_BASE = process.env.API_BASE || 'http://localhost:4000/api/v1';
 const SCREENSHOT_DIR = path.resolve('artifacts/screenshots/issue-100');
 
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -65,8 +67,6 @@ class CDPClient {
   }
 }
 
-const API_BASE = 'http://localhost:4000/api/v1';
-
 async function loginStaff(email = 'admin@phoco.vn', password = '123456') {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
@@ -79,7 +79,8 @@ async function loginStaff(email = 'admin@phoco.vn', password = '123456') {
 }
 
 async function main() {
-  console.log('🚀 Starting Issue #100 Browser Verification (Menu Category CRUD & Safety)');
+  console.log(`🚀 Starting Issue #100 Browser Verification (Menu Category CRUD & Safety)`);
+  console.log(`   Frontend: ${FRONTEND_URL} | API: ${API_BASE} | CDP Port: ${PORT}`);
 
   let profileDir = `/tmp/chrome-issue100-${Date.now()}`;
   fs.mkdirSync(profileDir, { recursive: true });
@@ -153,7 +154,7 @@ async function main() {
     });
 
     // Navigate to frontend origin first to set localStorage
-    await cdp.send('Page.navigate', { url: 'http://localhost:5173/staff' });
+    await cdp.send('Page.navigate', { url: `${FRONTEND_URL}/staff` });
     await sleep(1500);
 
     await evaluate(`
@@ -162,7 +163,7 @@ async function main() {
     `);
 
     // Navigate to Staff Portal
-    await cdp.send('Page.navigate', { url: 'http://localhost:5173/staff' });
+    await cdp.send('Page.navigate', { url: `${FRONTEND_URL}/staff` });
     await sleep(2500);
 
     // Switch to Menu tab ("Món")
@@ -199,7 +200,6 @@ async function main() {
     // SCENARIO 2: Open Category Management Modal
     // =========================================================================
     console.log('\n=== SCENARIO 2: Open Category Management Modal ===');
-    // Switch back to desktop for clear modal view
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: 1280,
       height: 800,
@@ -227,7 +227,6 @@ async function main() {
     // SCENARIO 3: Non-empty Category Delete Protection Warning
     // =========================================================================
     console.log('\n=== SCENARIO 3: Non-empty Category Delete Protection ===');
-    // Click the delete button of the first category with items
     await evaluate(`
       (() => {
         const deleteBlockedBtn = document.querySelector('button[title*="Không thể xóa"]');
@@ -261,7 +260,6 @@ async function main() {
     `);
     await sleep(500);
 
-    // Click "Thêm" button or submit form
     await evaluate(`
       (() => {
         const form = document.querySelector('form');
@@ -279,10 +277,56 @@ async function main() {
     console.log('  ✅ PASS: Created new category successfully with "Trống (0 món)" badge');
 
     // =========================================================================
+    // SCENARIO 4b: Inline Rename Category
+    // =========================================================================
+    console.log('\n=== SCENARIO 4b: Inline Rename Category ===');
+    const renamedCatName = newCatName + ' (Đã Đổi Tên)';
+
+    // Find the row for newCatName and click its edit button
+    await evaluate(`
+      (() => {
+        const rows = Array.from(document.querySelectorAll('.divide-y > div'));
+        const row = rows.find(r => r.innerText && r.innerText.includes('${newCatName}'));
+        if (row) {
+          const editBtn = row.querySelector('button[title="Sửa tên danh mục"]');
+          if (editBtn) editBtn.click();
+        }
+      })()
+    `);
+    await sleep(800);
+
+    // Update inline input
+    await evaluate(`
+      (() => {
+        const inputs = Array.from(document.querySelectorAll('input'));
+        const inlineInput = inputs.find(i => i.value && i.value.includes('${newCatName}'));
+        if (inlineInput) {
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          nativeInputValueSetter.call(inlineInput, '${renamedCatName}');
+          inlineInput.dispatchEvent(new Event('input', { bubbles: true }));
+          inlineInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })()
+    `);
+    await sleep(500);
+
+    // Click save button (check mark)
+    await evaluate(`
+      (() => {
+        const saveBtn = document.querySelector('button[title="Lưu tên"]');
+        if (saveBtn) saveBtn.click();
+      })()
+    `);
+    await sleep(2500);
+
+    pageText = await evaluate('document.body.innerText');
+    assert(pageText.includes(renamedCatName), 'Category must reflect newly edited name');
+    console.log('  ✅ PASS: Inline rename category verified');
+
+    // =========================================================================
     // SCENARIO 5: Safe Deletion of Empty Category
     // =========================================================================
     console.log('\n=== SCENARIO 5: Safe Deletion of Empty Category ===');
-    // Find the delete button with title "Xóa danh mục rỗng"
     await evaluate(`
       (() => {
         const deleteEmptyBtn = document.querySelector('button[title="Xóa danh mục rỗng"]');
@@ -293,7 +337,7 @@ async function main() {
 
     pageText = await evaluate('document.body.innerText');
     assert(pageText.includes('Xác Nhận Xóa Danh Mục'), 'Must open deletion confirmation modal');
-    assert(pageText.includes(newCatName), 'Confirmation modal must mention the category name');
+    assert(pageText.includes(renamedCatName), 'Confirmation modal must mention the category name');
     await screenshot('06_delete_empty_category_confirmation.png');
 
     // Click "Xóa Danh Mục" in confirmation modal
@@ -312,7 +356,7 @@ async function main() {
     const inList = await evaluate(`
       (() => {
         const listContainer = document.querySelector('.divide-y.divide-slate-100');
-        return listContainer ? listContainer.innerText.includes('${newCatName}') : false;
+        return listContainer ? listContainer.innerText.includes('${renamedCatName}') : false;
       })()
     `);
     assert(!inList, 'Deleted empty category must no longer exist in category list');
@@ -330,9 +374,9 @@ async function main() {
     await sleep(800);
 
     // =========================================================================
-    // SCENARIO 6: Create Item Modal Category Selector & CTA
+    // SCENARIO 6: R2 Verification - Item Modal Category Selector & Immediate Save
     // =========================================================================
-    console.log('\n=== SCENARIO 6: Item Modal Category Selector & Management CTA ===');
+    console.log('\n=== SCENARIO 6: R2 Verification - Item Modal Category Sync & Immediate Save ===');
     // Click "Thêm món" button
     await evaluate(`
       (() => {
@@ -347,17 +391,43 @@ async function main() {
     assert(pageText.includes('Thêm Món Ăn Mới'), 'Create item modal must be open');
     assert(pageText.includes('Quản lý danh mục'), 'Must render "Quản lý danh mục" shortcut CTA in item modal');
     await screenshot('08_create_item_category_selector.png');
-    console.log('  ✅ PASS: Create item modal displays category selector and management CTA');
 
-    // Close item modal
+    // Type Item Name and Price
+    const itemName = 'Món Test R2 ' + Date.now();
     await evaluate(`
       (() => {
-        const btns = Array.from(document.querySelectorAll('button'));
-        const cancelBtn = btns.find(b => b.innerText && b.innerText === 'Hủy');
-        if (cancelBtn) cancelBtn.click();
+        const nameInput = document.querySelector('input[placeholder*="Ví dụ: Phở Bò"]');
+        if (nameInput) {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(nameInput, '${itemName}');
+          nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+          nameInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        const priceInput = document.querySelector('input[type="number"]');
+        if (priceInput) {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(priceInput, '45000');
+          priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+          priceInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       })()
     `);
     await sleep(500);
+
+    // Click "Tạo Món Ăn" - must save successfully without any category selection error
+    await evaluate(`
+      (() => {
+        const btns = Array.from(document.querySelectorAll('button'));
+        const saveItemBtn = btns.find(b => b.innerText && b.innerText.includes('Tạo Món Ăn'));
+        if (saveItemBtn) saveItemBtn.click();
+      })()
+    `);
+    await sleep(2500);
+
+    pageText = await evaluate('document.body.innerText');
+    assert(pageText.includes(itemName), 'Item must be successfully created and visible in menu');
+    console.log('  ✅ PASS: R2 verified - item created and saved without category selection desync');
 
     // =========================================================================
     // SCENARIO 7: Compact Mobile Viewport (360x640)

@@ -124,6 +124,22 @@ export const StaffMenuManage: React.FC = () => {
     fetchMenuData();
   }, []);
 
+  // Synchronize category selection in open form with current categories (R2 / Issue #100)
+  useEffect(() => {
+    setEditingItem(prev => {
+      if (!prev) return null;
+      if (categories.length === 0) {
+        return prev.category_id ? { ...prev, category_id: '' } : prev;
+      }
+      const categoryStillValid = categories.some(c => c.id === prev.category_id);
+      if (!categoryStillValid) {
+        // Fallback to the first available category if category_id was empty or deleted
+        return { ...prev, category_id: categories[0].id };
+      }
+      return prev;
+    });
+  }, [categories]);
+
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setMsg({ type, text });
     setTimeout(() => setMsg(null), 3500);
@@ -467,6 +483,18 @@ export const StaffMenuManage: React.FC = () => {
       });
       setNewCategoryName('');
       showNotification(`Đã tạo danh mục "${res.category?.name || trimmed}" thành công`);
+
+      // If item creation/edit modal is open and has no selected category, bind the newly created category
+      if (res.category?.id) {
+        setEditingItem(prev => {
+          if (!prev) return null;
+          if (!prev.category_id) {
+            return { ...prev, category_id: res.category.id };
+          }
+          return prev;
+        });
+      }
+
       await fetchMenuData();
     } catch (err: any) {
       const msg = err.code === 'CATEGORY_NAME_EXISTS'

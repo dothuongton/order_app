@@ -265,18 +265,73 @@ export async function ensureSchemaOnBoot() {
         // 7. Protect menu_items against CASCADE deletion when categories are deleted (Issue #100)
         await client.query(`
             DO $$
+            DECLARE
+                r RECORD;
+                v_has_duplicates BOOLEAN;
             BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.table_constraints
-                    WHERE constraint_name = 'menu_items_category_id_fkey'
-                ) THEN
-                    ALTER TABLE menu_items DROP CONSTRAINT menu_items_category_id_fkey;
+                -- 1. Preflight: Check duplicate normalized category names within tenant
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM menu_categories
+                    GROUP BY tenant_id, LOWER(TRIM(name))
+                    HAVING COUNT(*) > 1
+                ) INTO v_has_duplicates;
+
+                IF v_has_duplicates THEN
+                    RAISE EXCEPTION 'Cannot apply migration 009: Found duplicate category names within tenant. Operator intervention required to resolve duplicates before applying unique constraint.';
                 END IF;
+
+                -- 2. Drop all foreign keys on menu_items(category_id) referencing menu_categories (even with custom/legacy names)
+                FOR r IN (
+                    SELECT c.conname
+                    FROM pg_constraint c
+                    JOIN pg_class t ON c.conrelid = t.oid
+                    JOIN pg_namespace n ON t.relnamespace = n.oid
+                    JOIN pg_class ref_t ON c.confrelid = ref_t.oid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+                    WHERE n.nspname = CURRENT_SCHEMA
+                      AND t.relname = 'menu_items'
+                      AND ref_t.relname = 'menu_categories'
+                      AND c.contype = 'f'
+                      AND a.attname = 'category_id'
+                ) LOOP
+                    EXECUTE 'ALTER TABLE menu_items DROP CONSTRAINT ' || quote_ident(r.conname);
+                END LOOP;
+
+                -- 3. Add canonical constraint with ON DELETE RESTRICT
                 ALTER TABLE menu_items
                     ADD CONSTRAINT menu_items_category_id_fkey
                     FOREIGN KEY (category_id) REFERENCES menu_categories(id) ON DELETE RESTRICT;
-            EXCEPTION WHEN OTHERS THEN
-                NULL;
+
+                -- 4. Postcondition verification: ensure NO CASCADE remains
+                IF EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_class t ON c.conrelid = t.oid
+                    JOIN pg_namespace n ON t.relnamespace = n.oid
+                    JOIN pg_class ref_t ON c.confrelid = ref_t.oid
+                    WHERE n.nspname = CURRENT_SCHEMA
+                      AND t.relname = 'menu_items'
+                      AND ref_t.relname = 'menu_categories'
+                      AND c.contype = 'f'
+                      AND c.confdeltype = 'c'
+                ) THEN
+                    RAISE EXCEPTION 'Postcondition failed: CASCADE foreign key constraint still exists on menu_items(category_id)';
+                END IF;
+
+                -- Ensure canonical constraint exists with RESTRICT
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_class t ON c.conrelid = t.oid
+                    JOIN pg_namespace n ON t.relnamespace = n.oid
+                    WHERE n.nspname = CURRENT_SCHEMA
+                      AND t.relname = 'menu_items'
+                      AND c.conname = 'menu_items_category_id_fkey'
+                      AND c.confdeltype = 'r'
+                ) THEN
+                    RAISE EXCEPTION 'Postcondition failed: menu_items_category_id_fkey ON DELETE RESTRICT was not properly created';
+                END IF;
             END $$;
 
             CREATE INDEX IF NOT EXISTS idx_menu_items_tenant_category ON menu_items (tenant_id, category_id);

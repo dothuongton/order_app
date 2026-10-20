@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { app } from '../app.js';
 import { query, pool } from '../db/pool.js';
 import { seed } from '../db/seed.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 describe('Safe Menu Category CRUD (Issue #100)', () => {
     let server: http.Server;
@@ -371,68 +377,300 @@ describe('Safe Menu Category CRUD (Issue #100)', () => {
         });
     });
 
-    describe('6. PostgreSQL Foreign Key & Concurrency Safety', () => {
-        it('PostgreSQL engine blocks direct DELETE on menu_categories with ON DELETE RESTRICT (error 23503)', async () => {
-            const catRes = await query(`
-                INSERT INTO menu_categories (tenant_id, name, sort_order)
-                VALUES ($1, 'Danh Mục Test FK Engine', 103)
-                RETURNING id;
-            `, [tenantPhoCoId]);
-            const catId = catRes.rows[0].id;
-
+    describe('6. R1 Migration Regressions: Dynamic Discovery, Postconditions, Idempotence', () => {
+        it('migration 009 cleanly discovers and drops custom-named CASCADE foreign keys and applies RESTRICT', async () => {
+            // Setup: Create a custom-named FK with CASCADE
             await query(`
-                INSERT INTO menu_items (tenant_id, category_id, name, price)
-                VALUES ($1, $2, 'Món Giữ FK', 30000);
-            `, [tenantPhoCoId, catId]);
+                ALTER TABLE menu_items DROP CONSTRAINT IF EXISTS menu_items_category_id_fkey;
+                ALTER TABLE menu_items DROP CONSTRAINT IF EXISTS legacy_category_fk;
+                ALTER TABLE menu_items ADD CONSTRAINT legacy_category_fk FOREIGN KEY (category_id) REFERENCES menu_categories(id) ON DELETE CASCADE;
+            `);
 
-            // Attempt raw SQL DELETE on menu_categories bypassing route logic
-            let errorCaught: any = null;
-            try {
-                await query(`DELETE FROM menu_categories WHERE id = $1`, [catId]);
-            } catch (err: any) {
-                errorCaught = err;
-            }
+            // Read migration 009 SQL and execute
+            const migrationSql = fs.readFileSync(path.resolve(__dirname, '../db/migrations/009_protect_menu_category_cascade.sql'), 'utf-8');
+            await query(migrationSql);
 
-            expect(errorCaught).toBeDefined();
-            expect(errorCaught.code).toBe('23503'); // foreign_key_violation
+            // Assert: legacy_category_fk is dropped, only menu_items_category_id_fkey exists with confdeltype = 'r'
+            const checkRes = await query(`
+                SELECT c.conname, c.confdeltype
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                JOIN pg_class ref_t ON c.confrelid = ref_t.oid
+                WHERE t.relname = 'menu_items' AND ref_t.relname = 'menu_categories' AND c.contype = 'f';
+            `);
+            expect(checkRes.rows.length).toBe(1);
+            expect(checkRes.rows[0].conname).toBe('menu_items_category_id_fkey');
+            expect(checkRes.rows[0].confdeltype).toBe('r');
         });
 
-        it('race condition simulation: item created concurrently during delete check', async () => {
+        it('migration 009 preflight raises error if normalized duplicate category names exist within tenant', async () => {
+            // Setup: Create a temporary duplicate category name (normalized)
+            const tempCatRes = await query(`
+                INSERT INTO menu_categories (tenant_id, name, sort_order)
+                VALUES ($1, 'Trùng Lặp Tiền Khởi Động', 888)
+                RETURNING id;
+            `, [tenantSakuraId]);
+
+            // Temporarily drop unique index so duplicate insert is possible
+            await query(`DROP INDEX IF EXISTS idx_menu_categories_tenant_name;`);
+            await query(`
+                INSERT INTO menu_categories (tenant_id, name, sort_order)
+                VALUES ($1, '   trùng lặp tiền khởi động   ', 889);
+            `, [tenantSakuraId]);
+
+            const migrationSql = fs.readFileSync(path.resolve(__dirname, '../db/migrations/009_protect_menu_category_cascade.sql'), 'utf-8');
+            let caught: any = null;
+            try {
+                await query(migrationSql);
+            } catch (err: any) {
+                caught = err;
+            }
+
+            expect(caught).toBeDefined();
+            expect(caught.message).toContain('Operator intervention required');
+
+            // Clean up duplicates and re-run migration to restore healthy state
+            await query(`DELETE FROM menu_categories WHERE id = $1`, [tempCatRes.rows[0].id]);
+            await query(`DELETE FROM menu_categories WHERE tenant_id = $1 AND sort_order = 889`, [tenantSakuraId]);
+            await query(migrationSql);
+        });
+
+        it('migration 009 is idempotent across repeated runs', async () => {
+            const migrationSql = fs.readFileSync(path.resolve(__dirname, '../db/migrations/009_protect_menu_category_cascade.sql'), 'utf-8');
+            await query(migrationSql);
+            await query(migrationSql);
+        });
+
+        it('migration 009 rollback script restores ON DELETE CASCADE', async () => {
+            const downSql = fs.readFileSync(path.resolve(__dirname, '../db/migrations/009_protect_menu_category_cascade_down.sql'), 'utf-8');
+            await query(downSql);
+
+            const checkRes = await query(`
+                SELECT c.conname, c.confdeltype
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                JOIN pg_class ref_t ON c.confrelid = ref_t.oid
+                WHERE t.relname = 'menu_items' AND ref_t.relname = 'menu_categories' AND c.contype = 'f';
+            `);
+            expect(checkRes.rows.length).toBe(1);
+            expect(checkRes.rows[0].confdeltype).toBe('c'); // 'c' = CASCADE
+
+            // Restore forward migration
+            const upSql = fs.readFileSync(path.resolve(__dirname, '../db/migrations/009_protect_menu_category_cascade.sql'), 'utf-8');
+            await query(upSql);
+        });
+    });
+
+    describe('7. R3 Concurrency Regressions: Duplicate Name Unique Index Race', () => {
+        it('concurrent category creation with same normalized name returns 201 for one and 409 CATEGORY_NAME_EXISTS for the other (never 500)', async () => {
+            const catName = 'Sinh Tố Bơ Đậu Phộng ' + Date.now();
+            const [res1, res2] = await Promise.all([
+                fetch(`${baseUrl}/api/v1/staff/menu/categories`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${managerToken}` },
+                    body: JSON.stringify({ name: catName })
+                }),
+                fetch(`${baseUrl}/api/v1/staff/menu/categories`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${managerToken}` },
+                    body: JSON.stringify({ name: `   ${catName.toLowerCase()}   ` })
+                })
+            ]);
+
+            const statuses = [res1.status, res2.status].sort();
+            expect(statuses).toEqual([201, 409]);
+
+            const failedRes = res1.status === 409 ? res1 : res2;
+            const failedData: any = await failedRes.json();
+            expect(failedData.code || failedData.error).toBe('CATEGORY_NAME_EXISTS');
+
+            // Verify audit logs has exactly 1 category_create (no orphan audit log on failed transaction)
+            const auditCheck = await query(`
+                SELECT COUNT(*)::int as count FROM audit_logs
+                WHERE details->>'name' ILIKE $1 AND action = 'category_create'
+            `, [`%${catName}%`]);
+            expect(auditCheck.rows[0].count).toBe(1);
+        });
+
+        it('concurrent category rename with same normalized name returns 200 for one and 409 CATEGORY_NAME_EXISTS for the other (never 500)', async () => {
+            // Create 2 categories
+            const c1 = await query(`INSERT INTO menu_categories (tenant_id, name, sort_order) VALUES ($1, 'Rename Target 1 ' || gen_random_uuid(), 301) RETURNING id`, [tenantPhoCoId]);
+            const c2 = await query(`INSERT INTO menu_categories (tenant_id, name, sort_order) VALUES ($1, 'Rename Target 2 ' || gen_random_uuid(), 302) RETURNING id`, [tenantPhoCoId]);
+
+            const commonName = 'Tên Chung Sau Đổi ' + Date.now();
+            const [res1, res2] = await Promise.all([
+                fetch(`${baseUrl}/api/v1/staff/menu/categories/${c1.rows[0].id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${managerToken}` },
+                    body: JSON.stringify({ name: commonName })
+                }),
+                fetch(`${baseUrl}/api/v1/staff/menu/categories/${c2.rows[0].id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${managerToken}` },
+                    body: JSON.stringify({ name: commonName.toLowerCase() })
+                })
+            ]);
+
+            const statuses = [res1.status, res2.status].sort();
+            expect(statuses).toEqual([200, 409]);
+
+            const failedRes = res1.status === 409 ? res1 : res2;
+            const failedData: any = await failedRes.json();
+            expect(failedData.code || failedData.error).toBe('CATEGORY_NAME_EXISTS');
+        });
+    });
+
+    describe('8. R4 Concurrency Regressions: True Overlapping Concurrency via Two Connections & Barriers', () => {
+        it('Schedule 1: Item creation transaction holds lock, concurrent category delete waits then returns 409 CATEGORY_NOT_EMPTY', async () => {
             const catRes = await query(`
                 INSERT INTO menu_categories (tenant_id, name, sort_order)
-                VALUES ($1, 'Danh Mục Test Race Condition', 104)
+                VALUES ($1, 'Danh Mục Test Concurrency Schedule 1', 501)
                 RETURNING id;
             `, [tenantPhoCoId]);
             const catId = catRes.rows[0].id;
 
-            // Scenario:
-            // Client A starts a transaction to insert an item into catId
+            // Connection A starts transaction and inserts item into catId
             const clientA = await pool.connect();
             await clientA.query('BEGIN');
+            await clientA.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR SHARE', [catId, tenantPhoCoId]);
             await clientA.query(`
                 INSERT INTO menu_items (tenant_id, category_id, name, price)
-                VALUES ($1, $2, 'Món Tạo Đồng Thời', 45000);
+                VALUES ($1, $2, 'Món Giữ Transaction A', 60000);
             `, [tenantPhoCoId, catId]);
+
+            // Concurrently, Client B calls DELETE /menu/categories/:catId
+            let deleteCompleted = false;
+            let deleteStatus: number | null = null;
+            let deleteData: any = null;
+
+            const deletePromise = fetch(`${baseUrl}/api/v1/staff/menu/categories/${catId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${managerToken}` }
+            }).then(async (res) => {
+                deleteCompleted = true;
+                deleteStatus = res.status;
+                deleteData = await res.json();
+            });
+
+            // Allow delete request to execute and verify it is blocked by Client A's transaction
+            await new Promise(r => setTimeout(r, 200));
+            expect(deleteCompleted).toBe(false); // Proves real concurrency & barrier
+
+            // Client A commits
             await clientA.query('COMMIT');
             clientA.release();
 
-            // Client B (delete request) attempts to delete catId
-            const res = await fetch(`${baseUrl}/api/v1/staff/menu/categories/${catId}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${managerToken}`
-                }
+            // Client B unblocks, re-evaluates item_count > 0, returns 409
+            await deletePromise;
+            expect(deleteStatus).toBe(409);
+            expect(deleteData.code || deleteData.error).toBe('CATEGORY_NOT_EMPTY');
+
+            // Verify item is 100% preserved and category is intact
+            const itemCheck = await query(`SELECT name FROM menu_items WHERE category_id = $1`, [catId]);
+            expect(itemCheck.rows.length).toBe(1);
+            expect(itemCheck.rows[0].name).toBe('Món Giữ Transaction A');
+        });
+
+        it('Schedule 2: Category delete transaction holds lock and deletes category, concurrent item creation waits then returns 400 CATEGORY_NOT_FOUND (never 500)', async () => {
+            const catRes = await query(`
+                INSERT INTO menu_categories (tenant_id, name, sort_order)
+                VALUES ($1, 'Danh Mục Test Concurrency Schedule 2', 502)
+                RETURNING id;
+            `, [tenantPhoCoId]);
+            const catId = catRes.rows[0].id;
+
+            // Connection B starts transaction, locks category row FOR UPDATE, and deletes it
+            const clientB = await pool.connect();
+            await clientB.query('BEGIN');
+            await clientB.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [catId, tenantPhoCoId]);
+            await clientB.query('DELETE FROM menu_categories WHERE id = $1 AND tenant_id = $2', [catId, tenantPhoCoId]);
+
+            // Concurrently, Client A calls POST /menu/items targeting catId
+            let itemCreateCompleted = false;
+            let itemCreateStatus: number | null = null;
+            let itemCreateData: any = null;
+
+            const createPromise = fetch(`${baseUrl}/api/v1/staff/menu/items`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${managerToken}` },
+                body: JSON.stringify({
+                    name: 'Món Chờ Xóa Hoàn Tất',
+                    category_id: catId,
+                    price: 35000
+                })
+            }).then(async (res) => {
+                itemCreateCompleted = true;
+                itemCreateStatus = res.status;
+                itemCreateData = await res.json();
             });
 
-            expect(res.status).toBe(409);
-            const data: any = await res.json();
-            expect(data.code || data.error).toBe('CATEGORY_NOT_EMPTY');
+            // Allow create request to execute and verify it is blocked waiting for Client B
+            await new Promise(r => setTimeout(r, 200));
+            expect(itemCreateCompleted).toBe(false); // Proves real concurrency & barrier
 
-            // The concurrently added item is guaranteed preserved
-            const check = await query(`SELECT name FROM menu_items WHERE category_id = $1`, [catId]);
-            expect(check.rows.length).toBe(1);
-            expect(check.rows[0].name).toBe('Món Tạo Đồng Thời');
+            // Client B commits deletion
+            await clientB.query('COMMIT');
+            clientB.release();
+
+            // Client A unblocks and gets controlled business error
+            await createPromise;
+            expect(itemCreateStatus).toBe(400);
+            expect(itemCreateData.code || itemCreateData.error).toBe('CATEGORY_NOT_FOUND');
+
+            // Verify category is gone and NO orphan item was created
+            const catCheck = await query(`SELECT id FROM menu_categories WHERE id = $1`, [catId]);
+            expect(catCheck.rows.length).toBe(0);
+            const itemCheck = await query(`SELECT id FROM menu_items WHERE category_id = $1`, [catId]);
+            expect(itemCheck.rows.length).toBe(0);
+        });
+
+        it('Schedule 3: Category delete transaction holds lock, concurrent item MOVE waits then returns 400 CATEGORY_NOT_FOUND (never 500)', async () => {
+            // Create item in category A
+            const catARes = await query(`INSERT INTO menu_categories (tenant_id, name, sort_order) VALUES ($1, 'Cat A ' || gen_random_uuid(), 601) RETURNING id`, [tenantPhoCoId]);
+            const catAId = catARes.rows[0].id;
+            const itemRes = await query(`INSERT INTO menu_items (tenant_id, category_id, name, price) VALUES ($1, $2, 'Món Chuyển Nhượng', 50000) RETURNING id`, [tenantPhoCoId, catAId]);
+            const itemId = itemRes.rows[0].id;
+
+            // Target empty category B
+            const catBRes = await query(`INSERT INTO menu_categories (tenant_id, name, sort_order) VALUES ($1, 'Cat B ' || gen_random_uuid(), 602) RETURNING id`, [tenantPhoCoId]);
+            const catBId = catBRes.rows[0].id;
+
+            // Connection B starts transaction and deletes category B
+            const clientB = await pool.connect();
+            await clientB.query('BEGIN');
+            await clientB.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [catBId, tenantPhoCoId]);
+            await clientB.query('DELETE FROM menu_categories WHERE id = $1 AND tenant_id = $2', [catBId, tenantPhoCoId]);
+
+            // Client A tries to move item to category B via PUT /menu/items/:id
+            let itemMoveCompleted = false;
+            let itemMoveStatus: number | null = null;
+            let itemMoveData: any = null;
+
+            const movePromise = fetch(`${baseUrl}/api/v1/staff/menu/items/${itemId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${managerToken}` },
+                body: JSON.stringify({ category_id: catBId })
+            }).then(async (res) => {
+                itemMoveCompleted = true;
+                itemMoveStatus = res.status;
+                itemMoveData = await res.json();
+            });
+
+            await new Promise(r => setTimeout(r, 200));
+            expect(itemMoveCompleted).toBe(false);
+
+            // Client B commits deletion of category B
+            await clientB.query('COMMIT');
+            clientB.release();
+
+            // Client A unblocks and gets 400 CATEGORY_NOT_FOUND
+            await movePromise;
+            expect(itemMoveStatus).toBe(400);
+            expect(itemMoveData.code || itemMoveData.error).toBe('CATEGORY_NOT_FOUND');
+
+            // Verify item remains safely in category A
+            const itemCheck = await query(`SELECT category_id FROM menu_items WHERE id = $1`, [itemId]);
+            expect(itemCheck.rows[0].category_id).toBe(catAId);
         });
     });
 });
-
