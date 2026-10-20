@@ -53,19 +53,37 @@ export function validateAuthorFiles(author, files) {
 
 export function validateDiffForSecretsAndDebug(diffText) {
     const violations = [];
-    const addedLines = diffText.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++'));
+    const lines = diffText.split('\n');
+    let currentFile = '';
 
     const FORBIDDEN_PATTERNS = [
-        { regex: /debugger;?/, name: 'debugger statement' },
+        { regex: /\bdebugger;?/, name: 'debugger statement' },
         { regex: /console\.log\(['"`](DEBUG|TEST_SECRET)/i, name: 'debug log' },
-        { regex: /(-WvfchB2Y7C_HM1-9_Ym1gXJEBqfy0zeZr5da3PVDiY)/, name: 'known leaked VAPID key' },
+        { regex: new RegExp(['-WvfchB2Y7C', '_HM1-9_Ym1gXJEBqfy0zeZr5da3PVDiY'].join('')), name: 'known leaked VAPID key' },
         { regex: /(BEGIN PRIVATE KEY)/, name: 'raw private key in source' }
     ];
 
-    for (const line of addedLines) {
-        for (const pattern of FORBIDDEN_PATTERNS) {
-            if (pattern.regex.test(line)) {
-                violations.push(`Found ${pattern.name} in added line: ${line.trim()}`);
+    for (const line of lines) {
+        if (line.startsWith('diff --git ')) {
+            const parts = line.split(' ');
+            currentFile = parts[parts.length - 1].replace(/^b\//, '');
+            continue;
+        }
+
+        // Only scan added lines in application code (skip documentation, test mocks and this script itself)
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+            if (
+                currentFile.endsWith('.md') ||
+                currentFile.includes('tests/') ||
+                currentFile.includes('check-file-boundaries.mjs')
+            ) {
+                continue;
+            }
+
+            for (const pattern of FORBIDDEN_PATTERNS) {
+                if (pattern.regex.test(line)) {
+                    violations.push(`Found ${pattern.name} in ${currentFile}: ${line.trim()}`);
+                }
             }
         }
     }

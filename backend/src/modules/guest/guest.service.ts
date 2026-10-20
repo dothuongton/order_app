@@ -397,6 +397,28 @@ export class GuestService {
             // Calculate pricing and promotions server-side using PricingService
             const pricing = await PricingService.calculateOrderPricing(client, tenantId, input.items);
 
+            // Check if this session already had a promotion applied in a previous order (BUS-02)
+            const existingPromoCheck = await client.query(`
+                SELECT applied_promotion_id 
+                FROM orders 
+                WHERE session_id = $1 AND applied_promotion_id IS NOT NULL 
+                LIMIT 1
+            `, [sessionId]);
+
+            const canApplyOrderPromo = existingPromoCheck.rows.length === 0 && Boolean(pricing.appliedPromotion);
+            if (!canApplyOrderPromo) {
+                pricing.discountTotal = 0;
+                pricing.appliedPromotion = null;
+                for (const it of pricing.items) {
+                    it.discountAmount = 0;
+                    it.finalPrice = it.basePrice * it.quantity;
+                    it.appliedPromotionId = null;
+                }
+            }
+
+            const effectiveOrderPromoId = canApplyOrderPromo ? pricing.appliedPromotion!.id : null;
+            const effectiveOrderDiscount = canApplyOrderPromo ? pricing.discountTotal : 0;
+
             // Determine next order_number
             const countRes = await client.query(`
                 SELECT COALESCE(MAX(order_number), 0) + 1 as next_order_number
@@ -416,21 +438,21 @@ export class GuestService {
                 sessionId,
                 nextOrderNumber,
                 input.idempotencyKey,
-                pricing.appliedPromotion ? pricing.appliedPromotion.id : null,
-                pricing.discountTotal
+                effectiveOrderPromoId,
+                effectiveOrderDiscount
             ]);
 
             const order = orderRes.rows[0];
 
-            // If a promotion was applied, atomically record redemption
-            if (pricing.appliedPromotion) {
+            // If a promotion was applied for this first order, record redemption
+            if (canApplyOrderPromo && effectiveOrderPromoId) {
                 await PricingService.recordPromotionRedemption(
                     client,
                     tenantId,
-                    pricing.appliedPromotion.id,
+                    effectiveOrderPromoId,
                     order.id,
                     sessionId,
-                    pricing.discountTotal
+                    effectiveOrderDiscount
                 );
             }
 
@@ -777,6 +799,68 @@ export class GuestService {
             });
         }
 
+        // For CLOSED sessions, read the immutable bill & settlement snapshot (BUS-03)
+        if (session.status === 'CLOSED') {
+            const billRes = await query(`
+                SELECT id, total_amount, confirmed_at, status
+                FROM bills
+                WHERE session_id = $1 AND status = 'CONFIRMED'
+                LIMIT 1
+            `, [sessionId]);
+
+            if (billRes.rows.length > 0) {
+                const bill = billRes.rows[0];
+                const closedBillTotal = parseInt(bill.total_amount, 10);
+
+                const promoRedemptionsRes = await query(`
+                    SELECT pr.promotion_id, pr.discount_amount, p.title, p.code, p.discount_type, p.discount_value
+                    FROM promotion_redemptions pr
+                    LEFT JOIN promotions p ON p.id = pr.promotion_id
+                    WHERE pr.session_id = $1
+                `, [sessionId]);
+
+                let closedDiscountTotal = 0;
+                const closedPromotions: any[] = [];
+                for (const pr of promoRedemptionsRes.rows) {
+                    const disc = parseInt(pr.discount_amount, 10) || 0;
+                    closedDiscountTotal += disc;
+                    closedPromotions.push({
+                        id: pr.promotion_id,
+                        title: pr.title || 'Khuyến mãi đã áp dụng',
+                        code: pr.code,
+                        discountType: pr.discount_type || 'FIXED_AMOUNT',
+                        discountValue: Number(pr.discount_value || 0),
+                        discountAmount: disc
+                    });
+                }
+
+                if (closedPromotions.length === 0 && confirmedDiscountTotal > 0) {
+                    closedDiscountTotal = confirmedDiscountTotal;
+                    closedPromotions.push(...Array.from(appliedPromotionsMap.values()));
+                } else if (closedPromotions.length === 0 && rawConfirmedTotal > closedBillTotal) {
+                    closedDiscountTotal = rawConfirmedTotal - closedBillTotal;
+                }
+
+                return {
+                    sessionId: session.id,
+                    sessionStatus: session.status,
+                    settlementVersion: session.settlement_version,
+                    rawBillTotal: rawConfirmedTotal,
+                    totalDiscount: closedDiscountTotal,
+                    validBillTotal: closedBillTotal, // Immutable closed amount
+                    servedTotal,
+                    pendingTotal: 0,
+                    unresolvedCount: 0,
+                    rounds: Object.values(roundSummaries),
+                    appliedPromotions: closedPromotions,
+                    canConfirmPayment: false,
+                    isClosed: true,
+                    confirmedAt: bill.confirmed_at,
+                    priceFingerprint: `${session.settlement_version}-${closedBillTotal}`
+                };
+            }
+        }
+
         // Evaluate session-level promotion on the whole table session (rawConfirmedTotal)
         const promosRes = await query(`
             SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority
@@ -844,7 +928,8 @@ export class GuestService {
             unresolvedCount,                         // Còn món PENDING/ACCEPTED chưa giải quyết
             rounds: Object.values(roundSummaries),
             appliedPromotions: effectivePromotions,
-            canConfirmPayment: unresolvedCount === 0 && session.status === 'OPEN'
+            canConfirmPayment: unresolvedCount === 0 && session.status === 'OPEN',
+            priceFingerprint: `${session.settlement_version}-${effectiveValidBillTotal}`
         };
     }
 

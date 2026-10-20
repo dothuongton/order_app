@@ -153,11 +153,12 @@ export async function ensureSchemaOnBoot() {
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
                 promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
-                order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+                order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
                 session_id UUID NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
                 discount_amount BIGINT NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            ALTER TABLE promotion_redemptions ALTER COLUMN order_id DROP NOT NULL;
 
             ALTER TABLE orders ADD COLUMN IF NOT EXISTS applied_promotion_id UUID REFERENCES promotions(id) ON DELETE SET NULL;
             ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_total BIGINT NOT NULL DEFAULT 0;

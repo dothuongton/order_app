@@ -164,7 +164,7 @@ staffRouter.post(
         try {
             const staff = req.staff!;
             const sessionId = req.params.id;
-            const { settlementVersion, note, requestId } = req.body || {};
+            const { settlementVersion, note, requestId, expectedAmount } = req.body || {};
 
             const result = await StaffService.confirmPaymentAndCloseSession(
                 staff.tenantId,
@@ -172,7 +172,8 @@ staffRouter.post(
                 settlementVersion,
                 staff.id,
                 note,
-                requestId
+                requestId,
+                expectedAmount !== undefined ? Number(expectedAmount) : undefined
             );
 
             return res.json(result);

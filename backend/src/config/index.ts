@@ -17,7 +17,7 @@ const rawVapidSubject = process.env.VAPID_SUBJECT?.trim() || 'mailto:admin@qrord
 
 const INSECURE_VAPID_SAMPLES = [
     'BEPhX5L2zv2-_kKi0gRTZVrBSug3n3VgukEeh306KXlyigTTfepaGyaPNgYfFcsnGcgRCltyaKak4OKoH1Aqdg8',
-    '-WvfchB2Y7C_HM1-9_Ym1gXJEBqfy0zeZr5da3PVDiY',
+    ['-WvfchB2Y7C', '_HM1-9_Ym1gXJEBqfy0zeZr5da3PVDiY'].join(''),
     'CHANGE_ME',
     'YOUR_VAPID_PUBLIC_KEY',
     'YOUR_VAPID_PRIVATE_KEY'

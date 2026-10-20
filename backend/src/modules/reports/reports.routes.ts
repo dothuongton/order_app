@@ -39,7 +39,9 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
                 WHERE o.tenant_id = $1 AND oip.status = 'SERVED'
                 GROUP BY oi.id
             )
-            SELECT snapshot_name as item_name, SUM(served_quantity) as total_served,
+            SELECT snapshot_name as item_name, 
+                   SUM(served_quantity) as total_served,
+                   SUM(served_quantity * snapshot_price) as gross_amount,
                    SUM(served_quantity * snapshot_price - FLOOR(discount_amount::numeric * served_quantity / quantity)) as total_amount
             FROM served_lines
             GROUP BY snapshot_name

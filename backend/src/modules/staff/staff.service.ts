@@ -611,7 +611,8 @@ export class StaffService {
         clientSettlementVersion: number,
         userId: string,
         note?: string,
-        requestId?: string
+        requestId?: string,
+        expectedAmount?: number
     ) {
         return await withTransaction(async (client) => {
             // 1. Lock Session row
@@ -770,11 +771,27 @@ export class StaffService {
                 });
 
                 if (bestPromo) {
-                    await client.query(`
+                    // Atomically claim promotion cap (BUS-06)
+                    const claimRes = await client.query(`
                         UPDATE promotions
                         SET current_redemptions = current_redemptions + 1, updated_at = NOW()
-                        WHERE id = $1
+                        WHERE id = $1 AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+                        RETURNING id
                     `, [bestPromo.id]);
+
+                    if (claimRes.rowCount === 0) {
+                        throw {
+                            status: 409,
+                            code: 'PROMOTION_EXHAUSTED',
+                            message: `Chương trình khuyến mãi "${bestPromo.title}" vừa hết lượt sử dụng. Vui lòng tải lại và xác nhận hóa đơn mới.`
+                        };
+                    }
+
+                    // Record session-level promotion redemption (BUS-05)
+                    await client.query(`
+                        INSERT INTO promotion_redemptions (tenant_id, promotion_id, session_id, discount_amount)
+                        VALUES ($1, $2, $3, $4)
+                    `, [tenantId, bestPromo.id, sessionId, sessionDiscount]);
                 }
             } else {
                 for (const r of servedPartsRes.rows) {
@@ -792,6 +809,15 @@ export class StaffService {
                         subtotal
                     });
                 }
+            }
+
+            // Protect against unexpected price change / race condition (BUS-04)
+            if (expectedAmount !== undefined && finalAmount !== expectedAmount) {
+                throw {
+                    status: 409,
+                    code: 'PRICE_CHANGED',
+                    message: `Số tiền thanh toán đã thay đổi (dự kiến ${expectedAmount.toLocaleString('vi-VN')}đ, thực tế ${finalAmount.toLocaleString('vi-VN')}đ). Vui lòng kiểm tra và xác nhận lại hóa đơn.`
+                };
             }
 
             // 5. Insert Manual Settlement Confirmation record

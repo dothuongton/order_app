@@ -431,7 +431,7 @@ CREATE TABLE IF NOT EXISTS promotion_redemptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     promotion_id UUID NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
     session_id UUID NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
     discount_amount BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
