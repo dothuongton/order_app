@@ -37,18 +37,18 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Quản trị viên',
         code: 'superadmin',
         description: 'Toàn quyền truy cập quản trị hệ thống, người dùng và toàn bộ dữ liệu nền tảng.',
-        userCount: 1,
+        userCount: 0,
         color: 'blue',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem danh sách quán', enabled: true },
                     { id: 'create_shop', label: 'Thêm/Sửa quán', enabled: true },
                     { id: 'archive_shop', label: 'Xóa/Lưu trữ quán', enabled: true },
-                    { id: 'manage_menu', label: 'Quản lý học liệu / thực đơn', enabled: true }
+                    { id: 'manage_menu', label: 'Quản lý thực đơn & danh mục món', enabled: true }
                 ]
             },
             {
@@ -77,12 +77,12 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Quản lý quán',
         code: 'admin',
         description: 'Quản lý thực đơn, bàn ăn, chương trình ưu đãi và xem báo cáo trong phạm vi quán.',
-        userCount: 3,
+        userCount: 0,
         color: 'indigo',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem thông tin cơ sở quán', enabled: true },
@@ -117,12 +117,12 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Thu ngân',
         code: 'cashier',
         description: 'Tiếp nhận gọi món, in hóa đơn tạm tính và thực hiện tất toán bàn ăn.',
-        userCount: 4,
+        userCount: 0,
         color: 'emerald',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem bàn ăn & sơ đồ phục vụ', enabled: true },
@@ -157,12 +157,12 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Nhân viên phục vụ',
         code: 'waiter',
         description: 'Mở bàn ăn, quét mã QR hỗ trợ khách và cập nhật tiến trình chế biến món ăn.',
-        userCount: 8,
+        userCount: 0,
         color: 'amber',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem bàn ăn & sơ đồ phục vụ', enabled: true },
@@ -306,12 +306,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         setIsDrawerOpen(true);
     };
 
-    // Handler: Save Role Permissions
-    const handleSaveRolePermissions = (roleId: string, updatedGroups: any[]) => {
-        setRoles((prev) =>
-            prev.map((r) => (r.id === roleId ? { ...r, permissionGroups: updatedGroups } : r))
-        );
-        showToast('Đã lưu thay đổi phân quyền thành công!');
+    // Handler: Save Role Permissions (Issue #81: No-op / Read-only until backend RBAC #38/#48)
+    const handleSaveRolePermissions = (_roleId: string, _updatedGroups: any[]) => {
+        // Read-only: no false success toast without backend persistence
     };
 
     // Handler: Open Drawer for Shop Detail

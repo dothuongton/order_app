@@ -24,7 +24,7 @@ export const DashboardStatsCards: React.FC<DashboardStatsCardsProps> = ({ stats,
             value: stats.totalShops.toLocaleString('vi-VN'),
             subtitle: `${stats.activeShops} hoạt động, ${stats.archivedShops} lưu trữ`,
             icon: Store,
-            badge: { text: '+12%', color: 'bg-emerald-50 text-emerald-600' },
+            badge: { text: 'Toàn sàn', color: 'bg-blue-50 text-blue-600' },
             iconBg: 'bg-blue-50 text-blue-600'
         },
         {
@@ -60,8 +60,8 @@ export const DashboardStatsCards: React.FC<DashboardStatsCardsProps> = ({ stats,
         <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-bold text-slate-900">Tổng quan chỉ số</h3>
-                <span className="text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer">
-                    BÁO CÁO ĐẦY ĐỦ
+                <span className="text-xs font-medium text-slate-400 cursor-default" title="Báo cáo phân tích chuyên sâu sẽ được mở trong Giai đoạn 2 (#45/#91)">
+                    BÁO CÁO ĐẦY ĐỦ (GIAI ĐOẠN 2)
                 </span>
             </div>
 
