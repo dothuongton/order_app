@@ -352,21 +352,46 @@ describe('UX-01: Guest Session Lifecycle & Isolation Suite (Issue #57, G-03, G-0
         expect(dataA.sessionId).toBe(sessA.sessionId);
         expect(dataA.closeReason).toBe('Session A closed');
 
-        // Test 2: Staff Bearer token rejected on guest receipt endpoint (fail-closed)
+        // Test 2: Staff login with correct password returns real JWT
         const staffLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: 'admin@phoco.vn', password: '123' })
+            body: JSON.stringify({ email: 'admin@phoco.vn', password: '123456' })
         });
-        const staffToken = (await staffLoginRes.json()).token;
-        const staffBearerRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
+        expect(staffLoginRes.status).toBe(200);
+        const staffData = await staffLoginRes.json();
+        const staffToken = staffData.token;
+        expect(staffToken).toBeDefined();
+
+        // 2a: Staff Bearer + valid guest token: guest token is honored, returns receipt A
+        const staffBearerWithGuestRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
             headers: {
                 'Authorization': `Bearer ${staffToken}`,
                 'x-guest-token': tokenA
             }
         });
-        expect(staffBearerRes.status).toBe(401);
-        expect((await staffBearerRes.json()).error).toBe('INVALID_CREDENTIAL_TYPE');
+        expect(staffBearerWithGuestRes.status).toBe(200);
+        const staffPlusGuestData = await staffBearerWithGuestRes.json();
+        expect(staffPlusGuestData.sessionId).toBe(sessA.sessionId);
+
+        // 2b: Staff Bearer alone without guest token cannot access guest receipt
+        const staffBearerOnlyRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
+            headers: {
+                'Authorization': `Bearer ${staffToken}`
+            }
+        });
+        expect(staffBearerOnlyRes.status).toBe(401);
+        expect((await staffBearerOnlyRes.json()).error).toBe('UNAUTHORIZED');
+
+        // 2c: Invalid explicit header token fails closed and does not fall back to cookie B
+        const invalidHeaderRes = await fetch(`${baseUrl}/api/v1/guest/receipt`, {
+            headers: {
+                'x-guest-token': 'invalid-token-12345',
+                'Cookie': `guest_token=${tokenB}`
+            }
+        });
+        expect(invalidHeaderRes.status).toBe(401);
+        expect((await invalidHeaderRes.json()).error).toBe('ACCESS_REVOKED');
 
         // Test 3: Scope mismatch on sessionId fails closed with 403
         const scopeMismatchSessionRes = await fetch(`${baseUrl}/api/v1/guest/receipt?sessionId=${sessB.sessionId}`, {

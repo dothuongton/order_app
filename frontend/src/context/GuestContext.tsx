@@ -125,19 +125,27 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, []);
 
-  // Fetch verified receipt directly from backend
-  const fetchReceipt = useCallback(async (token?: string): Promise<GuestReceipt | null> => {
+  // Fetch verified receipt directly from backend with detailed status
+  const fetchReceiptInternal = useCallback(async (token?: string, scopedQr?: string): Promise<{ receipt?: GuestReceipt; error?: string; status?: number; isRetryable?: boolean } | null> => {
     const t = token || sessionStorage.getItem('guest_token');
     if (!t) return null;
+    const qrParam = scopedQr ? `?qrId=${scopedQr}` : '';
     try {
-      const res = await request<GuestReceipt>('/guest/receipt', {
+      const res = await request<GuestReceipt>(`/guest/receipt${qrParam}`, {
         headers: { 'x-guest-token': t }
       });
-      return res;
-    } catch {
-      return null;
+      return { receipt: res };
+    } catch (err: any) {
+      const status = typeof err.status === 'number' ? err.status : 0;
+      const isRetryable = status === 0 || status >= 500;
+      return { error: err.code || 'API_ERROR', status, isRetryable };
     }
   }, []);
+
+  const fetchReceipt = useCallback(async (token?: string): Promise<GuestReceipt | null> => {
+    const res = await fetchReceiptInternal(token);
+    return res?.receipt || null;
+  }, [fetchReceiptInternal]);
 
   // Refresh orders & bill with single-flight and stale response protection
   const refreshOrdersAndBill = useCallback(async (): Promise<void> => {
@@ -184,13 +192,15 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           if (currentQr) {
             try {
-              const verified = await request<GuestReceipt>('/guest/receipt');
-              if (verified && verified.isClosed && fetchSeqRef.current === seq) {
-                setReceipt(verified);
-                sessionStorage.setItem(getReceiptStorageKey(currentQr), JSON.stringify(verified));
+              const res = await fetchReceiptInternal(token, currentQr);
+              if (res?.receipt && res.receipt.isClosed && fetchSeqRef.current === seq) {
+                setReceipt(res.receipt);
+                sessionStorage.setItem(getReceiptStorageKey(currentQr), JSON.stringify(res.receipt));
+                sessionStorage.removeItem(getAuthStorageKey(currentQr));
+              } else if (res && !res.isRetryable) {
+                sessionStorage.removeItem(getAuthStorageKey(currentQr));
               }
             } catch {}
-            sessionStorage.removeItem(getAuthStorageKey(currentQr));
           }
           sessionStorage.removeItem('guest_token');
           setGuestToken(null);
@@ -280,14 +290,20 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           // R3: Missed socket/closed while offline or closed tab.
           // Before wiping auth, check if the server has a verified closed receipt for the old token!
+          let recoveryRetryable = false;
           if (!storedReceipt && storedSession?.token) {
             try {
-              const verified = await fetchReceipt(storedSession.token);
-              if (verified && verified.isClosed && (verified.settled || verified.closeReason)) {
-                storedReceipt = verified;
-                sessionStorage.setItem(getReceiptStorageKey(qrId), JSON.stringify(verified));
+              const recovery = await fetchReceiptInternal(storedSession.token, qrId);
+              if (recovery?.receipt && recovery.receipt.isClosed && (recovery.receipt.settled || recovery.receipt.closeReason)) {
+                storedReceipt = recovery.receipt;
+                sessionStorage.setItem(getReceiptStorageKey(qrId), JSON.stringify(recovery.receipt));
+                sessionStorage.removeItem(scopedKey);
+              } else if (recovery?.isRetryable) {
+                recoveryRetryable = true;
               }
-            } catch {}
+            } catch {
+              recoveryRetryable = true;
+            }
           }
 
           if (fetchSeqRef.current === seq && publicQrIdRef.current === qrId) {
@@ -302,6 +318,20 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               setActiveServiceRequests([]);
               sessionStorage.removeItem('guest_token');
               setGuestToken(null);
+              return data;
+            }
+
+            if (recoveryRetryable) {
+              // Network error or 5xx while attempting recovery.
+              // Preserve scoped auth so guest can retry/recover once connection is restored.
+              setSession(storedSession ? { id: storedSession.sessionId, status: 'CLOSED' } : null);
+              activeSessionIdRef.current = storedSession?.sessionId || null;
+              setIsSessionClosed(true);
+              isSessionClosedRef.current = true;
+              setReceipt(null);
+              setOrders([]);
+              setCart([]);
+              setActiveServiceRequests([]);
               return data;
             }
 
@@ -333,7 +363,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     inFlightMenuRef.current = { qrId, promise };
     return promise;
-  }, [refreshOrdersAndBill, fetchReceipt]);
+  }, [refreshOrdersAndBill, fetchReceiptInternal]);
 
   // Join table session with generation and QR scope protection (R2)
   const joinSession = useCallback(async (qrId: string): Promise<any> => {

@@ -163,20 +163,23 @@ async function markTableReady(staffToken, tableId) {
 
 async function main() {
   console.log('🚀 Launching headless Chrome on port', PORT);
-  const profileDir = `/tmp/chrome-issue57-real-${Date.now()}`;
+  let profileDir = `/tmp/chrome-issue57-real-${Date.now()}`;
   fs.mkdirSync(profileDir, { recursive: true });
 
-  const chromeProcess = spawn(CHROME_PATH, [
-    '--headless=new',
-    `--remote-debugging-port=${PORT}`,
-    '--disable-gpu',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--user-data-dir=${profileDir}`,
-    'about:blank'
-  ], { stdio: 'ignore' });
+  let chromeProcess = null;
+  let cdp = null;
 
   try {
+    chromeProcess = spawn(CHROME_PATH, [
+      '--headless=new',
+      `--remote-debugging-port=${PORT}`,
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-default-browser-check',
+      `--user-data-dir=${profileDir}`,
+      'about:blank'
+    ], { stdio: 'ignore' });
+
     let versionData = null;
     for (let i = 0; i < 20; i++) {
       try {
@@ -194,7 +197,7 @@ async function main() {
 
     const targetRes = await fetch(`http://127.0.0.1:${PORT}/json/new?about:blank`, { method: 'PUT' });
     const target = await targetRes.json();
-    const cdp = new CDPClient(target.webSocketDebuggerUrl);
+    cdp = new CDPClient(target.webSocketDebuggerUrl);
     await cdp.connect();
 
     await cdp.send('Page.enable');
@@ -457,11 +460,10 @@ async function main() {
     console.log('  ✅ Confirmed settlement verified: immutable receipt, exact amount, token revoked');
 
     // =========================================================================
-    // 4. SCENARIO 4: RELOAD / BACK BẢO TOÀN BIÊN NHẬN (No 263-request Loop & Server Recovery R3)
+    // 4A. SCENARIO 4A: RELOAD / BACK BẢO TOÀN BIÊN NHẬN TỪ CACHE (No Request Loop)
     // =========================================================================
-    console.log('\n=== 4. SCENARIO 4: Reload / Back Receipt Preservation (No Loop & Server Recovery R3) ===');
-    // Simulate missed socket or offline closure: clear receipt cache so reload MUST recover verified receipt from server
-    await evaluate("sessionStorage.removeItem('guest_receipt_qr-phoco-a01')");
+    console.log('\n=== 4A. SCENARIO 4A: Reload / Back Receipt Cache Preservation (No Request Loop) ===');
+    // Reload page with cached receipt intact
     await cdp.send('Page.reload');
     await sleep(1500);
 
@@ -485,7 +487,41 @@ async function main() {
     assert(bodyText.includes('Phiên bàn đã thanh toán hoàn tất'), 'After reload, must retain "Phiên bàn đã thanh toán hoàn tất"');
     assert(bodyText.includes(expectedVnd), `After reload, must retain exact confirmed total ${expectedVnd}`);
     await screenshot('10_closed_receipt_retained_on_reload.png');
-    console.log('  ✅ Reload preservation verified: zero loops, receipt perfectly preserved');
+    console.log('  ✅ Reload cache preservation verified: zero loops, receipt perfectly preserved');
+
+    // =========================================================================
+    // 4B. SCENARIO 4B: MISSED-SOCKET SERVER RECOVERY WITH REAL TOKEN (R3)
+    // =========================================================================
+    console.log('\n=== 4B. SCENARIO 4B: Missed-Socket Recovery with Real Token (Server Recovery R3) ===');
+    // Simulate missed socket: remove cached receipt, restore guest auth token from the closed session
+    await evaluate(`
+      sessionStorage.removeItem('guest_receipt_qr-phoco-a01');
+      sessionStorage.setItem('guest_auth_qr-phoco-a01', JSON.stringify({
+        token: ${JSON.stringify(guestToken)},
+        sessionId: ${JSON.stringify(activeSessionId)}
+      }));
+    `);
+    // Reload page: loadTableMenu must detect missing cached receipt, use guestToken to query backend /guest/receipt,
+    // recover the verified closed receipt, cache it, clean up guest_auth, and display the official receipt!
+    await cdp.send('Page.reload');
+    await sleep(1500);
+
+    bodyText = await evaluate('document.body.innerText');
+    assert(bodyText.includes('Đã kết thúc'), 'After server recovery, header badge must show "Đã kết thúc"');
+
+    // Switch to Bill Tab to verify recovered receipt
+    await evaluate("Array.from(document.querySelectorAll('nav button')).find(b => b.innerText.includes('Tổng bill')).click()");
+    await sleep(600);
+    bodyText = await evaluate('document.body.innerText');
+    assert(bodyText.includes('Phiên bàn đã thanh toán hoàn tất'), 'After server recovery, Bill must display "Phiên bàn đã thanh toán hoàn tất"');
+    assert(bodyText.includes(expectedVnd), `After server recovery, Bill must display confirmed total ${expectedVnd}`);
+
+    // Verify guest_auth was cleaned up and receipt was cached in storage
+    const recoveredAuth = await evaluate("sessionStorage.getItem('guest_auth_qr-phoco-a01')");
+    assert(!recoveredAuth, 'After server recovery, guest_auth must be cleaned up');
+    const recoveredReceiptRaw = await evaluate("sessionStorage.getItem('guest_receipt_qr-phoco-a01')");
+    assert(recoveredReceiptRaw, 'After server recovery, receipt must be cached in sessionStorage');
+    console.log('  ✅ Missed-socket recovery verified: recovered official receipt from server via real token');
 
     // =========================================================================
     // 5. SCENARIO 5: MỞ LẠI BÀN -> KHÁCH CŨ KHÔNG ĐƯỢC TỰ ĐỘNG THAM GIA
@@ -623,6 +659,14 @@ async function main() {
       try {
         chromeProcess.kill('SIGTERM');
       } catch {}
+      await new Promise(resolve => {
+        if (chromeProcess.exitCode !== null) return resolve();
+        chromeProcess.on('exit', () => resolve());
+        setTimeout(() => {
+          try { chromeProcess.kill('SIGKILL'); } catch {}
+          resolve();
+        }, 3000);
+      });
     }
     if (profileDir && fs.existsSync(profileDir)) {
       try {

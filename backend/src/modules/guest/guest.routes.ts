@@ -62,18 +62,16 @@ guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
     try {
         const guestHeaderToken = req.headers['x-guest-token'] as string | undefined;
         const cookieToken = req.cookies?.guest_token as string | undefined;
-        const authHeader = req.headers.authorization;
 
-        // Staff Bearer tokens are not guest credentials; fail closed if Bearer token is provided
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({
-                error: 'INVALID_CREDENTIAL_TYPE',
-                message: 'Route biên nhận khách không chấp nhận Authorization Bearer token'
-            });
+        // Staff Bearer tokens are not guest credentials and cannot authenticate guest receipts.
+        // Explicit x-guest-token takes precedence over cookie.
+        // If an explicit header token is provided, do not fall back to cookie to prevent cross-table/session leakage.
+        let token: string | undefined;
+        if (typeof guestHeaderToken === 'string' && guestHeaderToken.trim().length > 0) {
+            token = guestHeaderToken.trim();
+        } else if (typeof cookieToken === 'string' && cookieToken.trim().length > 0) {
+            token = cookieToken.trim();
         }
-
-        // Align credential extraction with authenticateGuest: explicit header takes precedence over cookie
-        const token = guestHeaderToken || cookieToken;
 
         if (!token) {
             return res.status(401).json({
