@@ -71,14 +71,35 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Set of endpoints confirmed to have expired at APNs/FCM (HTTP 410)
   const expiredEndpointsRef = useRef<Set<string>>(new Set());
 
-  // Track active user and tenant to discard stale in-flight responses across logout or tenant switch
+  // Track active user, tenant, and generation to discard stale in-flight responses across logout or tenant switch
+  const scopeGenerationRef = useRef<number>(0);
   const sessionScopeRef = useRef<{ userId?: string; tenantId?: string }>({
     userId: user?.id,
     tenantId: currentTenant?.id
   });
-  sessionScopeRef.current = {
-    userId: user?.id,
-    tenantId: currentTenant?.id
+
+  const currentUserId = user?.id;
+  const currentTenantId = currentTenant?.id;
+  if (sessionScopeRef.current.userId !== currentUserId || sessionScopeRef.current.tenantId !== currentTenantId) {
+    scopeGenerationRef.current += 1;
+    sessionScopeRef.current = {
+      userId: currentUserId,
+      tenantId: currentTenantId
+    };
+  }
+
+  // Create a scope guard for async flows
+  const createScopeGuard = () => {
+    const activeGeneration = scopeGenerationRef.current;
+    const activeUserId = user?.id;
+    const activeTenantId = currentTenant?.id;
+    return () => {
+      return (
+        scopeGenerationRef.current !== activeGeneration ||
+        sessionScopeRef.current.userId !== activeUserId ||
+        sessionScopeRef.current.tenantId !== activeTenantId
+      );
+    };
   };
 
   useEffect(() => {
@@ -86,6 +107,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsSubscribed(false);
       setState(typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'granted' : 'default');
       setErrorMessage(null);
+      setIsLoading(false);
     }
   }, [user?.id, currentTenant?.id]);
 
@@ -93,11 +115,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkStatus = useCallback(async () => {
     if (typeof window === 'undefined') return;
 
-    const activeUserId = user?.id;
-    const activeTenantId = currentTenant?.id;
-    const isStale = () => {
-      return sessionScopeRef.current.userId !== activeUserId || sessionScopeRef.current.tenantId !== activeTenantId;
-    };
+    const isStale = createScopeGuard();
 
     // 0. Check secure context (HTTPS or localhost)
     const isInsecureHttp = window.location.protocol === 'http:' &&
@@ -223,6 +241,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           const subJson = sub.toJSON();
           if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
+            const targetEndpoint = sub.endpoint;
             try {
               await request('/staff/push/subscribe', {
                 method: 'POST',
@@ -242,9 +261,18 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } catch (err: any) {
               if (isStale()) return;
               if (err?.status === 410 || err?.code === 'SUBSCRIPTION_EXPIRED') {
-                expiredEndpointsRef.current.add(sub.endpoint);
-                await sub.unsubscribe().catch(() => {});
+                expiredEndpointsRef.current.add(targetEndpoint);
+                try {
+                  const checkReg = await navigator.serviceWorker.getRegistration();
+                  if (checkReg && !isStale()) {
+                    const currentSub = await checkReg.pushManager.getSubscription();
+                    if (currentSub && currentSub.endpoint === targetEndpoint) {
+                      await currentSub.unsubscribe().catch(() => {});
+                    }
+                  }
+                } catch {}
               }
+              if (isStale()) return;
               setIsSubscribed(false);
               setState('sync_error');
               setErrorMessage('Chưa đồng bộ được thông báo với máy chủ quán. Vui lòng bấm để kết nối lại.');
@@ -278,14 +306,10 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Subscribe to Web Push (must be triggered by a direct user gesture)
   const subscribe = async () => {
+    const isStale = createScopeGuard();
+
     setIsLoading(true);
     setErrorMessage(null);
-
-    const activeUserId = user?.id;
-    const activeTenantId = currentTenant?.id;
-    const isStale = () => {
-      return sessionScopeRef.current.userId !== activeUserId || sessionScopeRef.current.tenantId !== activeTenantId;
-    };
 
     try {
       if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
@@ -358,12 +382,33 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const keyMatches = areApplicationServerKeysEqual(subscription.options?.applicationServerKey || null, serverInfo.publicKey);
         if (!keyMatches || isExpired) {
           const oldEndpoint = subscription.endpoint;
-          await subscription.unsubscribe().catch(() => {});
+          let unsubSuccess = false;
+          try {
+            unsubSuccess = await subscription.unsubscribe();
+          } catch (unsubErr: any) {
+            unsubSuccess = false;
+          }
+
+          if (isStale()) return;
+
+          // R5: If browser failed to unsubscribe, verify if the old subscription is still active
+          if (!unsubSuccess) {
+            const checkSub = await registration.pushManager.getSubscription().catch(() => null);
+            if (checkSub && checkSub.endpoint === oldEndpoint) {
+              throw new PushActionError(
+                'Không thể hủy đăng ký thông báo cũ trên trình duyệt. Vui lòng khởi động lại trình duyệt hoặc đặt lại quyền thông báo.',
+                'sync_error'
+              );
+            }
+          }
+
+          // Best-effort notify backend
           await request('/staff/push/unsubscribe', {
             method: 'POST',
             body: JSON.stringify({ endpoint: oldEndpoint })
           }).catch(() => {});
-          expiredEndpointsRef.current.delete(oldEndpoint);
+
+          if (isStale()) return;
           subscription = null;
         }
       }
@@ -377,6 +422,21 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userVisibleOnly: true,
           applicationServerKey: convertedKey as any
         });
+      }
+
+      if (isStale()) return;
+
+      if (!subscription) {
+        throw new PushActionError('Không thể tạo đăng ký thông báo mới với trình duyệt', 'sync_error');
+      }
+
+      // R5: CRITICAL CHECK: If returned subscription still has an endpoint marked expired,
+      // browser returned the old dead endpoint! Do NOT sync or report success!
+      if (expiredEndpointsRef.current.has(subscription.endpoint)) {
+        throw new PushActionError(
+          'Trình duyệt trả lại đăng ký thông báo đã hết hạn. Vui lòng cấp lại quyền hoặc khởi động lại trình duyệt.',
+          'sync_error'
+        );
       }
 
       const subJson = subscription.toJSON();
@@ -400,7 +460,6 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (isStale()) return;
 
-      expiredEndpointsRef.current.delete(subJson.endpoint);
       setState('granted');
       setIsSubscribed(true);
       setErrorMessage(null);
@@ -417,23 +476,43 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setErrorMessage(err.message || 'Lỗi khi bật thông báo');
       throw err;
     } finally {
-      setIsLoading(false);
+      if (!isStale()) {
+        setIsLoading(false);
+      }
     }
   };
 
   // Unsubscribe from Web Push
   const unsubscribe = async () => {
+    const isStale = createScopeGuard();
+
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.getRegistration();
+        if (isStale()) return;
         if (reg) {
           const sub = await reg.pushManager.getSubscription();
+          if (isStale()) return;
           if (sub) {
             const endpoint = sub.endpoint;
-            await sub.unsubscribe().catch(() => {});
+            let unsubSuccess = false;
+            try {
+              unsubSuccess = await sub.unsubscribe();
+            } catch (unsubErr: any) {
+              unsubSuccess = false;
+            }
+
+            if (isStale()) return;
+
+            if (!unsubSuccess) {
+              const checkSub = await reg.pushManager.getSubscription().catch(() => null);
+              if (checkSub && checkSub.endpoint === endpoint) {
+                throw new PushActionError('Trình duyệt không thể hủy đăng ký thông báo', 'sync_error');
+              }
+            }
 
             // Remove from backend
             await request('/staff/push/unsubscribe', {
@@ -444,54 +523,99 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
+      if (isStale()) return;
       setIsSubscribed(false);
       setState('default');
     } catch (err: any) {
+      if (isStale()) return;
+      let targetState: PushPermissionState = 'sync_error';
+      if (err instanceof PushActionError) {
+        targetState = err.code;
+      }
+      setState(targetState);
       setErrorMessage(err.message || 'Lỗi khi tắt thông báo');
       throw err;
     } finally {
-      setIsLoading(false);
+      if (!isStale()) {
+        setIsLoading(false);
+      }
     }
   };
 
   // Send a test push notification
   const sendTestPush = async () => {
+    const isStale = createScopeGuard();
+
     setIsLoading(true);
     setErrorMessage(null);
 
+    let targetEndpoint: string | undefined;
+
     try {
-      let endpoint: string | undefined;
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.getRegistration();
+        if (isStale()) return;
         if (reg) {
           const sub = await reg.pushManager.getSubscription();
-          if (sub) endpoint = sub.endpoint;
+          if (isStale()) return;
+          if (sub) targetEndpoint = sub.endpoint;
         }
       }
 
-      if (!endpoint) {
+      if (isStale()) return;
+
+      if (!targetEndpoint) {
         throw new Error('Thiết bị chưa có đăng ký thông báo với trình duyệt. Vui lòng bật lại thông báo.');
       }
 
       await request('/staff/push/test', {
         method: 'POST',
-        body: JSON.stringify({ endpoint })
+        body: JSON.stringify({ endpoint: targetEndpoint })
       });
+
+      if (isStale()) return;
+      setErrorMessage(null);
     } catch (err: any) {
-      // If endpoint expired at APNs/FCM (410), clear subscription and unregister dead endpoint
+      // If session/tenant changed while request was in-flight, discard EVERYTHING from this stale call
+      if (isStale()) return;
+
+      // If endpoint expired at APNs/FCM (410), mark targetEndpoint expired and unregister ONLY targetEndpoint
       if (err?.status === 410 || err?.code === 'SUBSCRIPTION_EXPIRED') {
+        if (targetEndpoint) {
+          expiredEndpointsRef.current.add(targetEndpoint);
+        }
+
         if ('serviceWorker' in navigator) {
           try {
             const reg = await navigator.serviceWorker.getRegistration();
-            if (reg) {
-              const sub = await reg.pushManager.getSubscription();
-              if (sub) {
-                expiredEndpointsRef.current.add(sub.endpoint);
-                await sub.unsubscribe().catch(() => {});
+            if (reg && !isStale()) {
+              const currentSub = await reg.pushManager.getSubscription();
+              // CRITICAL R4: ONLY unsubscribe if the browser is STILL holding targetEndpoint!
+              if (currentSub && currentSub.endpoint === targetEndpoint) {
+                try {
+                  await currentSub.unsubscribe();
+                } catch {}
               }
             }
           } catch {}
         }
+
+        if (isStale()) return;
+
+        // If the current device subscription is already different and valid (e.g. reconnected), do NOT corrupt state
+        try {
+          if ('serviceWorker' in navigator) {
+            const reg = await navigator.serviceWorker.getRegistration();
+            const currentSub = await reg?.pushManager?.getSubscription();
+            if (currentSub && currentSub.endpoint !== targetEndpoint && !expiredEndpointsRef.current.has(currentSub.endpoint)) {
+              throw err;
+            }
+          }
+        } catch (innerErr) {
+          if (innerErr === err) throw err;
+        }
+
+        if (isStale()) return;
         setIsSubscribed(false);
         setState('sync_error');
         setErrorMessage('Đăng ký thông báo của thiết bị đã hết hạn tại APNs/FCM. Vui lòng bấm để kết nối lại thiết bị.');
@@ -500,16 +624,20 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // If database lost the device registration (404), allow re-sync without destroying browser subscription
       if (err?.status === 404 || err?.code === 'DEVICE_NOT_REGISTERED') {
+        if (isStale()) return;
         setIsSubscribed(false);
         setState('sync_error');
         setErrorMessage('Thiết bị chưa được đồng bộ trên hệ thống máy chủ quán. Vui lòng bấm để đồng bộ lại.');
         throw err;
       }
 
+      if (isStale()) return;
       setErrorMessage(err.message || 'Lỗi gửi thông báo thử nghiệm');
       throw err;
     } finally {
-      setIsLoading(false);
+      if (!isStale()) {
+        setIsLoading(false);
+      }
     }
   };
 

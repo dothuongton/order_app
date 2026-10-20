@@ -119,11 +119,14 @@ async function main() {
       publicKeyDelayMs: 0,
       subscribeStatus: 200,
       testPushStatus: 200,
+      testPushDelayMs: 0,
       testPushResponse: { success: true, acceptedByProvider: true },
       endpointsGeneratedCount: 0,
       unsubscribedEndpoints: [],
       syncedSubscriptions: [],
-      activeSubscription: null
+      activeSubscription: null,
+      unsubscribeBehavior: 'succeed',
+      subscribeReturnsExpiredEndpoint: null
     };
 
     window.Notification = {
@@ -160,6 +163,12 @@ async function main() {
           }
         }),
         unsubscribe: async () => {
+          if (window.__mockState.unsubscribeBehavior === 'reject') {
+            throw new Error('Browser failed to unsubscribe');
+          }
+          if (window.__mockState.unsubscribeBehavior === 'return_false') {
+            return false;
+          }
           window.__mockState.unsubscribedEndpoints.push(endpoint);
           if (window.__mockState.activeSubscription?.endpoint === endpoint) {
             window.__mockState.activeSubscription = null;
@@ -174,6 +183,11 @@ async function main() {
         return window.__mockState.activeSubscription;
       },
       subscribe: async (opts) => {
+        if (window.__mockState.subscribeReturnsExpiredEndpoint) {
+          const sub = createMockSubscription(window.__mockState.subscribeReturnsExpiredEndpoint, window.__mockState.publicKeyResponse.publicKey);
+          window.__mockState.activeSubscription = sub;
+          return sub;
+        }
         window.__mockState.endpointsGeneratedCount++;
         const newEndpoint = 'https://fcm.googleapis.com/fcm/send/device-endpoint-' + window.__mockState.endpointsGeneratedCount;
         const sub = createMockSubscription(newEndpoint, window.__mockState.publicKeyResponse.publicKey);
@@ -236,6 +250,9 @@ async function main() {
       }
 
       if (urlStr.includes('/staff/push/test')) {
+        if (window.__mockState.testPushDelayMs > 0) {
+          await new Promise(r => setTimeout(r, window.__mockState.testPushDelayMs));
+        }
         if (window.__mockState.testPushStatus !== 200) {
           return new Response(JSON.stringify({
             error: window.__mockState.testPushStatus === 410 ? 'SUBSCRIPTION_EXPIRED' : 'DEVICE_NOT_REGISTERED',
@@ -543,7 +560,162 @@ async function main() {
     assert(state === 'sync_error', `Expected state sync_error, got: ${state}`);
     console.log('  ✓ Test 10 passed: Never reports granted before backend sync.');
 
-    console.log('\n🎉 ALL 10 BROWSER REGRESSION TESTS PASSED SUCCESSFULLY!');
+    // -------------------------------------------------------------
+    // Test 11 (R4): Late /test 410 response does NOT unsubscribe new tenant subscription
+    // -------------------------------------------------------------
+    console.log('▶ Test 11 (R4): Late 410 test push across tenant switch...');
+    await cdp.evaluate('window.__mockState.subscribeStatus = 200');
+    await cdp.evaluate('window.__push.subscribe()');
+    state = await cdp.evaluate('window.__push.state');
+    assert(state === 'granted', `Expected granted on tenant-1, got: ${state}`);
+    const tenant1Sub = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(tenant1Sub, 'Expected active subscription on tenant-1');
+
+    // Trigger test push on tenant-1 with delay and 410 response
+    await cdp.evaluate('window.__mockState.testPushStatus = 410');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 200');
+    cdp.evaluate('window.__push.sendTestPush().catch(() => {})');
+
+    // Switch tenant while request is in-flight
+    await sleep(30);
+    await cdp.evaluate('window.__setAuthUser({ id: "user-2", email: "manager@phoco2.vn" }); window.__setAuthTenant({ id: "tenant-2", name: "Phố Cổ 2" })');
+
+    // On tenant-2, attach new device subscription (independent browser device / profile)
+    await cdp.evaluate(`
+      window.__mockState.activeSubscription = createMockSubscription(
+        'https://fcm.googleapis.com/fcm/send/tenant2-device-endpoint',
+        window.__mockState.publicKeyResponse.publicKey
+      );
+    `);
+    await cdp.evaluate('window.__push.refreshStatus()');
+    const tenant2Sub = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(tenant2Sub && tenant2Sub !== tenant1Sub, 'Expected fresh active subscription on tenant-2');
+
+    // Wait for the delayed 410 response from tenant-1 to arrive
+    await sleep(250);
+
+    // Verify tenant-2 subscription was NOT unsubscribed
+    const unsubsAfterLate410 = await cdp.evaluate('window.__mockState.unsubscribedEndpoints');
+    assert(!unsubsAfterLate410.includes(tenant2Sub), 'Stale 410 must NOT unsubscribe tenant-2 subscription');
+
+    state = await cdp.evaluate('window.__push.state');
+    isSubscribed = await cdp.evaluate('window.__push.isSubscribed');
+    assert(state === 'granted', `Expected tenant-2 state to remain granted, got: ${state}`);
+    assert(isSubscribed === true, `Expected tenant-2 isSubscribed to remain true, got: ${isSubscribed}`);
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 0');
+    await cdp.evaluate('window.__mockState.testPushStatus = 200');
+    console.log('  ✓ Test 11 passed: Stale 410 response across tenant switch does not touch new tenant subscription.');
+
+    // -------------------------------------------------------------
+    // Test 12 (R4): Late /test 410 response does NOT unsubscribe reconnected endpoint
+    // -------------------------------------------------------------
+    console.log('▶ Test 12 (R4): Late 410 test push across reconnect...');
+    const currentEndpointBeforeTest = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    await cdp.evaluate('window.__mockState.testPushStatus = 410');
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 200');
+    cdp.evaluate('window.__push.sendTestPush().catch(() => {})');
+
+    // While test is in-flight, reconnect creating new endpoint
+    await sleep(30);
+    await cdp.evaluate('window.__mockState.activeSubscription = null');
+    await cdp.evaluate('window.__push.subscribe()');
+    const reconnectedEndpoint = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(reconnectedEndpoint && reconnectedEndpoint !== currentEndpointBeforeTest, 'Expected fresh reconnected endpoint');
+
+    // Wait for stale test push to resolve with 410
+    await sleep(250);
+
+    const allUnsubscribed = await cdp.evaluate('window.__mockState.unsubscribedEndpoints');
+    assert(!allUnsubscribed.includes(reconnectedEndpoint), 'Stale 410 must NOT unsubscribe reconnected endpoint');
+    state = await cdp.evaluate('window.__push.state');
+    isSubscribed = await cdp.evaluate('window.__push.isSubscribed');
+    assert(state === 'granted', `Expected state granted after reconnect, got: ${state}`);
+    assert(isSubscribed === true, `Expected isSubscribed true after reconnect, got: ${isSubscribed}`);
+    await cdp.evaluate('window.__mockState.testPushDelayMs = 0');
+    await cdp.evaluate('window.__mockState.testPushStatus = 200');
+    console.log('  ✓ Test 12 passed: Stale 410 response does not destroy reconnected subscription.');
+
+    // -------------------------------------------------------------
+    // Test 13 (R5): Browser unsubscribe rejection / false does not report success
+    // -------------------------------------------------------------
+    console.log('▶ Test 13 (R5): Browser unsubscribe rejection handling...');
+    // Setup browser to reject unsubscribe while 410 test push is processed
+    await cdp.evaluate('window.__mockState.unsubscribeBehavior = "reject"');
+    await cdp.evaluate('window.__mockState.testPushStatus = 410');
+    let test410Failed = false;
+    try {
+      await cdp.evaluate('window.__push.sendTestPush()');
+    } catch {
+      test410Failed = true;
+    }
+    assert(test410Failed, 'Expected sendTestPush to fail on 410');
+    await cdp.evaluate('window.__mockState.testPushStatus = 200');
+
+    // Ensure the expired subscription is still attached to the browser
+    const remainingExpiredSub = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(remainingExpiredSub, 'Expected browser to still hold subscription because unsubscribe rejected');
+
+    let unsubRejectCaught = false;
+    try {
+      await cdp.evaluate('window.__push.subscribe()');
+    } catch {
+      unsubRejectCaught = true;
+    }
+    assert(unsubRejectCaught, 'Expected subscribe to fail when browser fails to unsubscribe');
+
+    state = await cdp.evaluate('window.__push.state');
+    isSubscribed = await cdp.evaluate('window.__push.isSubscribed');
+    let errorMsg = await cdp.evaluate('window.__push.errorMessage');
+    assert(state === 'sync_error', `Expected sync_error on unsubscribe failure, got: ${state}`);
+    assert(isSubscribed === false, 'isSubscribed must be false when unsubscribe fails');
+    assert(errorMsg && errorMsg.includes('hủy'), `Expected actionable error message, got: ${errorMsg}`);
+    await cdp.evaluate('window.__mockState.unsubscribeBehavior = "succeed"');
+    console.log('  ✓ Test 13 passed: Unsubscribe rejection halts reconnect and preserves sync_error.');
+
+    // -------------------------------------------------------------
+    // Test 14 (R5): Browser returns confirmed-expired endpoint on subscribe
+    // -------------------------------------------------------------
+    console.log('▶ Test 14 (R5): Browser returns same expired endpoint on subscribe...');
+    // Keep active endpoint in expired set, and configure mock to return that same endpoint
+    const expiredEp = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    await cdp.evaluate(`window.__mockState.subscribeReturnsExpiredEndpoint = "${expiredEp}"`);
+    const syncCountBefore = await cdp.evaluate('window.__mockState.syncedSubscriptions.length');
+
+    let expiredReturnedCaught = false;
+    try {
+      await cdp.evaluate('window.__push.subscribe()');
+    } catch {
+      expiredReturnedCaught = true;
+    }
+    assert(expiredReturnedCaught, 'Expected subscribe to fail when browser returns expired endpoint');
+
+    state = await cdp.evaluate('window.__push.state');
+    isSubscribed = await cdp.evaluate('window.__push.isSubscribed');
+    errorMsg = await cdp.evaluate('window.__push.errorMessage');
+    assert(state === 'sync_error', `Expected sync_error when browser returns expired endpoint, got: ${state}`);
+    assert(isSubscribed === false, 'isSubscribed must be false when expired endpoint returned');
+    assert(errorMsg && errorMsg.includes('hết hạn'), `Expected expired endpoint message, got: ${errorMsg}`);
+
+    const syncCountAfter = await cdp.evaluate('window.__mockState.syncedSubscriptions.length');
+    assert(syncCountBefore === syncCountAfter, 'Expired endpoint must NEVER be synced to backend');
+    console.log('  ✓ Test 14 passed: Expired endpoint returned by browser is rejected before backend sync.');
+
+    // -------------------------------------------------------------
+    // Test 15 (R5): Clean recovery when browser generates genuine new endpoint
+    // -------------------------------------------------------------
+    console.log('▶ Test 15 (R5): Genuine new endpoint recovery...');
+    await cdp.evaluate('window.__mockState.subscribeReturnsExpiredEndpoint = null');
+    await cdp.evaluate('window.__push.subscribe()');
+
+    state = await cdp.evaluate('window.__push.state');
+    isSubscribed = await cdp.evaluate('window.__push.isSubscribed');
+    const freshEndpoint = await cdp.evaluate('window.__mockState.activeSubscription?.endpoint');
+    assert(state === 'granted', `Expected state granted on genuine recovery, got: ${state}`);
+    assert(isSubscribed === true, `Expected isSubscribed true on genuine recovery, got: ${isSubscribed}`);
+    assert(freshEndpoint && freshEndpoint !== expiredEp, 'Expected fresh non-expired endpoint');
+    console.log('  ✓ Test 15 passed: Genuine new endpoint cleanly transitions to granted and subscribed.');
+
+    console.log('\n🎉 ALL 15 BROWSER REGRESSION TESTS PASSED SUCCESSFULLY!');
   } finally {
     if (cdp) cdp.close();
     chromeProc.kill('SIGTERM');
