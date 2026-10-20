@@ -6,8 +6,9 @@ export const listShopsQuerySchema = z.object({
     search: z.string().trim().max(100).optional(),
     status: z.enum(['all', 'active', 'suspended', 'draft', 'archived']).default('all'),
     sortBy: z.enum(['created_at', 'name', 'revenue', 'orders']).default('created_at'),
-    order: z.enum(['asc', 'desc']).default('desc')
-}).strict();
+    order: z.enum(['asc', 'desc']).default('desc'),
+    _t: z.any().optional()
+});
 
 export type ListShopsQueryInput = z.infer<typeof listShopsQuerySchema>;
 
@@ -38,7 +39,8 @@ export const listAuditLogsQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(50),
     tenantId: z.string().uuid('ID quán không hợp lệ').optional(),
-    action: z.string().trim().max(64).optional()
-}).strict();
+    action: z.string().trim().max(64).optional(),
+    _t: z.any().optional()
+});
 
 export type ListAuditLogsQueryInput = z.infer<typeof listAuditLogsQuerySchema>;
