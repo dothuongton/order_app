@@ -30,7 +30,10 @@ export interface FetchAuditLogsParams {
     page?: number;
     limit?: number;
     tenantId?: string;
+    userId?: string;
     action?: string;
+    startDate?: string;
+    endDate?: string;
 }
 
 export const AdminApi = {
@@ -112,7 +115,10 @@ export const AdminApi = {
         if (params.page) queryParams.set('page', params.page.toString());
         if (params.limit) queryParams.set('limit', params.limit.toString());
         if (params.tenantId) queryParams.set('tenantId', params.tenantId);
+        if (params.userId) queryParams.set('userId', params.userId);
         if (params.action && params.action.trim()) queryParams.set('action', params.action.trim());
+        if (params.startDate) queryParams.set('startDate', params.startDate);
+        if (params.endDate) queryParams.set('endDate', params.endDate);
 
         const qs = queryParams.toString();
         const endpoint = qs ? `/admin/audit-logs?${qs}` : '/admin/audit-logs';
