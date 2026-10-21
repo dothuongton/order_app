@@ -20,6 +20,7 @@ import { ShopListTable } from '../../components/admin/ShopListTable.js';
 import { RolesView } from '../../components/admin/RolesView.js';
 import { AuditLogsView } from '../../components/admin/AuditLogsView.js';
 import { AdminRightDrawer, RightDrawerContent } from '../../components/admin/AdminRightDrawer.js';
+import { useAdminShopDrawer } from '../../hooks/admin/useAdminShopDrawer.js';
 import { CreateShopModal } from '../../components/admin/CreateShopModal.js';
 import { EditShopModal } from '../../components/admin/EditShopModal.js';
 import { LifecycleConfirmModal } from '../../components/admin/LifecycleConfirmModal.js';
@@ -216,9 +217,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     const [loadingLogs, setLoadingLogs] = useState(true);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-    // Drawer & Modals States
-    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [drawerContent, setDrawerContent] = useState<RightDrawerContent>(null);
+    // Drawer & Modals States (guarantees race-condition resilience & generation isolation)
+    const {
+        isDrawerOpen,
+        drawerContent,
+        openShopDetail,
+        openRolePermissions,
+        openAuditDetail,
+        closeDrawer
+    } = useAdminShopDrawer();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingShop, setEditingShop] = useState<ShopDetail | ShopSummary | null>(null);
     const [lifecycleTarget, setLifecycleTarget] = useState<{
@@ -302,8 +309,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
 
     // Handler: Open Drawer for Role Permissions (Image 1)
     const handleOpenRolePermissions = (role: SystemRole) => {
-        setDrawerContent({ type: 'permissions', role });
-        setIsDrawerOpen(true);
+        openRolePermissions(role);
     };
 
     // Handler: Save Role Permissions
@@ -315,24 +321,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     };
 
     // Handler: Open Drawer for Shop Detail
-    const handleOpenShopDetail = async (shop: ShopSummary) => {
-        // Open drawer immediately with summary metrics so user gets instant responsive UI
-        setDrawerContent({ type: 'shop-detail', shop });
-        setIsDrawerOpen(true);
-        try {
-            // Fetch full single shop details with deep metrics
-            const detail = await AdminApi.getShopDetail(shop.id);
-            setDrawerContent({ type: 'shop-detail', shop: detail });
-        } catch {
-            // Keep existing summary if detail fetch encounters network error
-            setDrawerContent({ type: 'shop-detail', shop });
-        }
+    const handleOpenShopDetail = (shop: ShopSummary) => {
+        openShopDetail(shop, AdminApi.getShopDetail);
     };
 
     // Handler: Open Drawer for Audit Log Diff
     const handleOpenAuditDetail = (log: AuditLogItem) => {
-        setDrawerContent({ type: 'audit-detail', log });
-        setIsDrawerOpen(true);
+        openAuditDetail(log);
     };
 
     // Handler: Create Shop
@@ -349,7 +344,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         await AdminApi.updateShop(id, payload);
         showToast('Đã cập nhật thông tin quán thành công!');
         if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === id) {
-            setIsDrawerOpen(false);
+            closeDrawer();
         }
         loadShops();
         loadAuditLogs();
@@ -371,7 +366,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 ? 'Đã lưu trữ quán thành công (Bảo toàn lịch sử hóa đơn)!'
                 : `Đã chuyển trạng thái quán sang "${targetStatus}"!`
         );
-        setIsDrawerOpen(false);
+        closeDrawer();
         loadStats();
         loadShops();
         loadAuditLogs();
@@ -640,13 +635,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             <AdminRightDrawer
                 isOpen={isDrawerOpen}
                 content={drawerContent}
-                onClose={() => {
-                    setIsDrawerOpen(false);
-                    setDrawerContent(null);
-                }}
+                onClose={closeDrawer}
                 onSavePermissions={handleSaveRolePermissions}
                 onEditShop={(shop) => {
-                    setIsDrawerOpen(false);
+                    closeDrawer();
                     setEditingShop(shop);
                 }}
                 onToggleShopStatus={handleRequestLifecycleChange}
