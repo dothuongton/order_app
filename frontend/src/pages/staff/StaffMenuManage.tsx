@@ -376,10 +376,24 @@ export const StaffMenuManage: React.FC = () => {
       alert('Giá món không được để trống');
       return;
     }
-    const parsedPrice = Number(rawPriceStr);
-    if (!Number.isInteger(parsedPrice) || parsedPrice < 0) {
-      alert('Giá món phải là số nguyên không âm');
+    if (!/^\d+$/.test(rawPriceStr) || !Number.isSafeInteger(Number(rawPriceStr)) || Number(rawPriceStr) < 0 || Number(rawPriceStr) > 1000000000) {
+      alert('Giá món phải là số nguyên không âm và không vượt quá 1.000.000.000đ');
       return;
+    }
+    const parsedPrice = parseInt(rawPriceStr, 10);
+
+    for (const g of editingItem.option_groups || []) {
+      if (g.pricing_mode !== 'FREE') {
+        for (const o of g.options || []) {
+          const rawDeltaStr = String(o.price_delta ?? '').trim();
+          if (rawDeltaStr !== '') {
+            if (!/^\d+$/.test(rawDeltaStr) || !Number.isSafeInteger(Number(rawDeltaStr)) || Number(rawDeltaStr) < 0 || Number(rawDeltaStr) > 1000000000) {
+              alert(`Giá phụ thu của lựa chọn "${o.name || 'tùy chọn'}" phải là số nguyên không âm và không vượt quá 1.000.000.000đ`);
+              return;
+            }
+          }
+        }
+      }
     }
 
     // Clean groups
@@ -396,7 +410,7 @@ export const StaffMenuManage: React.FC = () => {
           .map(o => ({
             id: o.id,
             name: o.name.trim(),
-            price_delta: g.pricing_mode === 'FREE' ? 0 : Math.max(0, parseInt(String(o.price_delta), 10) || 0),
+            price_delta: g.pricing_mode === 'FREE' ? 0 : (String(o.price_delta ?? '').trim() === '' ? 0 : parseInt(String(o.price_delta), 10)),
             is_default: Boolean(o.is_default),
             is_available: o.is_available !== false
           }))
@@ -1024,10 +1038,9 @@ export const StaffMenuManage: React.FC = () => {
                     }}
                     onBlur={(e) => {
                       const val = String(editingItem.price ?? '').trim();
-                      if (val !== '') {
-                        const num = parseInt(val, 10);
-                        if (!isNaN(num) && num >= 0) {
-                          setEditingItem(prev => prev ? { ...prev, price: num } : null);
+                      if (val !== '' && /^\d+$/.test(val)) {
+                        if (Number.isSafeInteger(Number(val)) && Number(val) <= 1000000000) {
+                          setEditingItem(prev => prev ? { ...prev, price: parseInt(val, 10) } : null);
                         }
                       }
                     }}
@@ -1261,9 +1274,10 @@ export const StaffMenuManage: React.FC = () => {
                                           const val = String(option.price_delta ?? '').trim();
                                           if (val === '') {
                                             handleUpdateOption(gIdx, oIdx, { price_delta: 0 });
-                                          } else {
-                                            const num = parseInt(val, 10);
-                                            handleUpdateOption(gIdx, oIdx, { price_delta: isNaN(num) ? 0 : Math.max(0, num) });
+                                          } else if (/^\d+$/.test(val)) {
+                                            if (Number.isSafeInteger(Number(val)) && Number(val) <= 1000000000) {
+                                              handleUpdateOption(gIdx, oIdx, { price_delta: parseInt(val, 10) });
+                                            }
                                           }
                                         }}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2 pr-6 py-1.5 text-xs text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500"

@@ -32,13 +32,13 @@ export interface BannerInput {
 }
 
 export interface PromotionInput {
-    code?: string;
+    code?: string | null;
     title: string;
-    description?: string;
+    description?: string | null;
     discountType: 'PERCENT' | 'FIXED_AMOUNT';
     discountValue: number;
     minOrderAmount?: number;
-    maxDiscountAmount?: number;
+    maxDiscountAmount?: number | null;
     maxRedemptions?: number;
     priority?: number;
     isActive?: boolean;

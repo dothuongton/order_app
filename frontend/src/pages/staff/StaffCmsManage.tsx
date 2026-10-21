@@ -290,42 +290,52 @@ export const StaffCmsManage: React.FC = () => {
             return;
         }
 
-        const parsedDiscount = parseInt(rawDiscountStr, 10);
-        if (isNaN(parsedDiscount) || parsedDiscount <= 0) {
-            setActionMsg({ type: 'error', text: 'Mức giảm giá phải là số nguyên lớn hơn 0' });
+        if (!/^\d+$/.test(rawDiscountStr) || !Number.isSafeInteger(Number(rawDiscountStr)) || Number(rawDiscountStr) <= 0 || Number(rawDiscountStr) > 1000000000) {
+            setActionMsg({ type: 'error', text: 'Mức giảm giá phải là số nguyên lớn hơn 0 và không vượt quá 1.000.000.000đ' });
             return;
         }
 
+        const parsedDiscount = parseInt(rawDiscountStr, 10);
         if (editingPromo.discountType === 'PERCENT' && parsedDiscount > 100) {
             setActionMsg({ type: 'error', text: 'Tỷ lệ giảm phần trăm không được vượt quá 100%' });
             return;
         }
 
         const rawMinOrderStr = String(editingPromo.minOrderAmount ?? '').trim();
-        const minOrder = rawMinOrderStr === '' ? 0 : Math.max(0, parseInt(rawMinOrderStr, 10) || 0);
+        let minOrder = 0;
+        if (rawMinOrderStr !== '') {
+            if (!/^\d+$/.test(rawMinOrderStr) || !Number.isSafeInteger(Number(rawMinOrderStr)) || Number(rawMinOrderStr) < 0 || Number(rawMinOrderStr) > 1000000000) {
+                setActionMsg({ type: 'error', text: 'Đơn tối thiểu phải là số nguyên không âm hợp lệ (tối đa 1.000.000.000đ)' });
+                return;
+            }
+            minOrder = parseInt(rawMinOrderStr, 10);
+        }
 
-        let maxDisc: number | undefined = undefined;
+        let maxDisc: number | null = null;
         const rawMaxDiscStr = String(editingPromo.maxDiscountAmount ?? '').trim();
         if (rawMaxDiscStr !== '') {
-            const parsed = parseInt(rawMaxDiscStr, 10);
-            if (!isNaN(parsed) && parsed > 0) {
-                maxDisc = parsed;
+            if (rawMaxDiscStr === '0') {
+                setActionMsg({ type: 'error', text: 'Mức giảm tối đa phải là số nguyên lớn hơn 0 (hoặc để trống nếu không giới hạn)' });
+                return;
             }
+            if (!/^\d+$/.test(rawMaxDiscStr) || !Number.isSafeInteger(Number(rawMaxDiscStr)) || Number(rawMaxDiscStr) <= 0 || Number(rawMaxDiscStr) > 1000000000) {
+                setActionMsg({ type: 'error', text: 'Mức giảm tối đa phải là số nguyên lớn hơn 0 và không vượt quá 1.000.000.000đ' });
+                return;
+            }
+            maxDisc = parseInt(rawMaxDiscStr, 10);
         }
 
         const payload: Record<string, any> = {
-            code: editingPromo.code?.trim() || undefined,
+            code: editingPromo.code !== undefined ? (editingPromo.code?.trim() || null) : null,
             title: editingPromo.title.trim(),
-            description: editingPromo.description?.trim() || undefined,
+            description: editingPromo.description !== undefined ? (editingPromo.description?.trim() || null) : null,
             discountType: editingPromo.discountType || 'PERCENT',
             discountValue: parsedDiscount,
             minOrderAmount: minOrder,
+            maxDiscountAmount: maxDisc,
             priority: editingPromo.priority ?? 1,
             isActive: editingPromo.isActive ?? true
         };
-        if (maxDisc !== undefined) {
-            payload.maxDiscountAmount = maxDisc;
-        }
         if (editingPromo.maxRedemptions) {
             payload.maxRedemptions = editingPromo.maxRedemptions;
         }
@@ -1101,6 +1111,11 @@ export const StaffCmsManage: React.FC = () => {
 
                         {/* Scrollable Form Body */}
                         <form onSubmit={handleSavePromo} noValidate className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-3.5 text-xs">
+                            {actionMsg?.type === 'error' && (
+                                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl font-semibold text-xs">
+                                    {actionMsg.text}
+                                </div>
+                            )}
                             <div className="grid grid-cols-3 gap-2">
                                 <div>
                                     <label className="block text-slate-700 font-semibold mb-1">Mã Code (Tùy chọn)</label>
@@ -1156,10 +1171,9 @@ export const StaffCmsManage: React.FC = () => {
                                         }}
                                         onBlur={(e) => {
                                             const val = String(editingPromo.discountValue ?? '').trim();
-                                            if (val !== '') {
-                                                const num = parseInt(val, 10);
-                                                if (!isNaN(num) && num > 0) {
-                                                    setEditingPromo(prev => prev ? { ...prev, discountValue: num } : null);
+                                            if (val !== '' && /^\d+$/.test(val)) {
+                                                if (Number.isSafeInteger(Number(val)) && Number(val) <= 1000000000) {
+                                                    setEditingPromo(prev => prev ? { ...prev, discountValue: parseInt(val, 10) } : null);
                                                 }
                                             }
                                         }}
@@ -1190,9 +1204,10 @@ export const StaffCmsManage: React.FC = () => {
                                             const val = String(editingPromo.minOrderAmount ?? '').trim();
                                             if (val === '') {
                                                 setEditingPromo(prev => prev ? { ...prev, minOrderAmount: 0 } : null);
-                                            } else {
-                                                const num = parseInt(val, 10);
-                                                setEditingPromo(prev => prev ? { ...prev, minOrderAmount: isNaN(num) ? 0 : Math.max(0, num) } : null);
+                                            } else if (/^\d+$/.test(val)) {
+                                                if (Number.isSafeInteger(Number(val)) && Number(val) <= 1000000000) {
+                                                    setEditingPromo(prev => prev ? { ...prev, minOrderAmount: parseInt(val, 10) } : null);
+                                                }
                                             }
                                         }}
                                         placeholder="0"
@@ -1216,11 +1231,10 @@ export const StaffCmsManage: React.FC = () => {
                                         onBlur={(e) => {
                                             const val = String(editingPromo.maxDiscountAmount ?? '').trim();
                                             if (val === '') {
-                                                setEditingPromo(prev => prev ? { ...prev, maxDiscountAmount: undefined } : null);
-                                            } else {
-                                                const num = parseInt(val, 10);
-                                                if (!isNaN(num) && num > 0) {
-                                                    setEditingPromo(prev => prev ? { ...prev, maxDiscountAmount: num } : null);
+                                                setEditingPromo(prev => prev ? { ...prev, maxDiscountAmount: '' } : null);
+                                            } else if (/^\d+$/.test(val)) {
+                                                if (Number.isSafeInteger(Number(val)) && Number(val) <= 1000000000) {
+                                                    setEditingPromo(prev => prev ? { ...prev, maxDiscountAmount: parseInt(val, 10) } : null);
                                                 }
                                             }
                                         }}

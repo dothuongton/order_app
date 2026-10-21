@@ -419,7 +419,48 @@ async function main() {
     assert(validationCheck.modalStillOpen, 'Modal must remain open after failed validation');
     console.log('✅ Base price empty validation verified');
 
-    // 3. Now fill valid price 65001, add an option group with option delta 2500, save item
+    // 3. Test R3: Overflow paste (>= 1e21) & repeated blur on base price
+    console.log('Testing R3: Overflow paste and repeated blur on base price...');
+    const overflowBasePriceTest = await evaluate(`(() => {
+      window.__alerts = [];
+      const modal = document.querySelector('.fixed.inset-0');
+      const labels = Array.from(modal.querySelectorAll('label'));
+      const priceLabel = labels.find(l => l.innerText.includes('Giá Gốc'));
+      const priceInput = priceLabel.closest('div').parentElement.querySelector('input[type="number"]');
+      const nameInput = labels.find(l => l.innerText.includes('Tên Món Ăn')).closest('div').querySelector('input');
+
+      // 1. Paste overflow 1000000000000000000000 (22 digits >= 1e21)
+      window.setReactVal(priceInput, '1000000000000000000000');
+
+      // 2. Focus and blur repeatedly 3 times
+      for (let i = 0; i < 3; i++) {
+        priceInput.focus();
+        nameInput.focus();
+        priceInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+
+      const valAfterRepeatedBlur = priceInput.value;
+
+      // 3. Click submit
+      const submitBtn = modal.querySelector('button[type="submit"]');
+      submitBtn.click();
+
+      return {
+        valAfterRepeatedBlur,
+        alerts: window.__alerts,
+        hasOverflowError: window.__alerts.includes('Giá món phải là số nguyên không âm và không vượt quá 1.000.000.000đ'),
+        modalStillOpen: !!document.querySelector('.fixed.inset-0 input')
+      };
+    })()`);
+
+    console.log(`  Base price value after repeated blur: "${overflowBasePriceTest.valAfterRepeatedBlur}"`);
+    console.log(`  Alerts received:`, overflowBasePriceTest.alerts);
+    assert(overflowBasePriceTest.valAfterRepeatedBlur === '1000000000000000000000', 'Base price must NOT mutate to 1 or 1e+21 after repeated blur');
+    assert(overflowBasePriceTest.hasOverflowError, 'Must show overflow alert for base price > 1.000.000.000đ');
+    assert(overflowBasePriceTest.modalStillOpen, 'Modal must remain open with draft intact');
+    console.log('✅ R3: Base price overflow paste & repeated blur properly blocked without mutation');
+
+    // 4. Now fill valid price 65001, add an option group, test R3 on option delta, then save item
     console.log('Filling form with price 65001 and option delta 2500...');
     await evaluate(`(() => {
       const modal = document.querySelector('.fixed.inset-0');
@@ -433,6 +474,51 @@ async function main() {
       if (addGroupBtn) addGroupBtn.click();
     })()`);
     await sleep(500);
+
+    // Test R3 overflow on Option Delta
+    console.log('Testing R3: Overflow paste and repeated blur on option delta...');
+    const overflowDeltaTest = await evaluate(`(() => {
+      window.__alerts = [];
+      const modal = document.querySelector('.fixed.inset-0');
+      const labels = Array.from(modal.querySelectorAll('label'));
+      const nameInput = labels.find(l => l.innerText.includes('Tên Món Ăn')).closest('div').querySelector('input');
+      const deltaInputs = Array.from(modal.querySelectorAll('input[placeholder="+0đ"]'));
+      if (deltaInputs.length === 0) return { error: 'Option delta input not found' };
+      const deltaInput = deltaInputs[0];
+      const optNameInput = deltaInput.closest('.flex')?.querySelector('input[type="text"]');
+      if (optNameInput) window.setReactVal(optNameInput, 'Topping Đặc Biệt');
+
+      // Paste overflow
+      window.setReactVal(deltaInput, '1000000000000000000000');
+
+      // Focus and blur repeatedly 3 times
+      for (let i = 0; i < 3; i++) {
+        deltaInput.focus();
+        nameInput.focus();
+        deltaInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+
+      const valAfterRepeatedBlur = deltaInput.value;
+
+      // Click submit
+      const submitBtn = modal.querySelector('button[type="submit"]');
+      submitBtn.click();
+
+      return {
+        valAfterRepeatedBlur,
+        alerts: window.__alerts,
+        hasDeltaOverflowError: window.__alerts.some(a => a.includes('Giá phụ thu') && a.includes('không vượt quá 1.000.000.000đ')),
+        modalStillOpen: !!document.querySelector('.fixed.inset-0 input')
+      };
+    })()`);
+
+    assert(!overflowDeltaTest.error, overflowDeltaTest.error);
+    console.log(`  Option delta value after repeated blur: "${overflowDeltaTest.valAfterRepeatedBlur}"`);
+    console.log(`  Alerts received:`, overflowDeltaTest.alerts);
+    assert(overflowDeltaTest.valAfterRepeatedBlur === '1000000000000000000000', 'Option delta must NOT mutate to 1 or 1e+21 after repeated blur');
+    assert(overflowDeltaTest.hasDeltaOverflowError, 'Must show overflow alert for option delta > 1.000.000.000đ');
+    assert(overflowDeltaTest.modalStillOpen, 'Modal must remain open with draft intact');
+    console.log('✅ R3: Option delta overflow paste & repeated blur properly blocked without mutation');
 
     // Verify option delta input behavior (clearing and typing 2500)
     const optionInputTest = await evaluate(`(() => {
@@ -626,6 +712,95 @@ async function main() {
     assert(promoInputsTest.maxAfterClear === '', 'Max discount input must remain empty when unlimited');
     assert(promoInputsTest.discAfterClear === '', 'Discount value must allow empty while typing');
 
+    // Test R3 Promo inputs overflow & repeated blur
+    console.log('Testing R3: Promo discountValue overflow paste and repeated blur...');
+    const promoOverflowTest = await evaluate(`(async () => {
+      const modal = document.querySelector('.fixed.inset-0');
+      const labels = Array.from(modal.querySelectorAll('label'));
+      const titleInput = labels.find(l => l.innerText.includes('Tiêu Đề Khuyến Mãi')).closest('div').querySelector('input');
+      const discInput = labels.find(l => l.innerText.includes('Giá Trị Giảm') || l.innerText.includes('Số Tiền Giảm')).closest('div').querySelector('input[type="number"]');
+      const minInput = labels.find(l => l.innerText.includes('Đơn Tối Thiểu')).closest('div').parentElement.querySelector('input[type="number"]');
+      const maxInput = labels.find(l => l.innerText.includes('Giảm Tối Đa')).closest('div').querySelector('input[type="number"]');
+
+      window.setReactVal(titleInput, 'Promo R3 Overflow Test');
+
+      // 1. discountValue overflow
+      window.setReactVal(discInput, '1000000000000000000000');
+      for (let i = 0; i < 3; i++) {
+        discInput.focus();
+        titleInput.focus();
+        discInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+      const discValAfterBlur = discInput.value;
+
+      // Click submit
+      const submitBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.includes('Lưu Khuyến Mãi'));
+      submitBtn.click();
+      await new Promise(r => setTimeout(r, 150));
+
+      const discError = document.body.innerText.includes('không vượt quá 1.000.000.000đ') || document.body.innerText.includes('phải là số nguyên');
+
+      // 2. minOrderAmount overflow
+      window.setReactVal(discInput, '10');
+      window.setReactVal(minInput, '1000000000000000000000');
+      for (let i = 0; i < 3; i++) {
+        minInput.focus();
+        titleInput.focus();
+        minInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+      const minValAfterBlur = minInput.value;
+      submitBtn.click();
+      await new Promise(r => setTimeout(r, 150));
+      const minError = document.body.innerText.includes('Đơn tối thiểu phải là số nguyên không âm hợp lệ');
+
+      // 3. maxDiscountAmount overflow
+      window.setReactVal(minInput, '0');
+      window.setReactVal(maxInput, '1000000000000000000000');
+      for (let i = 0; i < 3; i++) {
+        maxInput.focus();
+        titleInput.focus();
+        maxInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+      const maxValAfterBlur = maxInput.value;
+      submitBtn.click();
+      await new Promise(r => setTimeout(r, 150));
+      const maxOverflowError = document.body.innerText.includes('Mức giảm tối đa phải là số nguyên lớn hơn 0 và không vượt quá 1.000.000.000đ');
+
+      // 4. maxDiscountAmount = 0
+      window.setReactVal(maxInput, '0');
+      submitBtn.click();
+      await new Promise(r => setTimeout(r, 150));
+      const maxZeroError = document.body.innerText.includes('Mức giảm tối đa phải là số nguyên lớn hơn 0 (hoặc để trống nếu không giới hạn)');
+
+      // Reset maxInput to empty
+      window.setReactVal(maxInput, '');
+
+      return {
+        discValAfterBlur,
+        discError,
+        minValAfterBlur,
+        minError,
+        maxValAfterBlur,
+        maxOverflowError,
+        maxZeroError,
+        modalStillOpen: !!document.querySelector('.fixed.inset-0 input')
+      };
+    })()`);
+
+    console.log(`  Promo discountValue after repeated blur: "${promoOverflowTest.discValAfterBlur}", Error shown: ${promoOverflowTest.discError}`);
+    console.log(`  Promo minOrderAmount after repeated blur: "${promoOverflowTest.minValAfterBlur}", Error shown: ${promoOverflowTest.minError}`);
+    console.log(`  Promo maxDiscountAmount after repeated blur: "${promoOverflowTest.maxValAfterBlur}", Error shown: ${promoOverflowTest.maxOverflowError}`);
+    console.log(`  Promo maxDiscountAmount = 0 Error shown: ${promoOverflowTest.maxZeroError}`);
+    assert(promoOverflowTest.discValAfterBlur === '1000000000000000000000', 'discountValue must not mutate on blur');
+    assert(promoOverflowTest.discError, 'discountValue overflow error must appear');
+    assert(promoOverflowTest.minValAfterBlur === '1000000000000000000000', 'minOrderAmount must not mutate on blur');
+    assert(promoOverflowTest.minError, 'minOrderAmount overflow error must appear');
+    assert(promoOverflowTest.maxValAfterBlur === '1000000000000000000000', 'maxDiscountAmount must not mutate on blur');
+    assert(promoOverflowTest.maxOverflowError, 'maxDiscountAmount overflow error must appear');
+    assert(promoOverflowTest.maxZeroError, 'maxDiscountAmount = 0 error must appear');
+    assert(promoOverflowTest.modalStillOpen, 'Modal must remain open with draft intact');
+    console.log('✅ R3: Staff CMS promo overflow and repeated blur verified across all fields');
+
     // Test promo required validation when discount is empty
     await evaluate(`(() => {
       const modal = document.querySelector('.fixed.inset-0');
@@ -633,6 +808,12 @@ async function main() {
       if (titleLabel) {
         const titleInput = titleLabel.closest('div').querySelector('input');
         if (titleInput) window.setReactVal(titleInput, 'Khuyến Mãi Issue 71 Test');
+      }
+
+      const discLabel = Array.from(modal.querySelectorAll('label')).find(l => l.innerText.includes('Giá Trị Giảm') || l.innerText.includes('Số Tiền Giảm'));
+      if (discLabel) {
+        const discInput = discLabel.closest('div').querySelector('input[type="number"]');
+        if (discInput) window.setReactVal(discInput, '');
       }
 
       // Submit
@@ -673,6 +854,241 @@ async function main() {
     console.log(`  Promo created and visible in list: ${promoCreated}`);
     assert(promoCreated, 'Created promo must be visible in list');
     console.log('✅ Staff CMS: Promo created with minOrder 50000, discount 15%, maxDiscount unlimited');
+
+    // =========================================================================
+    // PART 4: R1 & R2 VERIFICATION - CLEAR PROMO CAP & CLEAR PROMO CODE
+    // =========================================================================
+    console.log('\n--- PART 4: Testing R1 (Clear Cap) & R2 (Clear Code) on Existing Promo ---');
+
+    // 1. Create a promo with code 'CAPCODE71' and max discount 20000 through the UI
+    console.log('Creating promo with code CAPCODE71 and maxDiscount 20000 via UI...');
+    await evaluate(`(() => {
+      const addPromo = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Tạo Khuyến Mãi Mới'));
+      if (addPromo) addPromo.click();
+    })()`);
+    await sleep(800);
+
+    await evaluate(`(() => {
+      const modal = document.querySelector('.fixed.inset-0');
+      const labels = Array.from(modal.querySelectorAll('label'));
+
+      const codeInput = labels.find(l => l.innerText.includes('Mã Code')).closest('div').querySelector('input');
+      const titleInput = labels.find(l => l.innerText.includes('Tiêu Đề Khuyến Mãi')).closest('div').querySelector('input');
+      const discInput = labels.find(l => l.innerText.includes('Giá Trị Giảm') || l.innerText.includes('Số Tiền Giảm')).closest('div').querySelector('input[type="number"]');
+      const minInput = labels.find(l => l.innerText.includes('Đơn Tối Thiểu')).closest('div').parentElement.querySelector('input[type="number"]');
+      const maxInput = labels.find(l => l.innerText.includes('Giảm Tối Đa')).closest('div').querySelector('input[type="number"]');
+
+      window.setReactVal(codeInput, 'CAPCODE71');
+      window.setReactVal(titleInput, 'Promo R1 R2 Cap Code Test');
+      window.setReactVal(discInput, '20');
+      window.setReactVal(minInput, '30000');
+      window.setReactVal(maxInput, '20000');
+
+      const submitBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.includes('Lưu Khuyến Mãi'));
+      submitBtn.click();
+    })()`);
+    await sleep(1500);
+
+    // 2. Click Edit on "Promo R1 R2 Cap Code Test"
+    console.log('Opening edit modal for Promo R1 R2 Cap Code Test...');
+    const openEditResult = await evaluate(`(() => {
+      const cards = Array.from(document.querySelectorAll('.rounded-2xl'));
+      const targetCard = cards.find(c => c.innerText.includes('Promo R1 R2 Cap Code Test'));
+      if (!targetCard) return { error: 'Target promo card not found' };
+
+      const editBtn = targetCard.querySelector('button');
+      if (editBtn) editBtn.click();
+      return { success: true };
+    })()`);
+    assert(openEditResult.success, openEditResult.error);
+    await sleep(800);
+
+    // 3. Verify code and maxDiscountAmount in edit modal, then CLEAR both
+    console.log('Verifying existing code and cap, then clearing both in modal...');
+    const clearInputsResult = await evaluate(`(() => {
+      const modal = document.querySelector('.fixed.inset-0');
+      const labels = Array.from(modal.querySelectorAll('label'));
+
+      const codeInput = labels.find(l => l.innerText.includes('Mã Code')).closest('div').querySelector('input');
+      const maxInput = labels.find(l => l.innerText.includes('Giảm Tối Đa')).closest('div').querySelector('input[type="number"]');
+
+      const initialCode = codeInput ? codeInput.value : null;
+      const initialMax = maxInput ? maxInput.value : null;
+
+      // Clear both inputs
+      window.setReactVal(codeInput, '');
+      window.setReactVal(maxInput, '');
+      maxInput.dispatchEvent(new Event('blur', { bubbles: true }));
+
+      const codeAfterClear = codeInput.value;
+      const maxAfterClear = maxInput.value;
+
+      // Click "Lưu Khuyến Mãi"
+      const submitBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.includes('Lưu Khuyến Mãi'));
+      submitBtn.click();
+
+      return {
+        initialCode,
+        initialMax,
+        codeAfterClear,
+        maxAfterClear
+      };
+    })()`);
+
+    console.log(`  Initial code: "${clearInputsResult.initialCode}", Initial max: "${clearInputsResult.initialMax}"`);
+    console.log(`  Code after clear: "${clearInputsResult.codeAfterClear}", Max after clear: "${clearInputsResult.maxAfterClear}"`);
+    assert(clearInputsResult.initialCode === 'CAPCODE71', 'Edit modal must initially show CAPCODE71');
+    assert(clearInputsResult.initialMax === '20000', 'Edit modal must initially show 20000');
+    assert(clearInputsResult.codeAfterClear === '', 'Code must be cleared to empty string');
+    assert(clearInputsResult.maxAfterClear === '', 'Max discount must be cleared to empty string');
+    await sleep(1500);
+
+    // 4. Verify via API readback: code must be null, maxDiscountAmount must be undefined (unlimited)
+    console.log('Verifying via API GET /cms/promotions...');
+    const verifyApiRes = await fetch(`${API_BASE}/cms/promotions`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const verifyData = await verifyApiRes.json();
+    const updatedPromo = (verifyData.promotions || verifyData).find(p => p.title === 'Promo R1 R2 Cap Code Test');
+    assert(updatedPromo, 'Promo not found in API list');
+    console.log(`  API readback code:`, updatedPromo.code);
+    console.log(`  API readback maxDiscountAmount:`, updatedPromo.maxDiscountAmount);
+    assert(updatedPromo.code === null, 'R2: Promo code must be null after clearing');
+    assert(updatedPromo.maxDiscountAmount === undefined || updatedPromo.maxDiscountAmount === null, 'R1: Max discount cap must be null/undefined (unlimited) after clearing');
+    console.log('✅ R1 & R2: Promo code and discount cap successfully removed and verified via API');
+
+    // 5. Re-open edit modal on UI to verify inputs display empty without old code or cap
+    console.log('Re-opening edit modal to verify UI reflects cleared code and cap...');
+    const reopenCheck = await evaluate(`(() => {
+      const cards = Array.from(document.querySelectorAll('.rounded-2xl'));
+      const targetCard = cards.find(c => c.innerText.includes('Promo R1 R2 Cap Code Test'));
+      if (!targetCard) return { error: 'Target card not found' };
+
+      const editBtn = targetCard.querySelector('button');
+      if (editBtn) editBtn.click();
+      return { success: true };
+    })()`);
+    assert(reopenCheck.success, reopenCheck.error);
+    await sleep(800);
+
+    const recheckInputs = await evaluate(`(() => {
+      const modal = document.querySelector('.fixed.inset-0');
+      const labels = Array.from(modal.querySelectorAll('label'));
+
+      const codeInput = labels.find(l => l.innerText.includes('Mã Code')).closest('div').querySelector('input');
+      const maxInput = labels.find(l => l.innerText.includes('Giảm Tối Đa')).closest('div').querySelector('input[type="number"]');
+
+      const codeVal = codeInput ? codeInput.value : null;
+      const maxVal = maxInput ? maxInput.value : null;
+      const maxPlaceholder = maxInput ? maxInput.getAttribute('placeholder') : null;
+
+      // Close modal
+      const cancelBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.includes('Hủy'));
+      if (cancelBtn) cancelBtn.click();
+
+      return {
+        codeVal,
+        maxVal,
+        maxPlaceholder
+      };
+    })()`);
+
+    console.log(`  Reopened code value: "${recheckInputs.codeVal}"`);
+    console.log(`  Reopened maxDiscount value: "${recheckInputs.maxVal}" (placeholder: "${recheckInputs.maxPlaceholder}")`);
+    assert(recheckInputs.codeVal === '', 'Reopened code input must be empty string');
+    assert(recheckInputs.maxVal === '', 'Reopened max discount input must be empty string');
+    console.log('✅ R1 & R2: Reopened modal accurately displays empty code and unlimited cap placeholder');
+    await sleep(500);
+
+    // =========================================================================
+    // PART 5: DRAFT PRESERVATION ON API / NETWORK ERROR
+    // =========================================================================
+    console.log('\n--- PART 5: Testing Draft Preservation on Network Error ---');
+
+    // Open Add Promo modal
+    await evaluate(`(() => {
+      const addPromo = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Tạo Khuyến Mãi Mới'));
+      if (addPromo) addPromo.click();
+    })()`);
+    await sleep(800);
+
+    // Fill form and simulate API failure by temporarily modifying request / window.fetch
+    const draftTestResult = await evaluate(`(async () => {
+      const modal = document.querySelector('.fixed.inset-0');
+      const labels = Array.from(modal.querySelectorAll('label'));
+
+      const titleInput = labels.find(l => l.innerText.includes('Tiêu Đề Khuyến Mãi')).closest('div').querySelector('input');
+      const discInput = labels.find(l => l.innerText.includes('Giá Trị Giảm') || l.innerText.includes('Số Tiền Giảm')).closest('div').querySelector('input[type="number"]');
+
+      window.setReactVal(titleInput, 'Draft Promo Preserve Test');
+      window.setReactVal(discInput, '35');
+
+      // Intercept window.fetch temporarily to simulate network error on /cms/promotions
+      const origFetch = window.fetch;
+      window.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.includes('/cms/promotions')) {
+          return new Response(JSON.stringify({ error: 'NETWORK_ERROR', message: 'Mất kết nối máy chủ giả lập' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return origFetch(url, opts);
+      };
+
+      // Submit
+      const submitBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.includes('Lưu Khuyến Mãi'));
+      submitBtn.click();
+
+      // Wait for error actionMsg
+      await new Promise(r => setTimeout(r, 600));
+
+      // Restore fetch
+      window.fetch = origFetch;
+
+      const titleValAfterError = titleInput.value;
+      const discValAfterError = discInput.value;
+      const hasErrorMessage = document.body.innerText.includes('Mất kết nối máy chủ giả lập');
+      const modalStillOpen = !!document.querySelector('.fixed.inset-0 input');
+
+      // Cancel modal
+      const cancelBtn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText.includes('Hủy'));
+      if (cancelBtn) cancelBtn.click();
+
+      return {
+        titleValAfterError,
+        discValAfterError,
+        hasErrorMessage,
+        modalStillOpen
+      };
+    })()`);
+
+    console.log(`  Draft title after error: "${draftTestResult.titleValAfterError}"`);
+    console.log(`  Draft discount after error: "${draftTestResult.discValAfterError}"`);
+    console.log(`  Error message displayed: ${draftTestResult.hasErrorMessage}`);
+    console.log(`  Modal still open on error: ${draftTestResult.modalStillOpen}`);
+    assert(draftTestResult.hasErrorMessage, 'Error message must be shown when API fails');
+    assert(draftTestResult.modalStillOpen, 'Modal must remain open when API fails');
+    assert(draftTestResult.titleValAfterError === 'Draft Promo Preserve Test', 'Draft title must be preserved on API error');
+    assert(draftTestResult.discValAfterError === '35', 'Draft discount must be preserved on API error');
+    console.log('✅ Draft preservation on API/network error verified');
+    await sleep(500);
+
+    // Delete cap test promo
+    try {
+      const promoListRes = await fetch(`${API_BASE}/cms/promotions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await promoListRes.json();
+      const promos = Array.isArray(data) ? data : (data.promotions || []);
+      const testP = promos.find(p => p.title === 'Promo R1 R2 Cap Code Test');
+      if (testP) {
+        await fetch(`${API_BASE}/cms/promotions/${testP.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        console.log('  Cleaned up R1/R2 test promotion');
+      }
+    } catch {}
 
     // =========================================================================
     // CLEANUP TEST DATA
