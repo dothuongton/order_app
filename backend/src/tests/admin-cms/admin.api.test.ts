@@ -486,6 +486,122 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(userAfter.rows[0].password_hash).toBe(origHash);
         });
 
+        it('handles concurrent shop creations with same email (normalized case) with 201 winner, 409 loser, and 0 orphan tenants (Issue #82)', async () => {
+            const timestamp = Date.now();
+            const emailLower = `concurrent.owner.${timestamp}@domain.vn`;
+            const emailUpper = `CONCURRENT.OWNER.${timestamp}@DOMAIN.VN`;
+            const slug1 = `race-shop-1-${timestamp}`;
+            const slug2 = `race-shop-2-${timestamp}`;
+
+            // Fire two simultaneous creation requests
+            const [resA, resB] = await Promise.all([
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Đua A',
+                        slug: slug1,
+                        ownerFullName: 'Chủ Đua A',
+                        ownerEmail: emailLower,
+                        ownerPassword: 'SecretPasswordA123!'
+                    })
+                }),
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Đua B',
+                        slug: slug2,
+                        ownerFullName: 'Chủ Đua B',
+                        ownerEmail: emailUpper,
+                        ownerPassword: 'SecretPasswordB123!'
+                    })
+                })
+            ]);
+
+            const statuses = [resA.status, resB.status].sort();
+            expect(statuses).toEqual([201, 409]);
+
+            const winnerRes = resA.status === 201 ? resA : resB;
+            const loserRes = resA.status === 409 ? resA : resB;
+            const loserData: any = await loserRes.json();
+            expect(loserData.error).toBe('OWNER_EMAIL_EXISTS');
+
+            const winnerData: any = await winnerRes.json();
+            const winnerSlug = winnerData.shop.slug;
+            const loserSlug = winnerSlug === slug1 ? slug2 : slug1;
+
+            // Database invariants:
+            // 1. Exactly 1 user exists in users table
+            const userCheck = await query('SELECT id, email, password_hash FROM users WHERE LOWER(email) = LOWER($1)', [emailLower]);
+            expect(userCheck.rows.length).toBe(1);
+
+            // 2. Winner tenant exists, Loser tenant rolled back (NO orphan tenant)
+            const winnerTenant = await query('SELECT id, slug FROM tenants WHERE slug = $1', [winnerSlug]);
+            expect(winnerTenant.rows.length).toBe(1);
+
+            const loserTenant = await query('SELECT id, slug FROM tenants WHERE slug = $1', [loserSlug]);
+            expect(loserTenant.rows.length).toBe(0);
+
+            // 3. No orphaned memberships or audit logs for loser
+            const allMemberships = await query('SELECT tenant_id FROM memberships WHERE user_id = $1', [userCheck.rows[0].id]);
+            expect(allMemberships.rows.length).toBe(1);
+            expect(allMemberships.rows[0].tenant_id).toBe(winnerTenant.rows[0].id);
+        });
+
+        it('handles concurrent shop creations with identical slug with 201 winner and 400 loser (Issue #82)', async () => {
+            const timestamp = Date.now();
+            const identicalSlug = `same-slug-race-${timestamp}`;
+
+            const [resA, resB] = await Promise.all([
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Trùng Slug A',
+                        slug: identicalSlug,
+                        ownerFullName: 'Chủ Slug A',
+                        ownerEmail: `ownerA.${timestamp}@domain.vn`,
+                        ownerPassword: 'PasswordA123!'
+                    })
+                }),
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Trùng Slug B',
+                        slug: identicalSlug,
+                        ownerFullName: 'Chủ Slug B',
+                        ownerEmail: `ownerB.${timestamp}@domain.vn`,
+                        ownerPassword: 'PasswordB123!'
+                    })
+                })
+            ]);
+
+            const statuses = [resA.status, resB.status].sort();
+            expect(statuses).toEqual([201, 400]);
+
+            const loserRes = resA.status === 400 ? resA : resB;
+            const loserData: any = await loserRes.json();
+            expect(loserData.error).toBe('BAD_REQUEST');
+
+            // Exactly 1 tenant exists in DB for this slug
+            const tenantsInDb = await query('SELECT id FROM tenants WHERE slug = $1', [identicalSlug]);
+            expect(tenantsInDb.rows.length).toBe(1);
+        });
+
         it('rejects duplicate shop slug and rolls back transaction', async () => {
             const dupPayload = {
                 name: 'Quán Trùng Slug',
@@ -712,6 +828,64 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(resInvalid.status).toBe(400);
             const errorData: any = await resInvalid.json();
             expect(errorData.error).toBe('BAD_REQUEST');
+
+            // Non-existent calendar date returns 400 (Issue #84)
+            const resFeb30 = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-02-30`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resFeb30.status).toBe(400);
+
+            // Chronological order violation (from > to) returns 400
+            const resReversed = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-10-25&endDate=2026-10-20`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resReversed.status).toBe(400);
+
+            // Conflicting alias parameters return 400
+            const resConflictAlias = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-10-20&from=2026-10-21`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resConflictAlias.status).toBe(400);
+        });
+
+        it('filters audit logs matching UTC+7 Vietnam day boundaries accurately (Issue #84)', async () => {
+            const probeAction = 'SUPER_ADMIN_TIMEZONE_PROBE_' + Date.now();
+            // Entry 1: 2026-10-19T18:00:00Z -> In UTC+7 this is 2026-10-20 01:00:00
+            const entry1Time = new Date('2026-10-19T18:00:00.000Z');
+            // Entry 2: 2026-10-20T18:00:00Z -> In UTC+7 this is 2026-10-21 01:00:00
+            const entry2Time = new Date('2026-10-20T18:00:00.000Z');
+
+            await query(
+                `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, created_at)
+                 VALUES ($1::uuid, NULL, $2, 'tenant', $3, '{"entry":1}', $4)`,
+                [seedTenantId, probeAction, String(seedTenantId), entry1Time]
+            );
+
+            await query(
+                `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, created_at)
+                 VALUES ($1::uuid, NULL, $2, 'tenant', $3, '{"entry":2}', $4)`,
+                [seedTenantId, probeAction, String(seedTenantId), entry2Time]
+            );
+
+            // Query specifically for day 2026-10-20 in Vietnam time (UTC+7)
+            const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-10-20&endDate=2026-10-20&action=${probeAction}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            // Must include Entry 1 (Oct 20 01:00 VN) and exclude Entry 2 (Oct 21 01:00 VN)
+            expect(data.logs.length).toBe(1);
+            expect(data.logs[0].details.entry).toBe(1);
+
+            // Also test via aliases from / to
+            const resAlias = await fetch(`${baseUrl}/api/v1/admin/audit-logs?from=2026-10-20&to=2026-10-20&action=${probeAction}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resAlias.status).toBe(200);
+            const dataAlias: any = await resAlias.json();
+            expect(dataAlias.logs.length).toBe(1);
+            expect(dataAlias.logs[0].details.entry).toBe(1);
         });
 
         it('guarantees stable pagination with identical timestamps (Issue #84 deterministic order)', async () => {
