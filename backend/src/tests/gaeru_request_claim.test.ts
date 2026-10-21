@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import http from 'node:http';
 import { app } from '../app.js';
 import { query, pool } from '../db/pool.js';
 import { seed } from '../db/seed.js';
 import { config } from '../config/index.js';
+import { initSocketIO, broadcastToSession } from '../realtime/socket.js';
+import { io as connectSocket, Socket as ClientSocket } from 'socket.io-client';
 import crypto from 'node:crypto';
 
 describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () => {
     let server: any;
+    let ioServer: any;
     let baseUrl: string;
     let staffToken: string;
     let tenantId: string;
@@ -24,9 +28,11 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
 
         await seed(true);
 
-        // Start server on an ephemeral port
+        // Start server with Socket.IO on an ephemeral port
+        server = http.createServer(app);
+        ioServer = initSocketIO(server);
         await new Promise<void>((resolve) => {
-            server = app.listen(0, '127.0.0.1', () => {
+            server.listen(0, '127.0.0.1', () => {
                 const addr = server.address() as any;
                 baseUrl = `http://127.0.0.1:${addr.port}`;
                 resolve();
@@ -65,6 +71,9 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
 
     afterAll(async () => {
         (config as any).orderingMode = originalOrderingMode;
+        if (ioServer) {
+            await new Promise<void>((resolve) => ioServer.close(() => resolve()));
+        }
         if (server) {
             await new Promise<void>((resolve) => server.close(resolve));
         }
@@ -268,10 +277,9 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
             });
             expect(approveRes.status).toBe(200);
             const approveData: any = await approveRes.json();
-            claimedToken = approveData.token;
-            expect(claimedToken).toBeDefined();
+            expect(approveData.sessionId).toBeDefined();
 
-            // Device 1 joins session
+            // Device 1 joins session (token issued securely via HttpOnly cookie bound join)
             const joinRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/join`, {
                 method: 'POST',
                 headers: {
@@ -281,6 +289,9 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
                 body: JSON.stringify({})
             });
             expect(joinRes.status).toBe(200);
+            const joinData: any = await joinRes.json();
+            claimedToken = joinData.token;
+            expect(claimedToken).toBeDefined();
 
             // Device 1 places order -> MUST SUCCEED (201)
             const orderRes = await fetch(`${baseUrl}/api/v1/guest/orders`, {
@@ -453,6 +464,438 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
             expect(res.status).toBe(429);
             const data: any = await res.json();
             expect(data.code).toBe('RATE_LIMIT_EXCEEDED');
+        });
+    });
+
+    describe('8. G1: Socket Security & Authorization', () => {
+        it('does not leak token/device hash in table_session:approved public broadcast and authorizes session room by device', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA01Id]);
+
+            const devCookie = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // Connect a public table socket
+            const publicSocket: ClientSocket = connectSocket(baseUrl, {
+                transports: ['websocket'],
+                forceNew: true,
+                reconnection: false
+            });
+            await new Promise<void>((resolve, reject) => {
+                publicSocket.once('connect', resolve);
+                publicSocket.once('connect_error', reject);
+            });
+
+            await publicSocket.emitWithAck('join_table_room', { tableId: tableA01Id });
+
+            const approvedEventPromise = new Promise<any>((resolve) => {
+                publicSocket.on('table_session:approved', (payload: any) => resolve(payload));
+            });
+
+            // Device submits request
+            const reqRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cookie': `order_device=${devCookie}`
+                },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Socket' })
+            });
+            expect(reqRes.status).toBe(201);
+
+            // Staff approves
+            const approveRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/approve-request`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${staffToken}`
+                },
+                body: JSON.stringify({})
+            });
+            expect(approveRes.status).toBe(200);
+            const approveData = await approveRes.json() as any;
+
+            // Wait for public event
+            const approvedPayload = await approvedEventPromise;
+            expect(approvedPayload.tableId).toBe(tableA01Id);
+            expect(approvedPayload.sessionId).toBe(approveData.sessionId);
+            // G1: Must NOT leak token or claimedDeviceHash
+            expect(approvedPayload.token).toBeUndefined();
+            expect(approvedPayload.claimedDeviceHash).toBeUndefined();
+
+            // Device joins via join endpoint to receive token
+            const joinRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/join`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cookie': `order_device=${devCookie}`
+                },
+                body: JSON.stringify({})
+            });
+            expect(joinRes.status).toBe(200);
+            const { token: guestToken } = await joinRes.json() as any;
+
+            // An unauthorized viewer socket (no cookie) tries to join the private session room -> DENIED
+            const viewerSocket: ClientSocket = connectSocket(baseUrl, {
+                transports: ['websocket'],
+                forceNew: true,
+                reconnection: false
+            });
+            await new Promise<void>((resolve, reject) => {
+                viewerSocket.once('connect', resolve);
+                viewerSocket.once('connect_error', reject);
+            });
+
+            let viewerRejected = false;
+            try {
+                const res = await viewerSocket.timeout(1500).emitWithAck('join_session_room', {
+                    sessionId: approveData.sessionId,
+                    token: guestToken
+                });
+                if (!res?.ok) viewerRejected = true;
+            } catch {
+                viewerRejected = true;
+            }
+            expect(viewerRejected).toBe(true);
+
+            // The claimed device socket (with matching cookie) joins the session room -> ALLOWED
+            const claimedSocket: ClientSocket = connectSocket(baseUrl, {
+                transports: ['websocket'],
+                forceNew: true,
+                reconnection: false,
+                auth: {
+                    deviceToken: devCookie
+                },
+                extraHeaders: {
+                    'Cookie': `order_device=${devCookie}`
+                }
+            });
+            await new Promise<void>((resolve, reject) => {
+                claimedSocket.once('connect', resolve);
+                claimedSocket.once('connect_error', reject);
+            });
+
+            const joinResult = await claimedSocket.timeout(2000).emitWithAck('join_session_room', {
+                sessionId: approveData.sessionId,
+                token: guestToken
+            });
+            expect(joinResult.ok).toBe(true);
+
+            // Cleanup sockets
+            publicSocket.disconnect();
+            viewerSocket.disconnect();
+            claimedSocket.disconnect();
+        });
+    });
+
+    describe('9. G2: Mode Gating & Legacy Staff Open Compatibility', () => {
+        it('gates all new endpoints with 403 FEATURE_DISABLED when orderingMode !== approved_single_device', async () => {
+            (config as any).orderingMode = 'multi_device';
+            try {
+                const dev = createDeviceCookie();
+                const reqId = crypto.randomUUID();
+
+                // 1. request-open -> 403
+                const reqRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                    body: JSON.stringify({ requestId: reqId, guestName: 'Khách Gated' })
+                });
+                expect(reqRes.status).toBe(403);
+                expect((await reqRes.json() as any).code).toBe('FEATURE_DISABLED');
+
+                // 2. withdraw-request -> 403
+                const withRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/withdraw-request`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                    body: JSON.stringify({ requestId: reqId })
+                });
+                expect(withRes.status).toBe(403);
+                expect((await withRes.json() as any).code).toBe('FEATURE_DISABLED');
+
+                // 3. approve-request -> 403
+                const appRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/approve-request`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` },
+                    body: JSON.stringify({})
+                });
+                expect(appRes.status).toBe(403);
+                expect((await appRes.json() as any).code).toBe('FEATURE_DISABLED');
+
+                // 4. reject-request -> 403
+                const rejRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/reject-request`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` },
+                    body: JSON.stringify({})
+                });
+                expect(rejRes.status).toBe(403);
+                expect((await rejRes.json() as any).code).toBe('FEATURE_DISABLED');
+
+                // 5. release-claim -> 403
+                const relRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/release-claim`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` },
+                    body: JSON.stringify({})
+                });
+                expect(relRes.status).toBe(403);
+                expect((await relRes.json() as any).code).toBe('FEATURE_DISABLED');
+
+                // 6. getPublicTableMenu has canRequest: false
+                const menuRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/menu`);
+                const menuData = await menuRes.json() as any;
+                expect(menuData.table.canRequest).toBe(false);
+            } finally {
+                (config as any).orderingMode = 'approved_single_device';
+            }
+        });
+
+        it('supersedes pending sessions when staff opens session directly without unique constraint failure', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA02Id]);
+
+            // Create a pending session
+            const dev = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+            const reqRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Đang Chờ' })
+            });
+            expect(reqRes.status).toBe(201);
+
+            // Legacy staff opens table directly
+            const openRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA02Id}/open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` }
+            });
+            expect([200, 201]).toContain(openRes.status);
+
+            // Check that previous pending session was marked SUPERSEDED_BY_STAFF
+            const checkRes = await query(`
+                SELECT status, close_reason FROM table_sessions WHERE request_id = $1
+            `, [reqId]);
+            expect(checkRes.rows[0].status).toBe('CLOSED');
+            expect(checkRes.rows[0].close_reason).toBe('SUPERSEDED_BY_STAFF');
+        });
+    });
+
+    describe('10. G3: Replacement Claim on OPEN Session', () => {
+        it('allows device B to request and claim an OPEN session after claim release, preserving bill and orders', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA01Id]);
+
+            const devA = createDeviceCookie();
+            const devB = createDeviceCookie();
+            const reqAId = crypto.randomUUID();
+            const reqBId = crypto.randomUUID();
+
+            // 1. Device A requests and gets approved
+            await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devA}` },
+                body: JSON.stringify({ requestId: reqAId, guestName: 'Khách A' })
+            });
+            const approveResA = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/approve-request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` }
+            });
+            const approveDataA = await approveResA.json() as any;
+            const sessionId = approveDataA.sessionId;
+
+            // Device A joins and places Order #1
+            const joinResA = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devA}` }
+            });
+            const { token: tokenA } = await joinResA.json() as any;
+
+            const order1Res = await fetch(`${baseUrl}/api/v1/guest/orders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-guest-token': tokenA,
+                    'Cookie': `order_device=${devA}`
+                },
+                body: JSON.stringify({
+                    idempotencyKey: crypto.randomUUID(),
+                    items: [{ menuItemId, quantity: 1 }]
+                })
+            });
+            expect(order1Res.status).toBe(201);
+
+            // 2. Staff releases claim on Table A01
+            const releaseRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/release-claim`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` }
+            });
+            expect(releaseRes.status).toBe(200);
+
+            // Device B checks menu: canRequest is true!
+            const menuResB = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/menu`, {
+                headers: { 'Cookie': `order_device=${devB}` }
+            });
+            const menuDataB = await menuResB.json() as any;
+            expect(menuDataB.table.canRequest).toBe(true);
+            expect(menuDataB.table.canOrder).toBe(false);
+
+            // 3. Device B sends replacement request
+            const reqBRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devB}` },
+                body: JSON.stringify({ requestId: reqBId, guestName: 'Khách B Thay Thế' })
+            });
+            expect(reqBRes.status).toBe(201);
+
+            // 4. Staff approves Device B's replacement request
+            const approveResB = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/approve-request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` }
+            });
+            expect(approveResB.status).toBe(200);
+            const approveDataB = await approveResB.json() as any;
+            expect(approveDataB.sessionId).toBe(sessionId);
+
+            // 5. Device B joins and places Order #2
+            const joinResB = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devB}` }
+            });
+            expect(joinResB.status).toBe(200);
+            const { token: tokenB } = await joinResB.json() as any;
+
+            const order2Res = await fetch(`${baseUrl}/api/v1/guest/orders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-guest-token': tokenB,
+                    'Cookie': `order_device=${devB}`
+                },
+                body: JSON.stringify({
+                    idempotencyKey: crypto.randomUUID(),
+                    items: [{ menuItemId, quantity: 2 }]
+                })
+            });
+            expect(order2Res.status).toBe(201);
+
+            // 6. Device A tries to order -> BLOCKED with 401 (token revoked upon claim release) or 403 (device not claimed)
+            const order3Res = await fetch(`${baseUrl}/api/v1/guest/orders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-guest-token': tokenA,
+                    'Cookie': `order_device=${devA}`
+                },
+                body: JSON.stringify({
+                    idempotencyKey: crypto.randomUUID(),
+                    items: [{ menuItemId, quantity: 1 }]
+                })
+            });
+            expect([401, 403]).toContain(order3Res.status);
+
+            // 7. Bill verification: exactly 1 bill for this session, containing 2 orders (quantity 1 + 2 = 3)
+            const ordersRes = await query(`
+                SELECT COUNT(*) as count FROM orders WHERE session_id = $1
+            `, [sessionId]);
+            expect(parseInt(ordersRes.rows[0].count, 10)).toBe(2);
+        });
+    });
+
+    describe('11. G4: Full Lifecycle Idempotency', () => {
+        it('evaluates checkIdempotency before rate limiting so replay does not trigger 429', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA01Id]);
+
+            const dev = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // First call
+            const firstRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Idempotent' })
+            });
+            expect(firstRes.status).toBe(201);
+
+            // Send 10 identical requests (exceeding rate limit of 6 if counted)
+            for (let i = 0; i < 10; i++) {
+                const replayRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                    body: JSON.stringify({ requestId: reqId, guestName: 'Khách Idempotent' })
+                });
+                expect(replayRes.status).toBe(200);
+            }
+        });
+
+        it('returns terminal WITHDRAWN state on replay without duplicate session rows', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA02Id]);
+
+            const dev = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // 1. Submit request
+            await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Rút' })
+            });
+
+            // 2. Customer withdraws
+            const withRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/withdraw-request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId })
+            });
+            expect(withRes.status).toBe(200);
+
+            // 3. Replay request-open with same requestId
+            const replayRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Rút' })
+            });
+            expect(replayRes.status).toBe(200);
+            const replayData = await replayRes.json() as any;
+            expect(replayData.status).toBe('WITHDRAWN');
+
+            // 4. Verify exactly 1 session row exists for this requestId
+            const countRes = await query(`
+                SELECT COUNT(*) as count FROM table_sessions WHERE request_id = $1
+            `, [reqId]);
+            expect(parseInt(countRes.rows[0].count, 10)).toBe(1);
+        });
+
+        it('returns terminal REJECTED state on replay without duplicate session rows', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA02Id]);
+
+            const dev = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // 1. Submit request
+            await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Bị Từ Chối' })
+            });
+
+            // 2. Staff rejects
+            const rejRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA02Id}/reject-request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` }
+            });
+            expect(rejRes.status).toBe(200);
+
+            // 3. Replay request-open with same requestId
+            const replayRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Bị Từ Chối' })
+            });
+            expect(replayRes.status).toBe(200);
+            const replayData = await replayRes.json() as any;
+            expect(replayData.status).toBe('REJECTED');
+
+            // 4. Verify exactly 1 session row exists
+            const countRes = await query(`
+                SELECT COUNT(*) as count FROM table_sessions WHERE request_id = $1
+            `, [reqId]);
+            expect(parseInt(countRes.rows[0].count, 10)).toBe(1);
         });
     });
 });

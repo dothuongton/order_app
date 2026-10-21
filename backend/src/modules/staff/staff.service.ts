@@ -1,6 +1,8 @@
 import { query, withTransaction } from '../../db/pool.js';
 import { broadcastToStaff, broadcastToSession, broadcastToTable } from '../../realtime/socket.js';
 import { generateRandomToken, hashToken } from '../../utils/crypto.js';
+import { recordIdempotency } from '../../utils/idempotency.js';
+import { config } from '../../config/index.js';
 import qrcode from 'qrcode';
 
 import { z } from 'zod';
@@ -199,6 +201,27 @@ export class StaffService {
                 };
             }
 
+            // G2: If there are pending requests, supersede them so they don't block opening
+            const pendingRes = await client.query(`
+                UPDATE table_sessions
+                SET status = 'CLOSED', close_reason = 'SUPERSEDED_BY_STAFF', closed_at = NOW(), closed_by = $1, updated_at = NOW()
+                WHERE table_id = $2 AND status = 'PENDING_APPROVAL'
+                RETURNING id, request_id, requester_guest_name
+            `, [userId, tableId]);
+
+            for (const p of pendingRes.rows) {
+                if (p.request_id) {
+                    await recordIdempotency(client, tenantId, 'request_table_open', tableId, p.request_id, { guestName: p.requester_guest_name }, {
+                        status: 'SUPERSEDED_BY_STAFF',
+                        sessionId: p.id,
+                        requestId: p.request_id,
+                        message: 'Yêu cầu mở bàn bị thay thế bởi nhân viên mở trực tiếp'
+                    });
+                }
+                broadcastToStaff(tenantId, 'table_session:rejected', { tableId, sessionId: p.id });
+                broadcastToTable(tableId, 'table_session:status_changed', { tableId, status: 'VACANT' });
+            }
+
             // Create new session
             const sessionRes = await client.query(`
                 INSERT INTO table_sessions (tenant_id, table_id, status, opened_by, opened_at)
@@ -228,6 +251,10 @@ export class StaffService {
 
     // 2b. Gaeru Flow - Approve Session Request (P1)
     static async approveSessionRequest(tenantId: string, tableId: string, userId: string, input?: { sessionId?: string; expectedVersion?: number }) {
+        if (config.orderingMode !== 'approved_single_device') {
+            throw { status: 403, code: 'FEATURE_DISABLED', message: 'Tính năng không khả dụng' };
+        }
+
         return await withTransaction(async (client) => {
             const tenant = await client.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
             if (tenant.rows[0]?.status !== 'active') throw { status: 403, code: 'SHOP_SUSPENDED', message: 'Quán đang ngừng nhận khách' };
@@ -248,10 +275,10 @@ export class StaffService {
                 throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn đang bị tắt sử dụng' };
             }
 
-            // Lock pending session
+            // Lock session: either PENDING_APPROVAL or (OPEN and claimed_device_hash IS NULL and requester_device_hash IS NOT NULL)
             const sessionQuery = input?.sessionId
-                ? `SELECT * FROM table_sessions WHERE id = $1 AND table_id = $2 AND tenant_id = $3 AND status = 'PENDING_APPROVAL' FOR UPDATE`
-                : `SELECT * FROM table_sessions WHERE table_id = $1 AND tenant_id = $2 AND status = 'PENDING_APPROVAL' FOR UPDATE`;
+                ? `SELECT * FROM table_sessions WHERE id = $1 AND table_id = $2 AND tenant_id = $3 AND (status = 'PENDING_APPROVAL' OR (status = 'OPEN' AND claimed_device_hash IS NULL AND requester_device_hash IS NOT NULL)) FOR UPDATE`
+                : `SELECT * FROM table_sessions WHERE table_id = $1 AND tenant_id = $2 AND (status = 'PENDING_APPROVAL' OR (status = 'OPEN' AND claimed_device_hash IS NULL AND requester_device_hash IS NOT NULL)) FOR UPDATE`;
             const sessionParams = input?.sessionId
                 ? [input.sessionId, tableId, tenantId]
                 : [tableId, tenantId];
@@ -263,11 +290,32 @@ export class StaffService {
 
             const session = sessionRes.rows[0];
             if (session.expires_at && new Date(session.expires_at).getTime() <= Date.now()) {
-                await client.query(`
-                    UPDATE table_sessions
-                    SET status = 'CLOSED', close_reason = 'EXPIRED', updated_at = NOW()
-                    WHERE id = $1
-                `, [session.id]);
+                if (session.status === 'PENDING_APPROVAL') {
+                    await client.query(`
+                        UPDATE table_sessions
+                        SET status = 'CLOSED', close_reason = 'EXPIRED', updated_at = NOW()
+                        WHERE id = $1
+                    `, [session.id]);
+                } else {
+                    await client.query(`
+                        UPDATE table_sessions
+                        SET requester_device_hash = NULL,
+                            requester_guest_name = NULL,
+                            request_id = NULL,
+                            requested_at = NULL,
+                            expires_at = NULL,
+                            updated_at = NOW()
+                        WHERE id = $1
+                    `, [session.id]);
+                }
+                if (session.request_id) {
+                    await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name }, {
+                        status: 'EXPIRED',
+                        sessionId: session.id,
+                        requestId: session.request_id,
+                        message: 'Yêu cầu mở bàn đã hết hạn'
+                    });
+                }
                 return {
                     isError: true,
                     status: 409,
@@ -285,39 +333,59 @@ export class StaffService {
                 await client.query(`UPDATE tables SET readiness = 'READY' WHERE id = $1`, [tableId]);
             }
 
-            // Approve and open session
-            const updateRes = await client.query(`
-                UPDATE table_sessions
-                SET status = 'OPEN',
-                    approved_at = NOW(),
-                    approved_by = $1,
-                    opened_at = NOW(),
-                    opened_by = $1,
-                    claimed_device_hash = requester_device_hash,
-                    claim_version = 1,
-                    updated_at = NOW()
-                WHERE id = $2
-                RETURNING *
-            `, [userId, session.id]);
+            let approvedSession: any;
+            if (session.status === 'PENDING_APPROVAL') {
+                // Approve and open new session
+                const updateRes = await client.query(`
+                    UPDATE table_sessions
+                    SET status = 'OPEN',
+                        approved_at = NOW(),
+                        approved_by = $1,
+                        opened_at = NOW(),
+                        opened_by = $1,
+                        claimed_device_hash = requester_device_hash,
+                        requester_device_hash = NULL,
+                        claim_version = 1,
+                        updated_at = NOW()
+                    WHERE id = $2
+                    RETURNING *
+                `, [userId, session.id]);
 
-            const approvedSession = updateRes.rows[0];
+                approvedSession = updateRes.rows[0];
 
-            // Create initial bill
-            await client.query(`
-                INSERT INTO bills (tenant_id, session_id, status, total_amount)
-                VALUES ($1, $2, 'OPEN', 0)
-                ON CONFLICT (session_id) DO NOTHING
-            `, [tenantId, approvedSession.id]);
+                // Create initial bill
+                await client.query(`
+                    INSERT INTO bills (tenant_id, session_id, status, total_amount)
+                    VALUES ($1, $2, 'OPEN', 0)
+                    ON CONFLICT (session_id) DO NOTHING
+                `, [tenantId, approvedSession.id]);
+            } else {
+                // Approve replacement on existing OPEN session (G3)
+                const nextClaimVersion = (session.claim_version || 1) + 1;
+                const updateRes = await client.query(`
+                    UPDATE table_sessions
+                    SET claimed_device_hash = requester_device_hash,
+                        requester_device_hash = NULL,
+                        claim_version = $1,
+                        updated_at = NOW()
+                    WHERE id = $2
+                    RETURNING *
+                `, [nextClaimVersion, session.id]);
 
-            // Create guest token for the requester device
-            const rawToken = generateRandomToken(32);
-            const tokenHash = hashToken(rawToken);
-            await client.query(`
-                INSERT INTO guest_sessions (tenant_id, table_id, session_id, token_hash, device_fingerprint, expires_at)
-                VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '24 hours')
-            `, [tenantId, tableId, approvedSession.id, tokenHash, approvedSession.claimed_device_hash]);
+                approvedSession = updateRes.rows[0];
+            }
 
-            // Broadcast real-time events
+            // Record idempotency terminal state (G4)
+            if (session.request_id) {
+                await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name }, {
+                    status: 'OPEN',
+                    sessionId: approvedSession.id,
+                    requestId: session.request_id,
+                    tableNumber: table.table_number
+                });
+            }
+
+            // Broadcast real-time events WITHOUT leaking raw token or claimedDeviceHash (G1)
             broadcastToStaff(tenantId, 'table_session:opened', {
                 tableId,
                 sessionId: approvedSession.id,
@@ -327,9 +395,7 @@ export class StaffService {
             broadcastToTable(tableId, 'table_session:approved', {
                 tableId,
                 sessionId: approvedSession.id,
-                tableNumber: table.table_number,
-                claimedDeviceHash: approvedSession.claimed_device_hash,
-                token: rawToken
+                tableNumber: table.table_number
             });
 
             broadcastToStaff(tenantId, 'table.updated', { tableId });
@@ -338,8 +404,6 @@ export class StaffService {
                 sessionId: approvedSession.id,
                 tableId,
                 tableNumber: table.table_number,
-                claimedDeviceHash: approvedSession.claimed_device_hash,
-                token: rawToken,
                 message: `Đã duyệt mở bàn ${table.table_number}`
             };
         });
@@ -347,10 +411,14 @@ export class StaffService {
 
     // 2c. Gaeru Flow - Reject Session Request (P1)
     static async rejectSessionRequest(tenantId: string, tableId: string, userId: string, input?: { sessionId?: string; reason?: string }) {
+        if (config.orderingMode !== 'approved_single_device') {
+            throw { status: 403, code: 'FEATURE_DISABLED', message: 'Tính năng không khả dụng' };
+        }
+
         return await withTransaction(async (client) => {
             const sessionQuery = input?.sessionId
-                ? `SELECT id FROM table_sessions WHERE id = $1 AND table_id = $2 AND tenant_id = $3 AND status = 'PENDING_APPROVAL' FOR UPDATE`
-                : `SELECT id FROM table_sessions WHERE table_id = $1 AND tenant_id = $2 AND status = 'PENDING_APPROVAL' FOR UPDATE`;
+                ? `SELECT * FROM table_sessions WHERE id = $1 AND table_id = $2 AND tenant_id = $3 AND (status = 'PENDING_APPROVAL' OR (status = 'OPEN' AND claimed_device_hash IS NULL AND requester_device_hash IS NOT NULL)) FOR UPDATE`
+                : `SELECT * FROM table_sessions WHERE table_id = $1 AND tenant_id = $2 AND (status = 'PENDING_APPROVAL' OR (status = 'OPEN' AND claimed_device_hash IS NULL AND requester_device_hash IS NOT NULL)) FOR UPDATE`;
             const sessionParams = input?.sessionId
                 ? [input.sessionId, tableId, tenantId]
                 : [tableId, tenantId];
@@ -361,15 +429,39 @@ export class StaffService {
             }
 
             const session = sessionRes.rows[0];
-            await client.query(`
-                UPDATE table_sessions
-                SET status = 'CLOSED',
-                    close_reason = 'STAFF_REJECTED',
-                    closed_at = NOW(),
-                    closed_by = $1,
-                    updated_at = NOW()
-                WHERE id = $2
-            `, [userId, session.id]);
+
+            if (session.status === 'PENDING_APPROVAL') {
+                await client.query(`
+                    UPDATE table_sessions
+                    SET status = 'CLOSED',
+                        close_reason = 'STAFF_REJECTED',
+                        closed_at = NOW(),
+                        closed_by = $1,
+                        updated_at = NOW()
+                    WHERE id = $2
+                `, [userId, session.id]);
+            } else {
+                // Reject replacement request on existing OPEN session (G3)
+                await client.query(`
+                    UPDATE table_sessions
+                    SET requester_device_hash = NULL,
+                        requester_guest_name = NULL,
+                        request_id = NULL,
+                        requested_at = NULL,
+                        expires_at = NULL,
+                        updated_at = NOW()
+                    WHERE id = $1
+                `, [session.id]);
+            }
+
+            if (session.request_id) {
+                await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name }, {
+                    status: 'REJECTED',
+                    sessionId: session.id,
+                    requestId: session.request_id,
+                    message: 'Đã từ chối yêu cầu mở bàn'
+                });
+            }
 
             broadcastToStaff(tenantId, 'table_session:rejected', {
                 tableId,
@@ -395,6 +487,10 @@ export class StaffService {
 
     // 2d. Gaeru Flow - Release Claim (P1)
     static async releaseSessionClaim(tenantId: string, tableId: string, _userId: string) {
+        if (config.orderingMode !== 'approved_single_device') {
+            throw { status: 403, code: 'FEATURE_DISABLED', message: 'Tính năng không khả dụng' };
+        }
+
         return await withTransaction(async (client) => {
             const sessionRes = await client.query(`
                 SELECT id, status, claim_version
@@ -413,6 +509,11 @@ export class StaffService {
             await client.query(`
                 UPDATE table_sessions
                 SET claimed_device_hash = NULL,
+                    requester_device_hash = NULL,
+                    requester_guest_name = NULL,
+                    request_id = NULL,
+                    requested_at = NULL,
+                    expires_at = NULL,
                     claim_version = $1,
                     updated_at = NOW()
                 WHERE id = $2
@@ -450,6 +551,10 @@ export class StaffService {
 
     // 2e. Gaeru Flow - Get Pending Requests (P1)
     static async getPendingRequests(tenantId: string) {
+        if (config.orderingMode !== 'approved_single_device') {
+            return [];
+        }
+
         const res = await query(`
             SELECT
                 ts.id as session_id,
@@ -463,8 +568,10 @@ export class StaffService {
             FROM table_sessions ts
             JOIN tables t ON t.id = ts.table_id
             WHERE ts.tenant_id = $1
-              AND ts.status = 'PENDING_APPROVAL'
-              AND ts.expires_at > NOW()
+              AND (
+                  (ts.status = 'PENDING_APPROVAL' AND ts.expires_at > NOW())
+                  OR (ts.status = 'OPEN' AND ts.claimed_device_hash IS NULL AND ts.requester_device_hash IS NOT NULL AND ts.expires_at > NOW())
+              )
             ORDER BY ts.requested_at ASC
         `, [tenantId]);
 

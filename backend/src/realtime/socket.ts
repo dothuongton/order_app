@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { config } from '../config/index.js';
 import { query } from '../db/pool.js';
 import { hashToken } from '../utils/crypto.js';
+import { hashDeviceToken } from '../utils/device-cookie.js';
 import { isAllowedOrigin } from '../middleware/security.js';
 
 import { deferUntilCommit } from '../utils/transaction-effects.js';
@@ -13,19 +14,58 @@ let io: SocketIOServer | null = null;
 const staffJoin = z.object({ tenantId: z.string().uuid(), token: z.string().min(1).max(4096) });
 const guestJoin = z.object({ sessionId: z.string().uuid(), token: z.string().min(1).max(256) });
 
+export function extractDeviceHashFromSocket(socket: Socket): string | null {
+    const rawCookie = socket.handshake.headers?.cookie;
+    let token: string | undefined;
+    if (rawCookie) {
+        const match = rawCookie.match(/(?:__Host-order-device|order_device)=([^;]+)/);
+        if (match) token = decodeURIComponent(match[1].trim());
+    }
+    if (!token && socket.handshake.headers?.['x-device-cookie']) {
+        token = socket.handshake.headers['x-device-cookie'] as string;
+    }
+    if (!token && typeof socket.handshake.auth?.deviceToken === 'string') {
+        token = socket.handshake.auth.deviceToken;
+    }
+    if (token && typeof token === 'string' && token.length >= 32) {
+        return hashDeviceToken(token);
+    }
+    return null;
+}
+
 async function canJoinStaff(tenantId: string, token: string) {
     const decoded = await verifyStaffToken(token);
     const result = await query(`SELECT 1 FROM memberships WHERE user_id = $1 AND tenant_id = $2 AND is_active = true`, [decoded.userId, tenantId]);
     return result.rows.length > 0;
 }
-async function canJoinGuest(sessionId: string, token: string) {
+async function canJoinGuest(sessionId: string, token: string, socket?: Socket) {
     const result = await query(`
-        SELECT 1 FROM guest_sessions gs
+        SELECT gs.device_fingerprint, ts.claimed_device_hash
+        FROM guest_sessions gs
         JOIN table_sessions ts ON ts.id = gs.session_id
         JOIN tenants t ON t.id = gs.tenant_id
         WHERE gs.session_id = $1 AND gs.token_hash = $2 AND gs.revoked_at IS NULL
           AND gs.expires_at > NOW() AND ts.status = 'OPEN' AND t.status = 'active'
     `, [sessionId, hashToken(token)]);
+
+    if (result.rows.length === 0) return false;
+
+    const row = result.rows[0];
+
+    // In approved_single_device mode: enforce single device claim (G1)
+    if (config.orderingMode === 'approved_single_device') {
+        if (!row.claimed_device_hash) return false;
+        if (row.device_fingerprint && row.device_fingerprint !== row.claimed_device_hash) {
+            return false;
+        }
+        if (socket) {
+            const socketDeviceHash = extractDeviceHashFromSocket(socket);
+            if (!socketDeviceHash || socketDeviceHash !== row.claimed_device_hash) {
+                return false;
+            }
+        }
+    }
+
     return result.rows.length > 0;
 }
 
@@ -55,7 +95,7 @@ export function initSocketIO(httpServer: HTTPServer, _allowedOrigins?: string[])
         socket.on('join_session_room', async (input: unknown, ack?: (result: any) => void) => {
             const parsed = guestJoin.safeParse(input);
             try {
-                if (++attempts > 30 || !parsed.success || !await canJoinGuest(parsed.data.sessionId, parsed.data.token)) throw new Error('denied');
+                if (++attempts > 30 || !parsed.success || !await canJoinGuest(parsed.data.sessionId, parsed.data.token, socket)) throw new Error('denied');
                 for (const room of socket.rooms) if (room.startsWith('session:')) socket.leave(room);
                 socket.data.guest = parsed.data;
                 await socket.join(`session:${parsed.data.sessionId}:guest`);
@@ -119,7 +159,7 @@ export function broadcastToSession(sessionId: string, event: string, payload: an
     if (deferUntilCommit(() => broadcastToSession(sessionId, event, payload))) return;
     deliver(`session:${sessionId}:guest`, event, payload, async socket => {
         const auth = socket.data.guest;
-        return auth?.sessionId === sessionId && (event === 'session.closed' || await canJoinGuest(sessionId, auth.token));
+        return auth?.sessionId === sessionId && (event === 'session.closed' || await canJoinGuest(sessionId, auth.token, socket));
     }).catch(() => {});
 }
 
