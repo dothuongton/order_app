@@ -376,8 +376,8 @@ export const StaffMenuManage: React.FC = () => {
       alert('Giá món không được để trống');
       return;
     }
-    if (!/^\d+$/.test(rawPriceStr) || !Number.isSafeInteger(Number(rawPriceStr)) || Number(rawPriceStr) < 0 || Number(rawPriceStr) > 1000000000) {
-      alert('Giá món phải là số nguyên không âm và không vượt quá 1.000.000.000đ');
+    if (!/^\d+$/.test(rawPriceStr) || !Number.isSafeInteger(Number(rawPriceStr)) || Number(rawPriceStr) < 0) {
+      alert('Giá món phải là số nguyên không âm hợp lệ');
       return;
     }
     const parsedPrice = parseInt(rawPriceStr, 10);
@@ -387,8 +387,8 @@ export const StaffMenuManage: React.FC = () => {
         for (const o of g.options || []) {
           const rawDeltaStr = String(o.price_delta ?? '').trim();
           if (rawDeltaStr !== '') {
-            if (!/^\d+$/.test(rawDeltaStr) || !Number.isSafeInteger(Number(rawDeltaStr)) || Number(rawDeltaStr) < 0 || Number(rawDeltaStr) > 1000000000) {
-              alert(`Giá phụ thu của lựa chọn "${o.name || 'tùy chọn'}" phải là số nguyên không âm và không vượt quá 1.000.000.000đ`);
+            if (!/^\d+$/.test(rawDeltaStr) || !Number.isSafeInteger(Number(rawDeltaStr)) || Number(rawDeltaStr) < 0) {
+              alert(`Giá phụ thu của lựa chọn "${o.name || 'tùy chọn'}" phải là số nguyên không âm hợp lệ`);
               return;
             }
           }
@@ -1039,7 +1039,7 @@ export const StaffMenuManage: React.FC = () => {
                     onBlur={(e) => {
                       const val = String(editingItem.price ?? '').trim();
                       if (val !== '' && /^\d+$/.test(val)) {
-                        if (Number.isSafeInteger(Number(val)) && Number(val) <= 1000000000) {
+                        if (Number.isSafeInteger(Number(val))) {
                           setEditingItem(prev => prev ? { ...prev, price: parseInt(val, 10) } : null);
                         }
                       }
@@ -1275,7 +1275,7 @@ export const StaffMenuManage: React.FC = () => {
                                           if (val === '') {
                                             handleUpdateOption(gIdx, oIdx, { price_delta: 0 });
                                           } else if (/^\d+$/.test(val)) {
-                                            if (Number.isSafeInteger(Number(val)) && Number(val) <= 1000000000) {
+                                            if (Number.isSafeInteger(Number(val))) {
                                               handleUpdateOption(gIdx, oIdx, { price_delta: parseInt(val, 10) });
                                             }
                                           }

@@ -419,9 +419,9 @@ async function main() {
     assert(validationCheck.modalStillOpen, 'Modal must remain open after failed validation');
     console.log('✅ Base price empty validation verified');
 
-    // 3. Test R3: Overflow paste (>= 1e21) & repeated blur on base price
-    console.log('Testing R3: Overflow paste and repeated blur on base price...');
-    const overflowBasePriceTest = await evaluate(`(() => {
+    // 3. Test R3 & R4: Verify Safe Integer contract on base price (accept 0, 65001, 1000000001; block overflow 1e21 & repeated blur)
+    console.log('Testing R3 & R4: Safe Integer limits on base price (0, 65001, 1000000001 vs overflow)...');
+    const safePriceTest = await evaluate(`(() => {
       window.__alerts = [];
       const modal = document.querySelector('.fixed.inset-0');
       const labels = Array.from(modal.querySelectorAll('label'));
@@ -429,10 +429,20 @@ async function main() {
       const priceInput = priceLabel.closest('div').parentElement.querySelector('input[type="number"]');
       const nameInput = labels.find(l => l.innerText.includes('Tên Món Ăn')).closest('div').querySelector('input');
 
-      // 1. Paste overflow 1000000000000000000000 (22 digits >= 1e21)
+      // 1. Test accepting 1000000001 (R4: Safe integer > 1 billion must be valid per Staff API contract)
+      window.setReactVal(priceInput, '1000000001');
+      priceInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      const valOneBillionOne = priceInput.value;
+
+      // 2. Test accepting 0 (0đ is valid)
+      window.setReactVal(priceInput, '0');
+      priceInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      const valZero = priceInput.value;
+
+      // 3. Paste overflow 1000000000000000000000 (22 digits >= 1e21)
       window.setReactVal(priceInput, '1000000000000000000000');
 
-      // 2. Focus and blur repeatedly 3 times
+      // 4. Focus and blur repeatedly 3 times
       for (let i = 0; i < 3; i++) {
         priceInput.focus();
         nameInput.focus();
@@ -441,26 +451,32 @@ async function main() {
 
       const valAfterRepeatedBlur = priceInput.value;
 
-      // 3. Click submit
+      // 5. Click submit
       const submitBtn = modal.querySelector('button[type="submit"]');
       submitBtn.click();
 
       return {
+        valOneBillionOne,
+        valZero,
         valAfterRepeatedBlur,
         alerts: window.__alerts,
-        hasOverflowError: window.__alerts.includes('Giá món phải là số nguyên không âm và không vượt quá 1.000.000.000đ'),
+        hasOverflowError: window.__alerts.includes('Giá món phải là số nguyên không âm hợp lệ'),
         modalStillOpen: !!document.querySelector('.fixed.inset-0 input')
       };
     })()`);
 
-    console.log(`  Base price value after repeated blur: "${overflowBasePriceTest.valAfterRepeatedBlur}"`);
-    console.log(`  Alerts received:`, overflowBasePriceTest.alerts);
-    assert(overflowBasePriceTest.valAfterRepeatedBlur === '1000000000000000000000', 'Base price must NOT mutate to 1 or 1e+21 after repeated blur');
-    assert(overflowBasePriceTest.hasOverflowError, 'Must show overflow alert for base price > 1.000.000.000đ');
-    assert(overflowBasePriceTest.modalStillOpen, 'Modal must remain open with draft intact');
-    console.log('✅ R3: Base price overflow paste & repeated blur properly blocked without mutation');
+    console.log(`  Base price value 1,000,000,001đ preserved: "${safePriceTest.valOneBillionOne}"`);
+    console.log(`  Base price value 0đ preserved: "${safePriceTest.valZero}"`);
+    console.log(`  Base price value after repeated blur: "${safePriceTest.valAfterRepeatedBlur}"`);
+    console.log(`  Alerts received:`, safePriceTest.alerts);
+    assert(safePriceTest.valOneBillionOne === '1000000001', 'R4: Base price must accept 1000000001 as valid safe integer');
+    assert(safePriceTest.valZero === '0', 'Base price must accept 0đ');
+    assert(safePriceTest.valAfterRepeatedBlur === '1000000000000000000000', 'Base price must NOT mutate to 1 or 1e+21 after repeated blur');
+    assert(safePriceTest.hasOverflowError, 'Must show overflow alert "Giá món phải là số nguyên không âm hợp lệ"');
+    assert(safePriceTest.modalStillOpen, 'Modal must remain open with draft intact');
+    console.log('✅ R3 & R4: Base price contract verified (accepts safe integers 0, 65001, 1000000001; blocks overflow)');
 
-    // 4. Now fill valid price 65001, add an option group, test R3 on option delta, then save item
+    // 4. Now fill valid price 65001, add an option group, test R3 & R4 on option delta, then save item
     console.log('Filling form with price 65001 and option delta 2500...');
     await evaluate(`(() => {
       const modal = document.querySelector('.fixed.inset-0');
@@ -475,8 +491,8 @@ async function main() {
     })()`);
     await sleep(500);
 
-    // Test R3 overflow on Option Delta
-    console.log('Testing R3: Overflow paste and repeated blur on option delta...');
+    // Test R3 & R4 on Option Delta (accept 1000000001, block overflow >= 1e21)
+    console.log('Testing R3 & R4: Safe integer limits on option delta (1000000001 vs overflow)...');
     const overflowDeltaTest = await evaluate(`(() => {
       window.__alerts = [];
       const modal = document.querySelector('.fixed.inset-0');
@@ -488,10 +504,15 @@ async function main() {
       const optNameInput = deltaInput.closest('.flex')?.querySelector('input[type="text"]');
       if (optNameInput) window.setReactVal(optNameInput, 'Topping Đặc Biệt');
 
-      // Paste overflow
+      // 1. Test accepting 1000000001 on option delta (R4: safe integer)
+      window.setReactVal(deltaInput, '1000000001');
+      deltaInput.dispatchEvent(new Event('blur', { bubbles: true }));
+      const deltaOneBillionOne = deltaInput.value;
+
+      // 2. Paste overflow
       window.setReactVal(deltaInput, '1000000000000000000000');
 
-      // Focus and blur repeatedly 3 times
+      // 3. Focus and blur repeatedly 3 times
       for (let i = 0; i < 3; i++) {
         deltaInput.focus();
         nameInput.focus();
@@ -500,25 +521,28 @@ async function main() {
 
       const valAfterRepeatedBlur = deltaInput.value;
 
-      // Click submit
+      // 4. Click submit
       const submitBtn = modal.querySelector('button[type="submit"]');
       submitBtn.click();
 
       return {
+        deltaOneBillionOne,
         valAfterRepeatedBlur,
         alerts: window.__alerts,
-        hasDeltaOverflowError: window.__alerts.some(a => a.includes('Giá phụ thu') && a.includes('không vượt quá 1.000.000.000đ')),
+        hasDeltaOverflowError: window.__alerts.some(a => a.includes('Giá phụ thu') && a.includes('phải là số nguyên không âm hợp lệ')),
         modalStillOpen: !!document.querySelector('.fixed.inset-0 input')
       };
     })()`);
 
     assert(!overflowDeltaTest.error, overflowDeltaTest.error);
+    console.log(`  Option delta 1,000,000,001đ preserved: "${overflowDeltaTest.deltaOneBillionOne}"`);
     console.log(`  Option delta value after repeated blur: "${overflowDeltaTest.valAfterRepeatedBlur}"`);
     console.log(`  Alerts received:`, overflowDeltaTest.alerts);
+    assert(overflowDeltaTest.deltaOneBillionOne === '1000000001', 'R4: Option delta must accept 1000000001 as valid safe integer');
     assert(overflowDeltaTest.valAfterRepeatedBlur === '1000000000000000000000', 'Option delta must NOT mutate to 1 or 1e+21 after repeated blur');
-    assert(overflowDeltaTest.hasDeltaOverflowError, 'Must show overflow alert for option delta > 1.000.000.000đ');
+    assert(overflowDeltaTest.hasDeltaOverflowError, 'Must show overflow alert for option delta exceeding safe integer');
     assert(overflowDeltaTest.modalStillOpen, 'Modal must remain open with draft intact');
-    console.log('✅ R3: Option delta overflow paste & repeated blur properly blocked without mutation');
+    console.log('✅ R3 & R4: Option delta contract verified (accepts 1000000001; blocks overflow)');
 
     // Verify option delta input behavior (clearing and typing 2500)
     const optionInputTest = await evaluate(`(() => {
