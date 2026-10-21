@@ -12,7 +12,7 @@ import {
 export interface FormOption {
   id?: string;
   name: string;
-  price_delta: number;
+  price_delta: number | string;
   is_default: boolean;
   is_available: boolean;
 }
@@ -32,7 +32,7 @@ interface MenuItemData {
   name: string;
   category_id: string;
   category_name?: string;
-  price: number;
+  price: number | string;
   description?: string;
   image_url?: string;
   is_available: boolean;
@@ -81,7 +81,7 @@ export const StaffMenuManage: React.FC = () => {
     id?: string;
     name: string;
     category_id: string;
-    price: number;
+    price: number | string;
     description?: string;
     image_url?: string;
     is_available: boolean;
@@ -371,9 +371,29 @@ export const StaffMenuManage: React.FC = () => {
       alert('Vui lòng chọn danh mục cho món');
       return;
     }
-    if (editingItem.price < 0 || isNaN(editingItem.price)) {
-      alert('Giá món không hợp lệ');
+    const rawPriceStr = String(editingItem.price ?? '').trim();
+    if (rawPriceStr === '') {
+      alert('Giá món không được để trống');
       return;
+    }
+    if (!/^\d+$/.test(rawPriceStr) || !Number.isSafeInteger(Number(rawPriceStr)) || Number(rawPriceStr) < 0) {
+      alert('Giá món phải là số nguyên không âm hợp lệ');
+      return;
+    }
+    const parsedPrice = parseInt(rawPriceStr, 10);
+
+    for (const g of editingItem.option_groups || []) {
+      if (g.pricing_mode !== 'FREE') {
+        for (const o of g.options || []) {
+          const rawDeltaStr = String(o.price_delta ?? '').trim();
+          if (rawDeltaStr !== '') {
+            if (!/^\d+$/.test(rawDeltaStr) || !Number.isSafeInteger(Number(rawDeltaStr)) || Number(rawDeltaStr) < 0) {
+              alert(`Giá phụ thu của lựa chọn "${o.name || 'tùy chọn'}" phải là số nguyên không âm hợp lệ`);
+              return;
+            }
+          }
+        }
+      }
     }
 
     // Clean groups
@@ -390,7 +410,7 @@ export const StaffMenuManage: React.FC = () => {
           .map(o => ({
             id: o.id,
             name: o.name.trim(),
-            price_delta: g.pricing_mode === 'FREE' ? 0 : Math.max(0, parseInt(String(o.price_delta), 10) || 0),
+            price_delta: g.pricing_mode === 'FREE' ? 0 : (String(o.price_delta ?? '').trim() === '' ? 0 : parseInt(String(o.price_delta), 10)),
             is_default: Boolean(o.is_default),
             is_available: o.is_available !== false
           }))
@@ -411,7 +431,7 @@ export const StaffMenuManage: React.FC = () => {
           body: JSON.stringify({
             name: editingItem.name.trim(),
             category_id: editingItem.category_id,
-            price: Number(editingItem.price),
+            price: parsedPrice,
             description: editingItem.description?.trim() || null,
             image_url: editingItem.image_url?.trim() || null,
             is_available: editingItem.is_available,
@@ -426,7 +446,7 @@ export const StaffMenuManage: React.FC = () => {
           body: JSON.stringify({
             name: editingItem.name.trim(),
             category_id: editingItem.category_id,
-            price: Number(editingItem.price),
+            price: parsedPrice,
             description: editingItem.description?.trim() || null,
             image_url: editingItem.image_url?.trim() || null,
             is_available: editingItem.is_available,
@@ -947,7 +967,7 @@ export const StaffMenuManage: React.FC = () => {
             </div>
 
             {/* Modal Body */}
-            <form onSubmit={handleSaveItem} className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-4 text-xs">
+            <form onSubmit={handleSaveItem} noValidate className="p-4 sm:p-5 pt-3 overflow-y-auto flex-1 space-y-4 text-xs">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Tên Món Ăn *</label>
                 <input
@@ -1000,14 +1020,31 @@ export const StaffMenuManage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Giá Gốc (VNĐ) *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-bold text-xs">Giá Gốc (VNĐ) *</label>
+                    <span className="text-[10px] text-slate-400">Số nguyên &ge; 0đ</span>
+                  </div>
                   <input
                     type="number"
                     required
                     min={0}
-                    step={1000}
-                    value={editingItem.price}
-                    onChange={(e) => setEditingItem({ ...editingItem, price: Math.max(0, parseInt(e.target.value) || 0) })}
+                    step={1}
+                    value={editingItem.price !== undefined && editingItem.price !== null ? editingItem.price : ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || /^\d+$/.test(val)) {
+                        setEditingItem({ ...editingItem, price: val });
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const val = String(editingItem.price ?? '').trim();
+                      if (val !== '' && /^\d+$/.test(val)) {
+                        if (Number.isSafeInteger(Number(val))) {
+                          setEditingItem(prev => prev ? { ...prev, price: parseInt(val, 10) } : null);
+                        }
+                      }
+                    }}
+                    placeholder="Ví dụ: 35000, 65001"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-xs"
                   />
                 </div>
@@ -1224,10 +1261,25 @@ export const StaffMenuManage: React.FC = () => {
                                       <input
                                         type="number"
                                         min={0}
-                                        step={1000}
+                                        step={1}
                                         placeholder="+0đ"
-                                        value={option.price_delta}
-                                        onChange={(e) => handleUpdateOption(gIdx, oIdx, { price_delta: Math.max(0, parseInt(e.target.value) || 0) })}
+                                        value={option.price_delta !== undefined && option.price_delta !== null && option.price_delta !== '' ? option.price_delta : ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          if (val === '' || /^\d+$/.test(val)) {
+                                            handleUpdateOption(gIdx, oIdx, { price_delta: val });
+                                          }
+                                        }}
+                                        onBlur={(e) => {
+                                          const val = String(option.price_delta ?? '').trim();
+                                          if (val === '') {
+                                            handleUpdateOption(gIdx, oIdx, { price_delta: 0 });
+                                          } else if (/^\d+$/.test(val)) {
+                                            if (Number.isSafeInteger(Number(val))) {
+                                              handleUpdateOption(gIdx, oIdx, { price_delta: parseInt(val, 10) });
+                                            }
+                                          }
+                                        }}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-2 pr-6 py-1.5 text-xs text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500"
                                       />
                                       <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">

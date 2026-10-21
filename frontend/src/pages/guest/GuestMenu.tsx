@@ -406,9 +406,7 @@ export const GuestMenu: React.FC = () => {
                             {group.options?.map((opt: any) => {
                               const isSelected = chosen.some((c: any) => c.id === opt.id);
                               const priceDelta = Number(opt.price_delta) || 0;
-                              const priceLabel = isFree || priceDelta === 0
-                                ? '0đ'
-                                : `+${priceDelta.toLocaleString('vi-VN')}đ`;
+                              const hasPriceDelta = !isFree && priceDelta > 0;
 
                               return (
                                 <button
@@ -422,9 +420,11 @@ export const GuestMenu: React.FC = () => {
                                   }`}
                                 >
                                   <span>{opt.name}</span>
-                                  <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
-                                    ({priceLabel})
-                                  </span>
+                                  {hasPriceDelta && (
+                                    <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                                      (+{priceDelta.toLocaleString('vi-VN')}đ)
+                                    </span>
+                                  )}
                                 </button>
                               );
                             })}
@@ -459,9 +459,11 @@ export const GuestMenu: React.FC = () => {
                                 }`}
                               >
                                 <span>{opt.name}</span>
-                                <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
-                                  {Number(opt.price_adjustment) > 0 ? `+${Number(opt.price_adjustment).toLocaleString('vi-VN')}đ` : '+0đ'}
-                                </span>
+                                {Number(opt.price_adjustment) > 0 && (
+                                  <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                                    +{Number(opt.price_adjustment).toLocaleString('vi-VN')}đ
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
@@ -487,12 +489,10 @@ export const GuestMenu: React.FC = () => {
                           }`}
                         >
                           <span>Mặc định</span>
-                          <span className={selectedVariant === null ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
-                            (+0đ)
-                          </span>
                         </button>
                         {activeItem.variants.map((v, idx) => {
                           const isSelected = selectedVariant?.id === v.id || (!selectedVariant?.id && selectedVariant?.name === v.name);
+                          const priceAdj = Number(v.price_adjustment) || 0;
                           return (
                             <button
                               key={v.id || idx}
@@ -505,9 +505,11 @@ export const GuestMenu: React.FC = () => {
                               }`}
                             >
                               <span>{v.name}</span>
-                              <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
-                                {Number(v.price_adjustment) > 0 ? `+${Number(v.price_adjustment).toLocaleString('vi-VN')}đ` : '+0đ'}
-                              </span>
+                              {priceAdj > 0 && (
+                                <span className={isSelected ? 'text-orange-200 text-[10px]' : 'text-slate-400 text-[10px]'}>
+                                  +{priceAdj.toLocaleString('vi-VN')}đ
+                                </span>
+                              )}
                             </button>
                           );
                         })}
