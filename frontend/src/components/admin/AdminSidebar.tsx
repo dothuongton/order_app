@@ -81,13 +81,14 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
 
             {/* Footer Items */}
             <div className="p-4 border-t border-slate-100 space-y-1">
-                <button
-                    onClick={() => alert('Trung tâm trợ giúp: Vui lòng liên hệ support@qrorder.vn')}
+                <a
+                    href="mailto:support@qrorder.vn?subject=[QR%20Order]%20Y%C3%AAu%20c%E1%BA%A7u%20h%E1%BB%97%20tr%E1%BB%A3%20Super%20Admin"
+                    title="Liên hệ đội ngũ hỗ trợ kỹ thuật: support@qrorder.vn"
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 rounded-xl font-medium text-sm transition"
                 >
                     <HelpCircle className="w-4 h-4 text-slate-400" />
                     <span>Hỗ trợ</span>
-                </button>
+                </a>
                 <button
                     onClick={onLogout}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-xl font-medium text-sm transition"

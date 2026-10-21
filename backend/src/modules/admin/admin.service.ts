@@ -8,7 +8,8 @@ import {
     ListShopsQueryInput,
     ListAuditLogsQueryInput,
     createShopSchema,
-    updateShopSchema
+    updateShopSchema,
+    parseDateFilter
 } from './admin.validation.js';
 
 export class AdminService {
@@ -245,7 +246,8 @@ export class AdminService {
         input = validate(createShopSchema, input);
 
         return await withTransaction(async (client) => {
-            // Check slug uniqueness
+            try {
+                // Check slug uniqueness
             const slugCheck = await client.query('SELECT id FROM tenants WHERE slug = $1', [input.slug]);
             if (slugCheck.rows.length > 0) {
                 throw new AdminApiError(400, 'BAD_REQUEST', `Đường dẫn slug "${input.slug}" đã được sử dụng bởi quán khác`);
@@ -366,6 +368,21 @@ export class AdminService {
                 status: tenant.status,
                 owner: ownerUser
             };
+            } catch (err: any) {
+                if (err instanceof AdminApiError) {
+                    throw err;
+                }
+                // Handle concurrent race unique constraint violations cleanly (Issue #82)
+                if (err?.code === '23505') {
+                    if (err?.constraint === 'users_email_key' || err?.table === 'users') {
+                        throw new AdminApiError(409, 'OWNER_EMAIL_EXISTS', `Tài khoản với email "${input.ownerEmail}" đã tồn tại trên hệ thống. Vui lòng xác nhận liên kết tài khoản hoặc sử dụng email khác.`);
+                    }
+                    if (err?.constraint === 'tenants_slug_key' || err?.table === 'tenants') {
+                        throw new AdminApiError(400, 'BAD_REQUEST', `Đường dẫn slug "${input.slug}" đã được sử dụng bởi quán khác`);
+                    }
+                }
+                throw err;
+            }
         });
     }
 
@@ -502,16 +519,15 @@ export class AdminService {
 
         const fromDateStr = input.startDate || input.from;
         if (fromDateStr) {
-            const fromDate = new Date(fromDateStr);
-            params.push(fromDate.toISOString());
+            const fromIso = parseDateFilter(fromDateStr, false);
+            params.push(fromIso);
             whereClauses.push(`al.created_at >= $${params.length}`);
         }
 
         const toDateStr = input.endDate || input.to;
         if (toDateStr) {
-            const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(toDateStr);
-            const toDate = isDateOnly ? new Date(`${toDateStr}T23:59:59.999Z`) : new Date(toDateStr);
-            params.push(toDate.toISOString());
+            const toIso = parseDateFilter(toDateStr, true);
+            params.push(toIso);
             whereClauses.push(`al.created_at <= $${params.length}`);
         }
 
