@@ -4,7 +4,7 @@ import { GuestMenu } from './GuestMenu.js';
 import { GuestOrders } from './GuestOrders.js';
 import { GuestBill } from './GuestBill.js';
 import { CartDrawer } from '../../components/CartDrawer.js';
-import { UtensilsCrossed, ClipboardList, Receipt, ShoppingBag, AlertCircle, Sparkles, WifiOff } from 'lucide-react';
+import { UtensilsCrossed, ClipboardList, Receipt, ShoppingBag, AlertCircle, Sparkles, WifiOff, Clock, UserCheck, Shield } from 'lucide-react';
 
 interface GuestLandingProps {
   qrId: string;
@@ -21,15 +21,72 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     joinSession,
     isLoading,
     isSessionClosed,
-    isOnline
+    isOnline,
+    orderingMode,
+    tableStatus,
+    deviceState,
+    pendingRequest,
+    canOrder,
+    canRequest,
+    requestOpenTable,
+    withdrawOpenRequest
   } = useGuest();
 
   const [activeTab, setActiveTab] = useState<'menu' | 'orders' | 'bill'>('menu');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [waitingForOpen, setWaitingForOpen] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [requestGuestName, setRequestGuestName] = useState('');
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [remainingTime, setRemainingTime] = useState<number>(0);
   const activeQrRef = useRef<string>(qrId);
   activeQrRef.current = qrId;
+
+  // Countdown timer for pending approval
+  useEffect(() => {
+    if (!pendingRequest?.expiresAt) {
+      setRemainingTime(0);
+      return;
+    }
+    const updateCountdown = () => {
+      if (!pendingRequest?.expiresAt) {
+        setRemainingTime(0);
+        return;
+      }
+      const diff = Math.max(0, Math.floor((new Date(pendingRequest.expiresAt).getTime() - Date.now()) / 1000));
+      setRemainingTime(diff);
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [pendingRequest?.expiresAt]);
+
+  const handleRequestTable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestGuestName.trim()) return;
+    setIsSubmittingRequest(true);
+    try {
+      await requestOpenTable(requestGuestName.trim());
+      setRequestGuestName('');
+    } catch (err: any) {
+      alert(err.message || 'Không thể gửi yêu cầu');
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!confirm('Bạn có chắc muốn rút yêu cầu mở bàn?')) return;
+    setIsWithdrawing(true);
+    try {
+      await withdrawOpenRequest();
+    } catch (err: any) {
+      alert(err.message || 'Không thể rút yêu cầu');
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -38,6 +95,15 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
         if (activeQrRef.current !== qrId) return;
 
         if (menuData?.session && menuData.session.status === 'OPEN') {
+          const isSingleDevice = (menuData.table?.ordering_mode || menuData.table?.orderingMode) === 'approved_single_device';
+          const isClaimed = (menuData.table?.device_state || menuData.table?.deviceState) === 'CLAIMED';
+
+          if (isSingleDevice && !isClaimed) {
+            // In single-device mode, non-claimed devices remain in viewer mode without joining session
+            if (activeQrRef.current === qrId) setWaitingForOpen(false);
+            return;
+          }
+
           const scopedKey = `guest_auth_${qrId}`;
           let hasValidToken = false;
           try {
@@ -77,6 +143,34 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
 
     init();
   }, [qrId, loadTableMenu, joinSession]);
+
+  // When a device gets approved into CLAIMED state, join session if not already joined
+  const joiningClaimRef = useRef(false);
+  useEffect(() => {
+    if (deviceState !== 'CLAIMED' || !session || session.status !== 'OPEN' || isSessionClosed) return;
+    const scopedKey = `guest_auth_${qrId}`;
+    let hasValidToken = false;
+    try {
+      const raw = sessionStorage.getItem(scopedKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.sessionId === session.id && sessionStorage.getItem('guest_token')) {
+          hasValidToken = true;
+        }
+      }
+    } catch {}
+
+    if (!hasValidToken && !joiningClaimRef.current) {
+      joiningClaimRef.current = true;
+      joinSession(qrId)
+        .catch((err: any) => {
+          setInitError(err.message || 'Không thể tham gia phiên đặt món');
+        })
+        .finally(() => {
+          joiningClaimRef.current = false;
+        });
+    }
+  }, [deviceState, session, qrId, joinSession, isSessionClosed]);
 
   // A guest who scans before staff open the table should not need to reload.
   // Stop after the first successful join; never auto-join a later customer session.
@@ -208,14 +302,94 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
         </div>
       )}
 
-      {/* Notice Banner: If table not opened yet (AT02) */}
-      {!session && !isSessionClosed && (
-        <div className="bg-amber-500 text-white px-4 py-3 shadow-sm flex items-center gap-2.5">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <p className="text-xs font-medium leading-tight">
-            Bàn chưa được mở gọi món. Quý khách vui lòng liên hệ nhân viên để mở bàn trước khi gửi món.
-          </p>
-        </div>
+      {/* Gaeru Flow - Single Device Mode Banners & Interactive Cards */}
+      {orderingMode === 'approved_single_device' ? (
+        <>
+          {/* Card 1: IDLE or VIEWER with canRequest - Request Table Open / Replacement Claim */}
+          {(deviceState === 'IDLE' || deviceState === 'VIEWER') && canRequest && !isSessionClosed && (
+            <div className="mx-4 mt-3 p-4 bg-orange-50 border border-orange-200 rounded-2xl shadow-xs">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-5 h-5 text-orange-600 shrink-0" />
+                <h3 className="font-bold text-sm text-slate-900">
+                  {deviceState === 'VIEWER' ? 'Yêu cầu đổi máy gọi món' : 'Yêu cầu mở bàn'}
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 mb-3">
+                {deviceState === 'VIEWER'
+                  ? 'Bàn đã mở nhưng chưa có máy gọi món. Nhập tên để gửi yêu cầu cấp quyền gọi món cho thiết bị của bạn.'
+                  : 'Nhập tên để gửi yêu cầu nhân viên mở bàn và cấp quyền gọi món cho thiết bị của bạn.'}
+              </p>
+              <form onSubmit={handleRequestTable} className="flex gap-2">
+                <input
+                  type="text"
+                  value={requestGuestName}
+                  onChange={(e) => setRequestGuestName(e.target.value)}
+                  placeholder="Tên của bạn (vd: Anh Ba)"
+                  maxLength={80}
+                  required
+                  className="flex-1 px-3 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmittingRequest || !requestGuestName.trim()}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-xs shrink-0 cursor-pointer"
+                >
+                  {isSubmittingRequest ? 'Đang gửi...' : 'Gửi yêu cầu'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Card 2: REQUESTER - Pending Approval */}
+          {deviceState === 'REQUESTER' && (
+            <div className="mx-4 mt-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl shadow-xs">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
+                    <h3 className="font-bold text-sm text-amber-900">Đang chờ nhân viên duyệt</h3>
+                  </div>
+                  <p className="text-xs text-amber-800 mt-1">
+                    Khách: <strong className="font-semibold text-slate-900">{pendingRequest?.guestName}</strong>
+                  </p>
+                  <div className="flex items-center gap-1.5 text-xs text-amber-900 font-mono mt-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Hết hạn sau: <strong>{Math.floor(remainingTime / 60)}:{(remainingTime % 60).toString().padStart(2, '0')}</strong></span>
+                  </div>
+                </div>
+                <button
+                  onClick={handleWithdraw}
+                  disabled={isWithdrawing}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs transition cursor-pointer"
+                >
+                  {isWithdrawing ? 'Đang rút...' : 'Rút yêu cầu'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Card 3: VIEWER - Read-Only Viewer Banner */}
+          {deviceState === 'VIEWER' && !canRequest && !isSessionClosed && (
+            <div className="mx-4 mt-3 p-3.5 bg-slate-100 border border-slate-200 rounded-2xl flex items-center gap-2.5 text-xs text-slate-700 shadow-2xs">
+              <AlertCircle className="w-4 h-4 text-slate-500 shrink-0" />
+              <div>
+                {tableStatus === 'PENDING'
+                  ? 'Bàn đang có yêu cầu mở bàn chờ nhân viên duyệt. Bạn đang ở chế độ xem thực đơn.'
+                  : 'Bàn này đang được đặt món bởi thiết bị khác. Bạn đang ở chế độ xem thực đơn.'}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        /* Legacy Multi-Device Mode Notice Banner */
+        !session && !isSessionClosed && (
+          <div className="bg-amber-500 text-white px-4 py-3 shadow-sm flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <p className="text-xs font-medium leading-tight">
+              Bàn chưa được mở gọi món. Quý khách vui lòng liên hệ nhân viên để mở bàn trước khi gửi món.
+            </p>
+          </div>
+        )
       )}
 
       {/* Main Tab Content */}
@@ -226,7 +400,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       </main>
 
       {/* Floating Cart Bar (when items are in cart and session is open) */}
-      {cartCount > 0 && session && !isSessionClosed && (
+      {cartCount > 0 && session && !isSessionClosed && canOrder && (
         <div className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] inset-x-0 z-30 px-4 max-w-md mx-auto pointer-events-none">
           <button
             onClick={() => setIsCartOpen(true)}

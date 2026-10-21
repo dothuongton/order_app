@@ -5,7 +5,7 @@ import { BannerDisplay } from '../../components/BannerDisplay.js';
 import { Plus, Minus, X, AlertCircle, Tag, Sparkles } from 'lucide-react';
 
 export const GuestMenu: React.FC = () => {
-  const { categories, menuItems, addToCart, session, isSessionClosed, tenant, banners, promotions } = useGuest();
+  const { categories, menuItems, addToCart, session, isSessionClosed, tenant, banners, promotions, canOrder } = useGuest();
   const theme = tenant?.activeThemeConfig || {};
   const layout = theme.layout || tenant?.activeTemplateId || 'classic';
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -244,7 +244,7 @@ export const GuestMenu: React.FC = () => {
                   )}
                 </div>
 
-                {item.is_available && session && !isSessionClosed && (
+                {item.is_available && session && !isSessionClosed && canOrder && (
                   <button
                     onClick={() => handleOpenCustomize(item)}
                     className="min-w-[44px] min-h-[44px] bg-orange-50 hover:bg-orange-100 text-orange-600 active:bg-orange-600 active:text-white rounded-full flex items-center justify-center font-bold transition shadow-sm"

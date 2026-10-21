@@ -3,11 +3,13 @@ import { generatePayloadFingerprint } from './crypto.js';
 
 export class IdempotencyError extends Error {
     statusCode: number;
+    status: number;
     code: string;
     constructor(message: string, code: string = 'IDEMPOTENCY_CONFLICT', statusCode: number = 409) {
         super(message);
         this.code = code;
         this.statusCode = statusCode;
+        this.status = statusCode;
     }
 }
 

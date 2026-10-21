@@ -210,6 +210,17 @@ export interface StaffTable {
   activeItems?: TableActiveItem[];
 }
 
+export interface PendingTableRequest {
+  session_id: string;
+  table_id: string;
+  table_number: string;
+  guest_name: string;
+  request_id: string;
+  requested_at: string;
+  expires_at: string;
+  remaining_seconds: number;
+}
+
 export interface CartItem {
   menuItemId: string;
   variantId?: string;

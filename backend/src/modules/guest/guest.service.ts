@@ -1,9 +1,10 @@
 import { query, withTransaction } from '../../db/pool.js';
 import { generateRandomToken, hashToken } from '../../utils/crypto.js';
 import { checkIdempotency, recordIdempotency } from '../../utils/idempotency.js';
-import { broadcastToStaff, broadcastToSession } from '../../realtime/socket.js';
+import { broadcastToStaff, broadcastToSession, broadcastToTable } from '../../realtime/socket.js';
 import { PushService } from '../push/push.service.js';
 import { PricingService } from '../pricing/pricing.service.js';
+import { config } from '../../config/index.js';
 
 import { z } from 'zod';
 import { validate, orderInputSchema } from '../../utils/validation.js';
@@ -22,12 +23,13 @@ export interface CreateOrderInput {
 
 export class GuestService {
     // 1. Get public table menu & status
-    static async getPublicTableMenu(publicQrId: string) {
+    static async getPublicTableMenu(publicQrId: string, callerDeviceHash?: string) {
         const tableRes = await query(`
             SELECT
                 t.id as table_id,
                 t.table_number,
                 t.readiness,
+                t.capacity,
                 t.is_enabled,
                 te.id as tenant_id,
                 te.name as tenant_name,
@@ -54,14 +56,206 @@ export class GuestService {
 
         const table = tableRes.rows[0];
 
-        // Check active session
+        // Check active or pending session
         const sessionRes = await query(`
-            SELECT id, status, settlement_version, opened_at
+            SELECT id, status, settlement_version, opened_at, expires_at,
+                   requester_device_hash, claimed_device_hash, claim_version,
+                   requester_guest_name, request_id, requested_at
             FROM table_sessions
-            WHERE table_id = $1 AND status = 'OPEN'
+            WHERE table_id = $1 AND status IN ('PENDING_APPROVAL', 'OPEN')
         `, [table.table_id]);
 
-        const activeSession = sessionRes.rows[0] || null;
+        let activeSession = sessionRes.rows[0] || null;
+
+        // Auto-expire pending session or pending replacement request if time has passed
+        if (activeSession) {
+            const isPendingCandidate = activeSession.status === 'PENDING_APPROVAL' &&
+                Boolean(activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now());
+            const isReplacementCandidate = activeSession.status === 'OPEN' &&
+                !activeSession.claimed_device_hash && Boolean(activeSession.requester_device_hash) &&
+                Boolean(activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now());
+
+            if (isPendingCandidate || isReplacementCandidate) {
+                const snapshotSessionId = activeSession.id;
+                const snapshotRequestId = activeSession.request_id;
+                const snapshotDeviceHash = activeSession.requester_device_hash;
+
+                await withTransaction(async (client) => {
+                    const lockRes = await client.query(`
+                        SELECT id, status, settlement_version, opened_at, expires_at,
+                               requester_device_hash, claimed_device_hash, claim_version,
+                               requester_guest_name, request_id, requested_at
+                        FROM table_sessions
+                        WHERE id = $1
+                        FOR UPDATE
+                    `, [snapshotSessionId]);
+
+                    if (lockRes.rows.length === 0) {
+                        activeSession = null;
+                        return;
+                    }
+
+                    const lockedSession = lockRes.rows[0];
+
+                    if (isPendingCandidate) {
+                        const isStillPendingExpired = lockedSession.status === 'PENDING_APPROVAL' &&
+                            lockedSession.request_id === snapshotRequestId &&
+                            (lockedSession.requester_device_hash ?? null) === (snapshotDeviceHash ?? null) &&
+                            Boolean(lockedSession.expires_at && new Date(lockedSession.expires_at).getTime() <= Date.now());
+
+                        if (isStillPendingExpired) {
+                            const updateRes = await client.query(`
+                                UPDATE table_sessions
+                                SET status = 'CLOSED', close_reason = 'EXPIRED', updated_at = NOW()
+                                WHERE id = $1
+                                  AND status = 'PENDING_APPROVAL'
+                                  AND (request_id = $2 OR (request_id IS NULL AND $2 IS NULL))
+                                  AND (requester_device_hash = $3 OR (requester_device_hash IS NULL AND $3 IS NULL))
+                            `, [lockedSession.id, snapshotRequestId, snapshotDeviceHash]);
+
+                            if ((updateRes.rowCount ?? 0) > 0 && lockedSession.request_id) {
+                                await recordIdempotency(
+                                    client,
+                                    table.tenant_id,
+                                    'request_table_open',
+                                    table.table_id,
+                                    lockedSession.request_id,
+                                    { guestName: lockedSession.requester_guest_name, deviceHash: lockedSession.requester_device_hash },
+                                    {
+                                        status: 'EXPIRED',
+                                        sessionId: lockedSession.id,
+                                        requestId: lockedSession.request_id,
+                                        message: 'Yêu cầu mở bàn đã hết hạn'
+                                    }
+                                );
+                                activeSession = null;
+                                return;
+                            }
+                        }
+
+                        // State changed, superseded, or not expired under lock -> refresh activeSession
+                        activeSession = (lockedSession.status === 'OPEN' || lockedSession.status === 'PENDING_APPROVAL') ? lockedSession : null;
+                    } else if (isReplacementCandidate) {
+                        const isStillReplacementExpired = lockedSession.status === 'OPEN' &&
+                            !lockedSession.claimed_device_hash &&
+                            lockedSession.request_id === snapshotRequestId &&
+                            (lockedSession.requester_device_hash ?? null) === (snapshotDeviceHash ?? null) &&
+                            Boolean(lockedSession.expires_at && new Date(lockedSession.expires_at).getTime() <= Date.now());
+
+                        if (isStillReplacementExpired) {
+                            const updateRes = await client.query(`
+                                UPDATE table_sessions
+                                SET requester_device_hash = NULL,
+                                    requester_guest_name = NULL,
+                                    request_id = NULL,
+                                    requested_at = NULL,
+                                    expires_at = NULL,
+                                    updated_at = NOW()
+                                WHERE id = $1
+                                  AND status = 'OPEN'
+                                  AND claimed_device_hash IS NULL
+                                  AND (request_id = $2 OR (request_id IS NULL AND $2 IS NULL))
+                                  AND (requester_device_hash = $3 OR (requester_device_hash IS NULL AND $3 IS NULL))
+                            `, [lockedSession.id, snapshotRequestId, snapshotDeviceHash]);
+
+                            if ((updateRes.rowCount ?? 0) > 0 && lockedSession.request_id) {
+                                await recordIdempotency(
+                                    client,
+                                    table.tenant_id,
+                                    'request_table_open',
+                                    table.table_id,
+                                    lockedSession.request_id,
+                                    { guestName: lockedSession.requester_guest_name, deviceHash: lockedSession.requester_device_hash },
+                                    {
+                                        status: 'EXPIRED',
+                                        sessionId: lockedSession.id,
+                                        requestId: lockedSession.request_id,
+                                        message: 'Yêu cầu mở bàn đã hết hạn'
+                                    }
+                                );
+                                lockedSession.requester_device_hash = null;
+                                lockedSession.request_id = null;
+                                lockedSession.requester_guest_name = null;
+                                lockedSession.requested_at = null;
+                                lockedSession.expires_at = null;
+                            }
+                        }
+
+                        // State changed, new requester arrived, or cleared -> refresh activeSession
+                        activeSession = (lockedSession.status === 'OPEN' || lockedSession.status === 'PENDING_APPROVAL') ? lockedSession : null;
+                    }
+                });
+            }
+        }
+
+        // Determine device state & table status
+        let tableStatus: 'VACANT' | 'PENDING' | 'OCCUPIED' = 'VACANT';
+        let deviceState: 'IDLE' | 'REQUESTER' | 'CLAIMED' | 'VIEWER' = 'IDLE';
+        let requesterInfo: any = null;
+        let canOrder = false;
+        let canRequest = config.orderingMode === 'approved_single_device' && table.is_enabled && table.tenant_status === 'active';
+
+        if (activeSession) {
+            if (activeSession.status === 'PENDING_APPROVAL') {
+                tableStatus = 'PENDING';
+                canRequest = false;
+                if (callerDeviceHash && activeSession.requester_device_hash === callerDeviceHash) {
+                    deviceState = 'REQUESTER';
+                    requesterInfo = {
+                        requestId: activeSession.request_id,
+                        guestName: activeSession.requester_guest_name,
+                        requestedAt: activeSession.requested_at,
+                        expiresAt: activeSession.expires_at,
+                        remainingSeconds: Math.max(0, Math.floor((new Date(activeSession.expires_at).getTime() - Date.now()) / 1000)),
+                        canWithdraw: true
+                    };
+                } else {
+                    deviceState = 'VIEWER';
+                }
+            } else if (activeSession.status === 'OPEN') {
+                tableStatus = 'OCCUPIED';
+                if (config.orderingMode === 'approved_single_device') {
+                    if (activeSession.claimed_device_hash) {
+                        canRequest = false;
+                        if (callerDeviceHash && activeSession.claimed_device_hash === callerDeviceHash) {
+                            deviceState = 'CLAIMED';
+                            canOrder = true;
+                        } else {
+                            deviceState = 'VIEWER';
+                            canOrder = false;
+                        }
+                    } else {
+                        // Claim released! (G3)
+                        canOrder = false;
+                        if (activeSession.requester_device_hash) {
+                            tableStatus = 'PENDING';
+                            canRequest = false;
+                            if (callerDeviceHash && activeSession.requester_device_hash === callerDeviceHash) {
+                                deviceState = 'REQUESTER';
+                                requesterInfo = {
+                                    requestId: activeSession.request_id,
+                                    guestName: activeSession.requester_guest_name,
+                                    requestedAt: activeSession.requested_at,
+                                    expiresAt: activeSession.expires_at,
+                                    remainingSeconds: Math.max(0, Math.floor((new Date(activeSession.expires_at).getTime() - Date.now()) / 1000)),
+                                    canWithdraw: true
+                                };
+                            } else {
+                                deviceState = 'VIEWER';
+                            }
+                        } else {
+                            deviceState = 'VIEWER';
+                            canRequest = table.is_enabled && table.tenant_status === 'active';
+                        }
+                    }
+                } else {
+                    // Multi-device mode: any device can order
+                    deviceState = 'CLAIMED';
+                    canOrder = true;
+                    canRequest = false;
+                }
+            }
+        }
 
         // Fetch categories and items
         const catRes = await query(`
@@ -186,10 +380,24 @@ export class GuestService {
             table: {
                 id: table.table_id,
                 tableNumber: table.table_number,
+                table_number: table.table_number,
                 readiness: table.readiness,
-                isEnabled: table.is_enabled
+                capacity: table.capacity,
+                isEnabled: table.is_enabled,
+                is_enabled: table.is_enabled,
+                orderingMode: config.orderingMode,
+                ordering_mode: config.orderingMode,
+                tableStatus,
+                table_status: tableStatus,
+                deviceState,
+                device_state: deviceState,
+                canOrder,
+                can_order: canOrder,
+                canRequest,
+                can_request: canRequest,
+                request: requesterInfo
             },
-            session: activeSession ? {
+            session: (activeSession && (deviceState === 'CLAIMED' || config.orderingMode === 'multi_device')) ? {
                 id: activeSession.id,
                 status: activeSession.status,
                 openedAt: activeSession.opened_at
@@ -273,7 +481,7 @@ export class GuestService {
     }
 
     // 2. Join session
-    static async joinSession(publicQrId: string, deviceFingerprint?: string) {
+    static async joinSession(publicQrId: string, deviceFingerprint?: string, callerDeviceHash?: string) {
         validate(z.string().max(1000).optional(), deviceFingerprint);
         return withTransaction(async client => {
             const tableRes = await client.query(`
@@ -316,8 +524,20 @@ export class GuestService {
                 };
             }
 
-            const locked = await client.query(`SELECT status FROM table_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [row.session_id, row.tenant_id]);
+            const locked = await client.query(`SELECT status, claimed_device_hash, claim_version FROM table_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [row.session_id, row.tenant_id]);
             if (locked.rows[0]?.status !== 'OPEN') throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
+
+            // In approved_single_device mode: enforce caller has claim
+            if (config.orderingMode === 'approved_single_device') {
+                const claimedHash = locked.rows[0]?.claimed_device_hash;
+                if (!claimedHash || claimedHash !== callerDeviceHash) {
+                    throw {
+                        status: 403,
+                        code: 'DEVICE_NOT_CLAIMED',
+                        message: 'Thiết bị này không có quyền tham gia phiên đặt món của bàn. Chỉ thiết bị được duyệt mới có quyền đặt món.'
+                    };
+                }
+            }
 
             // Generate token and record guest_session
             const rawToken = generateRandomToken(32);
@@ -327,7 +547,7 @@ export class GuestService {
             await client.query(`
                 INSERT INTO guest_sessions (tenant_id, table_id, session_id, token_hash, device_fingerprint, expires_at)
                 VALUES ($1, $2, $3, $4, $5, $6)
-            `, [row.tenant_id, row.table_id, row.session_id, tokenHash, deviceFingerprint || null, expiresAt]);
+            `, [row.tenant_id, row.table_id, row.session_id, tokenHash, callerDeviceHash || deviceFingerprint || null, expiresAt]);
 
             return {
                 token: rawToken,
@@ -340,12 +560,359 @@ export class GuestService {
         });
     }
 
+    // 2b. Gaeru Flow - Request Table Open (P1)
+    static async requestTableOpen(publicQrId: string, input: { requestId: string; guestName: string }, deviceHash: string) {
+        validate(z.object({
+            requestId: z.string().uuid(),
+            guestName: z.string().trim().min(1, 'Vui lòng nhập tên').max(80, 'Tên tối đa 80 ký tự')
+        }), input);
+
+        if (config.orderingMode !== 'approved_single_device') {
+            throw { status: 403, code: 'FEATURE_DISABLED', message: 'Tính năng yêu cầu mở bàn không khả dụng ở chế độ này' };
+        }
+
+        return await withTransaction(async (client) => {
+            // Lock table row
+            const tableRes = await client.query(`
+                SELECT t.id, t.tenant_id, t.table_number, t.is_enabled, te.status as tenant_status
+                FROM tables t
+                JOIN tenants te ON te.id = t.tenant_id
+                WHERE t.public_qr_id = $1
+                FOR UPDATE
+            `, [publicQrId]);
+
+            if (tableRes.rows.length === 0) {
+                throw { status: 404, code: 'TABLE_NOT_FOUND', message: 'Không tìm thấy bàn tương ứng với mã QR' };
+            }
+
+            const table = tableRes.rows[0];
+            if (table.tenant_status !== 'active') {
+                throw { status: 403, code: 'SHOP_SUSPENDED', message: 'Quán ăn hiện đang tạm ngừng hoạt động.' };
+            }
+            if (!table.is_enabled) {
+                throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn này hiện đang tạm ngừng sử dụng.' };
+            }
+
+            // G4: Check idempotency BEFORE rate limit, strictly scoped by deviceHash and payload
+            const idempotency = await checkIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash });
+            if (idempotency.handled) {
+                const cached = idempotency.result;
+                // G4a: If cached result was PENDING_APPROVAL but has expired, transition to terminal EXPIRED state
+                if (cached.status === 'PENDING_APPROVAL' && cached.expiresAt && new Date(cached.expiresAt).getTime() <= Date.now()) {
+                    const expiredResult = {
+                        status: 'EXPIRED',
+                        sessionId: cached.sessionId,
+                        requestId: input.requestId,
+                        message: 'Yêu cầu mở bàn đã hết hạn'
+                    };
+                    await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, expiredResult);
+                    return { ...expiredResult, isRetry: true };
+                }
+                return { ...cached, isRetry: true };
+            }
+
+            // G4c: Check if request_id already exists in table_sessions (terminal or active)
+            const existingReqRes = await client.query(`
+                SELECT id, status, close_reason, requester_guest_name, requested_at, expires_at, requester_device_hash, claimed_device_hash
+                FROM table_sessions
+                WHERE table_id = $1 AND request_id = $2
+            `, [table.id, input.requestId]);
+
+            if (existingReqRes.rows.length > 0) {
+                const ex = existingReqRes.rows[0];
+                if (ex.requester_device_hash && ex.requester_device_hash !== deviceHash) {
+                    throw { status: 409, code: 'IDEMPOTENCY_CONFLICT', message: 'Yêu cầu không thuộc về thiết bị này' };
+                }
+                if (ex.expires_at && new Date(ex.expires_at).getTime() <= Date.now()) {
+                    const expiredResult = {
+                        status: 'EXPIRED',
+                        sessionId: ex.id,
+                        requestId: input.requestId,
+                        message: 'Yêu cầu mở bàn đã hết hạn'
+                    };
+                    await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, expiredResult);
+                    return { ...expiredResult, isRetry: true };
+                }
+                return {
+                    status: ex.status === 'CLOSED' ? (ex.close_reason || 'CLOSED') : ex.status,
+                    sessionId: ex.id,
+                    requestId: input.requestId,
+                    isRetry: true
+                };
+            }
+
+            // Rate limit: max 6 requests in 10 minutes from this device
+            const countRes = await client.query(`
+                SELECT COUNT(*) as recent_count
+                FROM table_sessions
+                WHERE requester_device_hash = $1
+                  AND requested_at > NOW() - INTERVAL '10 minutes'
+            `, [deviceHash]);
+
+            if (parseInt(countRes.rows[0]?.recent_count || '0', 10) >= 6) {
+                throw {
+                    status: 429,
+                    code: 'RATE_LIMIT_EXCEEDED',
+                    message: 'Bạn đã gửi quá nhiều yêu cầu mở bàn. Vui lòng chờ vài phút rồi thử lại.'
+                };
+            }
+
+            // Check existing active session
+            const activeRes = await client.query(`
+                SELECT id, status, request_id, requester_device_hash, requester_guest_name, requested_at, expires_at, claimed_device_hash
+                FROM table_sessions
+                WHERE table_id = $1 AND status IN ('PENDING_APPROVAL', 'OPEN')
+                FOR UPDATE
+            `, [table.id]);
+
+            if (activeRes.rows.length > 0) {
+                const active = activeRes.rows[0];
+                if (active.status === 'OPEN') {
+                    if (active.claimed_device_hash) {
+                        throw { status: 409, code: 'TABLE_ALREADY_OCCUPIED', message: 'Bàn đang có khách phục vụ.' };
+                    }
+                    // G3: Claim released on OPEN session! Check if replacement request exists
+                    if (active.requester_device_hash) {
+                        if (active.expires_at && new Date(active.expires_at).getTime() <= Date.now()) {
+                            // Expired pending replacement request -> clear it and continue
+                            await client.query(`
+                                UPDATE table_sessions
+                                SET requester_device_hash = NULL, requester_guest_name = NULL, request_id = NULL, requested_at = NULL, expires_at = NULL
+                                WHERE id = $1
+                            `, [active.id]);
+                            if (active.request_id) {
+                                await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, active.request_id, { guestName: active.requester_guest_name, deviceHash: active.requester_device_hash }, {
+                                    status: 'EXPIRED',
+                                    sessionId: active.id,
+                                    requestId: active.request_id,
+                                    message: 'Yêu cầu mở bàn đã hết hạn'
+                                });
+                            }
+                        } else if (active.request_id === input.requestId) {
+                            if (active.requester_device_hash !== deviceHash) {
+                                throw { status: 409, code: 'IDEMPOTENCY_CONFLICT', message: 'Yêu cầu không thuộc về thiết bị này' };
+                            }
+                            // Idempotent retry
+                            return {
+                                status: 'PENDING_APPROVAL',
+                                isRetry: true,
+                                sessionId: active.id,
+                                requestId: active.request_id,
+                                guestName: active.requester_guest_name,
+                                requestedAt: active.requested_at,
+                                expiresAt: active.expires_at
+                            };
+                        } else {
+                            throw { status: 409, code: 'TABLE_REQUEST_PENDING', message: 'Bàn đang có yêu cầu mở bàn khác đang chờ duyệt.' };
+                        }
+                    }
+
+                    // Attach replacement request to existing OPEN session
+                    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+                    await client.query(`
+                        UPDATE table_sessions
+                        SET request_id = $1,
+                            requester_guest_name = $2,
+                            requester_device_hash = $3,
+                            requested_at = NOW(),
+                            expires_at = $4,
+                            updated_at = NOW()
+                        WHERE id = $5
+                    `, [input.requestId, input.guestName.trim(), deviceHash, expiresAt, active.id]);
+
+                    const result = {
+                        status: 'PENDING_APPROVAL',
+                        sessionId: active.id,
+                        requestId: input.requestId,
+                        guestName: input.guestName.trim(),
+                        requestedAt: new Date(),
+                        expiresAt
+                    };
+
+                    await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, result);
+
+                    broadcastToStaff(table.tenant_id, 'table_session:requested', {
+                        tableId: table.id,
+                        tableNumber: table.table_number,
+                        sessionId: active.id,
+                        requestId: input.requestId,
+                        guestName: input.guestName.trim(),
+                        requestedAt: new Date(),
+                        expiresAt
+                    });
+
+                    broadcastToTable(table.id, 'table_session:status_changed', {
+                        tableId: table.id,
+                        status: 'PENDING'
+                    });
+
+                    return result;
+                }
+
+                // If pending, check expiration
+                if (active.expires_at && new Date(active.expires_at).getTime() <= Date.now()) {
+                    await client.query(`
+                        UPDATE table_sessions
+                        SET status = 'CLOSED', close_reason = 'EXPIRED'
+                        WHERE id = $1
+                    `, [active.id]);
+                    if (active.request_id) {
+                        await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, active.request_id, { guestName: active.requester_guest_name, deviceHash: active.requester_device_hash }, {
+                            status: 'EXPIRED',
+                            sessionId: active.id,
+                            requestId: active.request_id,
+                            message: 'Yêu cầu mở bàn đã hết hạn'
+                        });
+                    }
+                } else if (active.request_id === input.requestId) {
+                    if (active.requester_device_hash !== deviceHash) {
+                        throw { status: 409, code: 'IDEMPOTENCY_CONFLICT', message: 'Yêu cầu không thuộc về thiết bị này' };
+                    }
+                    // Idempotent retry
+                    return {
+                        status: 'PENDING_APPROVAL',
+                        isRetry: true,
+                        sessionId: active.id,
+                        requestId: active.request_id,
+                        guestName: active.requester_guest_name,
+                        requestedAt: active.requested_at,
+                        expiresAt: active.expires_at
+                    };
+                } else {
+                    throw { status: 409, code: 'TABLE_REQUEST_PENDING', message: 'Bàn đang có yêu cầu mở bàn khác đang chờ duyệt.' };
+                }
+            }
+
+            // Insert new pending session for vacant table
+            const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+            const insertRes = await client.query(`
+                INSERT INTO table_sessions (
+                    tenant_id, table_id, status, requested_at, expires_at,
+                    requester_guest_name, requester_device_hash, request_id
+                ) VALUES ($1, $2, 'PENDING_APPROVAL', NOW(), $3, $4, $5, $6)
+                RETURNING id, status, request_id, requester_guest_name, requested_at, expires_at
+            `, [table.tenant_id, table.id, expiresAt, input.guestName.trim(), deviceHash, input.requestId]);
+
+            const row = insertRes.rows[0];
+            const result = {
+                status: 'PENDING_APPROVAL',
+                sessionId: row.id,
+                requestId: row.request_id,
+                guestName: row.requester_guest_name,
+                requestedAt: row.requested_at,
+                expiresAt: row.expires_at
+            };
+
+            await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, result);
+
+            // Realtime notifications
+            broadcastToStaff(table.tenant_id, 'table_session:requested', {
+                tableId: table.id,
+                tableNumber: table.table_number,
+                sessionId: row.id,
+                requestId: row.request_id,
+                guestName: row.requester_guest_name,
+                requestedAt: row.requested_at,
+                expiresAt: row.expires_at
+            });
+
+            broadcastToTable(table.id, 'table_session:status_changed', {
+                tableId: table.id,
+                status: 'PENDING'
+            });
+
+            return result;
+        });
+    }
+
+    // 2c. Gaeru Flow - Withdraw Table Request (P1)
+    static async withdrawTableRequest(publicQrId: string, requestId: string, deviceHash: string) {
+        validate(z.string().uuid(), requestId);
+
+        if (config.orderingMode !== 'approved_single_device') {
+            throw { status: 403, code: 'FEATURE_DISABLED', message: 'Tính năng không khả dụng' };
+        }
+
+        return await withTransaction(async (client) => {
+            const tableRes = await client.query(`
+                SELECT t.id, t.tenant_id, t.table_number
+                FROM tables t
+                WHERE t.public_qr_id = $1
+                FOR UPDATE
+            `, [publicQrId]);
+
+            if (tableRes.rows.length === 0) {
+                throw { status: 404, code: 'TABLE_NOT_FOUND', message: 'Không tìm thấy bàn' };
+            }
+            const table = tableRes.rows[0];
+
+            const sessionRes = await client.query(`
+                SELECT id, requester_device_hash, requester_guest_name, status, request_id
+                FROM table_sessions
+                WHERE table_id = $1 AND request_id = $2 AND (status = 'PENDING_APPROVAL' OR (status = 'OPEN' AND claimed_device_hash IS NULL AND requester_device_hash IS NOT NULL))
+                FOR UPDATE
+            `, [table.id, requestId]);
+
+            if (sessionRes.rows.length === 0) {
+                throw { status: 404, code: 'REQUEST_NOT_FOUND', message: 'Không tìm thấy yêu cầu chờ duyệt hợp lệ' };
+            }
+
+            const session = sessionRes.rows[0];
+            if (session.requester_device_hash !== deviceHash) {
+                throw { status: 403, code: 'FORBIDDEN', message: 'Không thể hủy yêu cầu của thiết bị khác' };
+            }
+
+            if (session.status === 'PENDING_APPROVAL') {
+                await client.query(`
+                    UPDATE table_sessions
+                    SET status = 'CLOSED', close_reason = 'CUSTOMER_WITHDRAWN', updated_at = NOW()
+                    WHERE id = $1
+                `, [session.id]);
+            } else {
+                // OPEN session replacement request: clear requester without closing session (G3)
+                await client.query(`
+                    UPDATE table_sessions
+                    SET requester_device_hash = NULL,
+                        requester_guest_name = NULL,
+                        request_id = NULL,
+                        requested_at = NULL,
+                        expires_at = NULL,
+                        updated_at = NOW()
+                    WHERE id = $1
+                `, [session.id]);
+            }
+
+            const terminalResult = {
+                status: 'WITHDRAWN',
+                sessionId: session.id,
+                requestId
+            };
+
+            await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, requestId, { guestName: session.requester_guest_name, deviceHash: session.requester_device_hash }, terminalResult);
+
+            broadcastToStaff(table.tenant_id, 'table_session:withdrawn', {
+                tableId: table.id,
+                tableNumber: table.table_number,
+                sessionId: session.id,
+                requestId
+            });
+
+            broadcastToTable(table.id, 'table_session:status_changed', {
+                tableId: table.id,
+                status: session.status === 'OPEN' ? 'OCCUPIED' : 'VACANT'
+            });
+
+            return terminalResult;
+        });
+    }
+
     // 3. Create Order (F02, F03, F04)
     static async createOrder(
         tenantId: string,
         sessionId: string,
         tableId: string,
-        input: CreateOrderInput
+        input: CreateOrderInput,
+        callerDeviceHash?: string
     ) {
         input = validate(orderInputSchema, input);
         if (!input.items || input.items.length === 0) {
@@ -355,7 +922,7 @@ export class GuestService {
         return await withTransaction(async (client) => {
             // Lock session row FOR UPDATE
             const sessionRes = await client.query(`
-                SELECT ts.id, ts.status, ts.settlement_version, ts.table_id, t.table_number
+                SELECT ts.id, ts.status, ts.settlement_version, ts.table_id, ts.claimed_device_hash, ts.claim_version, t.table_number
                 FROM table_sessions ts
                 JOIN tables t ON t.id = ts.table_id
                 WHERE ts.id = $1 AND ts.tenant_id = $2
@@ -382,6 +949,16 @@ export class GuestService {
             const session = sessionRes.rows[0];
             if (session.status !== 'OPEN') {
                 throw { status: 400, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc, không thể gọi thêm món' };
+            }
+
+            if (config.orderingMode === 'approved_single_device') {
+                if (!callerDeviceHash || session.claimed_device_hash !== callerDeviceHash) {
+                    throw {
+                        status: 403,
+                        code: 'DEVICE_NOT_CLAIMED',
+                        message: 'Thiết bị này không có quyền đặt món cho bàn này. Chỉ thiết bị giữ quyền mới có thể đặt món.'
+                    };
+                }
             }
 
             // Check if shop is suspended
@@ -966,15 +1543,21 @@ export class GuestService {
         sessionId: string,
         tableId: string,
         type: 'ASSISTANCE' | 'CHECKOUT',
-        note?: string
+        note?: string,
+        callerDeviceHash?: string
     ) {
         return await withTransaction(async (client) => {
             validate(z.enum(['ASSISTANCE', 'CHECKOUT']), type);
             validate(z.string().max(1000).optional(), note);
-            const locked = await client.query(`SELECT id, status FROM table_sessions
+            const locked = await client.query(`SELECT id, status, claimed_device_hash FROM table_sessions
                 WHERE id = $1 AND tenant_id = $2 AND table_id = $3 FOR UPDATE`, [sessionId, tenantId, tableId]);
             if (!locked.rows.length || locked.rows[0].status !== 'OPEN') {
                 throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
+            }
+            if (config.orderingMode === 'approved_single_device') {
+                if (!callerDeviceHash || locked.rows[0].claimed_device_hash !== callerDeviceHash) {
+                    throw { status: 403, code: 'DEVICE_NOT_CLAIMED', message: 'Chỉ thiết bị giữ quyền đặt món mới có thể gọi nhân viên.' };
+                }
             }
             // Check if there is already an open request of this type
             const existingRes = await client.query(`
