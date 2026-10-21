@@ -69,71 +69,122 @@ export class GuestService {
 
         // Auto-expire pending session or pending replacement request if time has passed
         if (activeSession) {
-            if (activeSession.status === 'PENDING_APPROVAL') {
-                if (activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now()) {
-                    await withTransaction(async (client) => {
-                        await client.query(`
-                            UPDATE table_sessions
-                            SET status = 'CLOSED', close_reason = 'EXPIRED'
-                            WHERE id = $1 AND status = 'PENDING_APPROVAL'
-                        `, [activeSession.id]);
+            const isPendingCandidate = activeSession.status === 'PENDING_APPROVAL' &&
+                Boolean(activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now());
+            const isReplacementCandidate = activeSession.status === 'OPEN' &&
+                !activeSession.claimed_device_hash && Boolean(activeSession.requester_device_hash) &&
+                Boolean(activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now());
 
-                        if (activeSession.request_id) {
-                            await recordIdempotency(
-                                client,
-                                table.tenant_id,
-                                'request_table_open',
-                                table.table_id,
-                                activeSession.request_id,
-                                { guestName: activeSession.requester_guest_name, deviceHash: activeSession.requester_device_hash },
-                                {
-                                    status: 'EXPIRED',
-                                    sessionId: activeSession.id,
-                                    requestId: activeSession.request_id,
-                                    message: 'Yêu cầu mở bàn đã hết hạn'
-                                }
-                            );
-                        }
-                    });
-                    activeSession = null;
-                }
-            } else if (activeSession.status === 'OPEN' && !activeSession.claimed_device_hash && activeSession.requester_device_hash) {
-                if (activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now()) {
-                    await withTransaction(async (client) => {
-                        await client.query(`
-                            UPDATE table_sessions
-                            SET requester_device_hash = NULL,
-                                requester_guest_name = NULL,
-                                request_id = NULL,
-                                requested_at = NULL,
-                                expires_at = NULL,
-                                updated_at = NOW()
-                            WHERE id = $1 AND status = 'OPEN'
-                        `, [activeSession.id]);
+            if (isPendingCandidate || isReplacementCandidate) {
+                const snapshotSessionId = activeSession.id;
+                const snapshotRequestId = activeSession.request_id;
+                const snapshotDeviceHash = activeSession.requester_device_hash;
 
-                        if (activeSession.request_id) {
-                            await recordIdempotency(
-                                client,
-                                table.tenant_id,
-                                'request_table_open',
-                                table.table_id,
-                                activeSession.request_id,
-                                { guestName: activeSession.requester_guest_name, deviceHash: activeSession.requester_device_hash },
-                                {
-                                    status: 'EXPIRED',
-                                    sessionId: activeSession.id,
-                                    requestId: activeSession.request_id,
-                                    message: 'Yêu cầu mở bàn đã hết hạn'
-                                }
-                            );
+                await withTransaction(async (client) => {
+                    const lockRes = await client.query(`
+                        SELECT id, status, settlement_version, opened_at, expires_at,
+                               requester_device_hash, claimed_device_hash, claim_version,
+                               requester_guest_name, request_id, requested_at
+                        FROM table_sessions
+                        WHERE id = $1
+                        FOR UPDATE
+                    `, [snapshotSessionId]);
+
+                    if (lockRes.rows.length === 0) {
+                        activeSession = null;
+                        return;
+                    }
+
+                    const lockedSession = lockRes.rows[0];
+
+                    if (isPendingCandidate) {
+                        const isStillPendingExpired = lockedSession.status === 'PENDING_APPROVAL' &&
+                            lockedSession.request_id === snapshotRequestId &&
+                            (lockedSession.requester_device_hash ?? null) === (snapshotDeviceHash ?? null) &&
+                            Boolean(lockedSession.expires_at && new Date(lockedSession.expires_at).getTime() <= Date.now());
+
+                        if (isStillPendingExpired) {
+                            const updateRes = await client.query(`
+                                UPDATE table_sessions
+                                SET status = 'CLOSED', close_reason = 'EXPIRED', updated_at = NOW()
+                                WHERE id = $1
+                                  AND status = 'PENDING_APPROVAL'
+                                  AND (request_id = $2 OR (request_id IS NULL AND $2 IS NULL))
+                                  AND (requester_device_hash = $3 OR (requester_device_hash IS NULL AND $3 IS NULL))
+                            `, [lockedSession.id, snapshotRequestId, snapshotDeviceHash]);
+
+                            if ((updateRes.rowCount ?? 0) > 0 && lockedSession.request_id) {
+                                await recordIdempotency(
+                                    client,
+                                    table.tenant_id,
+                                    'request_table_open',
+                                    table.table_id,
+                                    lockedSession.request_id,
+                                    { guestName: lockedSession.requester_guest_name, deviceHash: lockedSession.requester_device_hash },
+                                    {
+                                        status: 'EXPIRED',
+                                        sessionId: lockedSession.id,
+                                        requestId: lockedSession.request_id,
+                                        message: 'Yêu cầu mở bàn đã hết hạn'
+                                    }
+                                );
+                                activeSession = null;
+                                return;
+                            }
                         }
-                    });
-                    activeSession.requester_device_hash = null;
-                    activeSession.request_id = null;
-                    activeSession.requester_guest_name = null;
-                    activeSession.requested_at = null;
-                    activeSession.expires_at = null;
-                }
+
+                        // State changed, superseded, or not expired under lock -> refresh activeSession
+                        activeSession = (lockedSession.status === 'OPEN' || lockedSession.status === 'PENDING_APPROVAL') ? lockedSession : null;
+                    } else if (isReplacementCandidate) {
+                        const isStillReplacementExpired = lockedSession.status === 'OPEN' &&
+                            !lockedSession.claimed_device_hash &&
+                            lockedSession.request_id === snapshotRequestId &&
+                            (lockedSession.requester_device_hash ?? null) === (snapshotDeviceHash ?? null) &&
+                            Boolean(lockedSession.expires_at && new Date(lockedSession.expires_at).getTime() <= Date.now());
+
+                        if (isStillReplacementExpired) {
+                            const updateRes = await client.query(`
+                                UPDATE table_sessions
+                                SET requester_device_hash = NULL,
+                                    requester_guest_name = NULL,
+                                    request_id = NULL,
+                                    requested_at = NULL,
+                                    expires_at = NULL,
+                                    updated_at = NOW()
+                                WHERE id = $1
+                                  AND status = 'OPEN'
+                                  AND claimed_device_hash IS NULL
+                                  AND (request_id = $2 OR (request_id IS NULL AND $2 IS NULL))
+                                  AND (requester_device_hash = $3 OR (requester_device_hash IS NULL AND $3 IS NULL))
+                            `, [lockedSession.id, snapshotRequestId, snapshotDeviceHash]);
+
+                            if ((updateRes.rowCount ?? 0) > 0 && lockedSession.request_id) {
+                                await recordIdempotency(
+                                    client,
+                                    table.tenant_id,
+                                    'request_table_open',
+                                    table.table_id,
+                                    lockedSession.request_id,
+                                    { guestName: lockedSession.requester_guest_name, deviceHash: lockedSession.requester_device_hash },
+                                    {
+                                        status: 'EXPIRED',
+                                        sessionId: lockedSession.id,
+                                        requestId: lockedSession.request_id,
+                                        message: 'Yêu cầu mở bàn đã hết hạn'
+                                    }
+                                );
+                                lockedSession.requester_device_hash = null;
+                                lockedSession.request_id = null;
+                                lockedSession.requester_guest_name = null;
+                                lockedSession.requested_at = null;
+                                lockedSession.expires_at = null;
+                            }
+                        }
+
+                        // State changed, new requester arrived, or cleared -> refresh activeSession
+                        activeSession = (lockedSession.status === 'OPEN' || lockedSession.status === 'PENDING_APPROVAL') ? lockedSession : null;
+                    }
+                });
             }
         }
 

@@ -1002,5 +1002,159 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
             const dataA = await replayA.json() as any;
             expect(dataA.requestId).toBe(reqId);
         });
+
+        it('G4d [P2]: probe approve/expire race: when expiry is extended and staff approves while menu waits for lock, menu does not overwrite OPEN with EXPIRED', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA01Id]);
+
+            const dev = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // 1. Create pending request
+            const reqRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Đua Khóa' })
+            });
+            expect(reqRes.status).toBe(201);
+
+            const sessionRes = await query(`SELECT id FROM table_sessions WHERE request_id = $1`, [reqId]);
+            expect(sessionRes.rows.length).toBe(1);
+            const sessionId = sessionRes.rows[0].id;
+
+            // 2. Set expired in DB
+            await query(`UPDATE table_sessions SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1`, [sessionId]);
+
+            // 3. Tx1 holds session row lock and extends expiry
+            const client = await pool.connect();
+            await client.query('BEGIN');
+            await client.query(`SELECT id FROM table_sessions WHERE id = $1 FOR UPDATE`, [sessionId]);
+            await client.query(`UPDATE table_sessions SET expires_at = NOW() + INTERVAL '15 minutes' WHERE id = $1`, [sessionId]);
+
+            // 4. StaffService.approveSessionRequest called first -> blocks on row lock
+            const approvePromise = fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/approve-request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${staffToken}` },
+                body: JSON.stringify({ sessionId })
+            });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            // 5. getPublicTableMenu called second -> snapshots expired session and blocks on withTransaction FOR UPDATE lock
+            const menuPromise = fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/menu`, {
+                headers: { 'Cookie': `order_device=${dev}` }
+            });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            // 6. Tx1 commits extension -> approve gets lock, verifies valid expiry, transitions to OPEN, sets idempotency OPEN
+            // -> menu gets lock afterwards, sees session is already OPEN, skips expire UPDATE, does not overwrite idempotency with EXPIRED
+            await client.query('COMMIT');
+            client.release();
+
+            const [approveRes, menuRes] = await Promise.all([approvePromise, menuPromise]);
+            expect(approveRes.status).toBe(200);
+            expect(menuRes.status).toBe(200);
+
+            // 7. Verify session in DB is OPEN
+            const dbCheck = await query(`SELECT status, claimed_device_hash, close_reason FROM table_sessions WHERE id = $1`, [sessionId]);
+            expect(dbCheck.rows[0].status).toBe('OPEN');
+            expect(dbCheck.rows[0].close_reason).toBeNull();
+
+            // 8. Verify menu reflects OPEN / CLAIMED state
+            const menuData = await menuRes.json() as any;
+            expect(menuData.table.tableStatus).toBe('OCCUPIED');
+            expect(menuData.table.deviceState).toBe('CLAIMED');
+            expect(menuData.table.canOrder).toBe(true);
+
+            // 9. Replay request-open with same requestId -> MUST return OPEN, never EXPIRED
+            const replayRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Đua Khóa' })
+            });
+            expect(replayRes.status).toBe(200);
+            const replayData = await replayRes.json() as any;
+            expect(replayData.status).toBe('OPEN');
+            expect(replayData.sessionId).toBe(sessionId);
+        });
+
+        it('G4d [P2]: probe replacement race: when a new requester arrives while menu waits for lock, menu does not clear new requester', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA02Id]);
+
+            // 1. Create an OPEN session with no claim on table A02
+            const insertRes = await query(`
+                INSERT INTO table_sessions (tenant_id, table_id, status, opened_at, claim_version)
+                VALUES ($1, $2, 'OPEN', NOW(), 1)
+                RETURNING id
+            `, [tenantId, tableA02Id]);
+            const sessionId = insertRes.rows[0].id;
+
+            // 2. Device A submits replacement request
+            const devA = createDeviceCookie();
+            const reqIdA = crypto.randomUUID();
+            const reqARes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devA}` },
+                body: JSON.stringify({ requestId: reqIdA, guestName: 'Khách Cũ A' })
+            });
+            expect(reqARes.status).toBe(201);
+
+            // 3. Set Device A request expired in DB
+            await query(`UPDATE table_sessions SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1`, [sessionId]);
+
+            // 4. Tx1 holds session row lock
+            const client = await pool.connect();
+            await client.query('BEGIN');
+            await client.query(`SELECT id FROM table_sessions WHERE id = $1 FOR UPDATE`, [sessionId]);
+
+            // 5. Menu query starts: snapshots expired Device A request, then waits for row lock to clean up
+            const menuPromise = fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/menu`, {
+                headers: { 'Cookie': `order_device=${devA}` }
+            });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            // 6. In Tx1, a new replacement request from Device B arrives
+            const devB = createDeviceCookie();
+            const devBHash = crypto.createHash('sha256').update(devB).digest('hex');
+            const reqIdB = crypto.randomUUID();
+            await client.query(`
+                UPDATE table_sessions
+                SET request_id = $1,
+                    requester_guest_name = $2,
+                    requester_device_hash = $3,
+                    requested_at = NOW(),
+                    expires_at = NOW() + INTERVAL '15 minutes',
+                    updated_at = NOW()
+                WHERE id = $4
+            `, [reqIdB, 'Khách Mới B', devBHash, sessionId]);
+
+            // 7. Tx1 commits new request
+            await client.query('COMMIT');
+            client.release();
+
+            // 8. Menu finishes
+            const menuRes = await menuPromise;
+            expect(menuRes.status).toBe(200);
+
+            // 9. DB check: Device B request MUST NOT be wiped out by menu's stale snapshot
+            const checkRes = await query(`
+                SELECT request_id, requester_guest_name, requester_device_hash, status
+                FROM table_sessions
+                WHERE id = $1
+            `, [sessionId]);
+            expect(checkRes.rows[0].status).toBe('OPEN');
+            expect(checkRes.rows[0].request_id).toBe(reqIdB);
+            expect(checkRes.rows[0].requester_guest_name).toBe('Khách Mới B');
+            expect(checkRes.rows[0].requester_device_hash).toBe(devBHash);
+
+            // 10. Device B reads menu and sees its pending requester state intact
+            const menuBRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/menu`, {
+                headers: { 'Cookie': `order_device=${devB}` }
+            });
+            expect(menuBRes.status).toBe(200);
+            const menuBData = await menuBRes.json() as any;
+            expect(menuBData.table.tableStatus).toBe('PENDING');
+            expect(menuBData.table.deviceState).toBe('REQUESTER');
+            expect(menuBData.table.request.requestId).toBe(reqIdB);
+            expect(menuBData.table.request.guestName).toBe('Khách Mới B');
+        });
     });
 });
