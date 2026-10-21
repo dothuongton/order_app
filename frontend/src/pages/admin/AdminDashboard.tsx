@@ -22,6 +22,7 @@ import { useAdminNavigation } from '../../hooks/admin/useAdminNavigation.js';
 import { RolesView } from '../../components/admin/RolesView.js';
 import { AuditLogsView } from '../../components/admin/AuditLogsView.js';
 import { AdminRightDrawer, RightDrawerContent } from '../../components/admin/AdminRightDrawer.js';
+import { useAdminShopDrawer } from '../../hooks/admin/useAdminShopDrawer.js';
 import { CreateShopModal } from '../../components/admin/CreateShopModal.js';
 import { EditShopModal } from '../../components/admin/EditShopModal.js';
 import { LifecycleConfirmModal } from '../../components/admin/LifecycleConfirmModal.js';
@@ -240,9 +241,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     const [loadingLogs, setLoadingLogs] = useState(true);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-    // Drawer & Modals States
-    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [drawerContent, setDrawerContent] = useState<RightDrawerContent>(null);
+    // Drawer & Modals States (guarantees race-condition resilience & generation isolation)
+    const {
+        isDrawerOpen,
+        drawerContent,
+        openShopDetail: openShopDetailDrawer,
+        openShopDetailDirectly,
+        openRolePermissions,
+        openAuditDetail,
+        closeDrawer,
+        setDrawerContent,
+        setIsDrawerOpen
+    } = useAdminShopDrawer();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingShop, setEditingShop] = useState<ShopDetail | ShopSummary | null>(null);
     const [lifecycleTarget, setLifecycleTarget] = useState<{
@@ -307,8 +317,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
 
     // Handler: Open Drawer for Role Permissions (Image 1)
     const handleOpenRolePermissions = (role: SystemRole) => {
-        setDrawerContent({ type: 'permissions', role });
-        setIsDrawerOpen(true);
+        openRolePermissions(role);
     };
 
     // Handler: Save Role Permissions (Issue #81: No-op / Read-only until backend RBAC #38/#48)
@@ -321,8 +330,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     useEffect(() => {
         if (!selectedShopId) {
             if (drawerContent?.type === 'shop-detail') {
-                setIsDrawerOpen(false);
-                setDrawerContent(null);
+                closeDrawer();
             }
             return;
         }
@@ -336,8 +344,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         AdminApi.getShopDetail(selectedShopId)
             .then((shopDetail) => {
                 if (currentFetchId !== deepLinkFetchIdRef.current) return;
-                setDrawerContent({ type: 'shop-detail', shop: shopDetail });
-                setIsDrawerOpen(true);
+                openShopDetailDirectly(shopDetail);
             })
             .catch(() => {
                 if (currentFetchId !== deepLinkFetchIdRef.current) return;
@@ -347,24 +354,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     }, [selectedShopId]);
 
     // Handler: Open Drawer for Shop Detail
-    const handleOpenShopDetail = async (shop: ShopSummary) => {
-        // Update URL deep-link
+    const handleOpenShopDetail = (shop: ShopSummary) => {
         openShopDetail(shop.id);
-        setDrawerContent({ type: 'shop-detail', shop });
-        setIsDrawerOpen(true);
-        try {
-            const detail = await AdminApi.getShopDetail(shop.id);
-            setDrawerContent({ type: 'shop-detail', shop: detail });
-        } catch {
-            // Keep summary if full detail fetch fails
-            setDrawerContent({ type: 'shop-detail', shop });
-        }
+        openShopDetailDrawer(shop, AdminApi.getShopDetail);
     };
 
     // Handler: Open Drawer for Audit Log Diff
     const handleOpenAuditDetail = (log: AuditLogItem) => {
-        setDrawerContent({ type: 'audit-detail', log });
-        setIsDrawerOpen(true);
+        openAuditDetail(log);
     };
 
     // Handler: Create Shop
@@ -381,7 +378,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         await AdminApi.updateShop(id, payload);
         showToast('Đã cập nhật thông tin quán thành công!');
         if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === id) {
-            setIsDrawerOpen(false);
+            closeDrawer();
         }
         reloadShops();
         loadAuditLogs();
@@ -403,7 +400,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 ? 'Đã lưu trữ quán thành công (Bảo toàn lịch sử hóa đơn)!'
                 : `Đã chuyển trạng thái quán sang "${targetStatus}"!`
         );
-        setIsDrawerOpen(false);
+        closeDrawer();
         loadStats();
         reloadShops();
         loadAuditLogs();
@@ -698,13 +695,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 isOpen={isDrawerOpen}
                 content={drawerContent}
                 onClose={() => {
-                    setIsDrawerOpen(false);
-                    setDrawerContent(null);
+                    closeDrawer();
                     closeShopDetail();
                 }}
                 onSavePermissions={handleSaveRolePermissions}
                 onEditShop={(shop) => {
-                    setIsDrawerOpen(false);
+                    closeDrawer();
                     setEditingShop(shop);
                 }}
                 onToggleShopStatus={handleRequestLifecycleChange}
