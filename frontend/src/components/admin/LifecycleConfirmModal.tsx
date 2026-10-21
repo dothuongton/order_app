@@ -110,16 +110,21 @@ export const LifecycleConfirmModal: React.FC<LifecycleConfirmModalProps> = ({
                     </div>
 
                     {error && (
-                        <div className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold">
-                            {error}
+                        <div
+                            role="alert"
+                            className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold flex items-start gap-2.5 animate-in fade-in"
+                        >
+                            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                            <span className="leading-relaxed">{error}</span>
                         </div>
                     )}
 
                     <div className="flex items-center gap-3 mt-6">
                         <button
                             type="button"
+                            disabled={isSubmitting}
                             onClick={onClose}
-                            className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                            className="flex-1 py-3 px-4 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
                         >
                             Hủy
                         </button>

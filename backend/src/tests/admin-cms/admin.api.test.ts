@@ -688,7 +688,7 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             });
         });
 
-        it('blocks transition to archived if tenant has open table sessions', async () => {
+        it('blocks transition to archived with 409 SHOP_HAS_OPEN_SESSIONS if tenant has open table sessions (Issue #90)', async () => {
             // Find a table for seed tenant
             const tableRes = await query('SELECT id FROM tables WHERE tenant_id = $1 LIMIT 1', [seedTenantId]);
             const tableId = tableRes.rows[0].id;
@@ -712,12 +712,71 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
                     body: JSON.stringify({ status: 'archived' })
                 });
 
-                expect(res.status).toBe(400);
+                expect(res.status).toBe(409);
                 const data: any = await res.json();
-                expect(data.error).toBe('CANNOT_ARCHIVE_ACTIVE_SESSIONS');
+                expect(data.error).toBe('SHOP_HAS_OPEN_SESSIONS');
+                expect(data.message).toContain('phiên bàn đang mở');
             } finally {
                 // Clean up session: mark CLOSED so seed tenant remains clean
                 await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE id = $1`, [sessionId]);
+            }
+        });
+
+        it('returns 404 NOT_FOUND when updating non-existent tenant id (Issue #90)', async () => {
+            const fakeId = '00000000-0000-0000-0000-000000000000';
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${fakeId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({ status: 'suspended' })
+            });
+
+            expect(res.status).toBe(404);
+            const data: any = await res.json();
+            expect(data.error).toBe('NOT_FOUND');
+        });
+
+        it('successfully transitions to archived when tenant has 0 open sessions without hard delete (Issue #90)', async () => {
+            // Create a test tenant without open sessions
+            const tempSlug = `test-lifecycle-${Date.now()}`;
+            const createRes = await query(`
+                INSERT INTO tenants (name, slug, status)
+                VALUES ('Lifecycle Test Shop', $1, 'active')
+                RETURNING id
+            `, [tempSlug]);
+            const tempTenantId = createRes.rows[0].id;
+
+            try {
+                const res = await fetch(`${baseUrl}/api/v1/admin/shops/${tempTenantId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({ status: 'archived' })
+                });
+
+                expect(res.status).toBe(200);
+                const data: any = await res.json();
+                expect(data.shop.status).toBe('archived');
+
+                // Verify row still exists in DB (zero hard delete)
+                const dbRes = await query('SELECT id, status FROM tenants WHERE id = $1', [tempTenantId]);
+                expect(dbRes.rows.length).toBe(1);
+                expect(dbRes.rows[0].status).toBe('archived');
+
+                // Verify audit log exists
+                const auditRes = await query(
+                    "SELECT action, details FROM audit_logs WHERE tenant_id = $1 AND action = 'SUPER_ADMIN_STATUS_CHANGE'",
+                    [tempTenantId]
+                );
+                expect(auditRes.rows.length).toBe(1);
+                expect(auditRes.rows[0].details.updated.status).toBe('archived');
+            } finally {
+                await query('DELETE FROM audit_logs WHERE tenant_id = $1', [tempTenantId]);
+                await query('DELETE FROM tenants WHERE id = $1', [tempTenantId]);
             }
         });
     });
