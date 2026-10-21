@@ -33,7 +33,7 @@ interface AuthContextType {
   updateCurrentTenant: (updates: Partial<TenantInfo>) => void;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+export const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);

@@ -20,10 +20,10 @@ export const bannerSchema = z.object({
     startTime: z.string().datetime({ offset: true }).optional(), endTime: z.string().datetime({ offset: true }).optional()
 }).strict();
 export const promotionSchema = z.object({
-    code: z.string().max(100).optional(), title: z.string().trim().min(1).max(200), description: z.string().max(2000).optional(),
+    code: z.string().max(100).nullable().optional(), title: z.string().trim().min(1).max(200), description: z.string().max(2000).nullable().optional(),
     discountType: z.enum(['PERCENT', 'FIXED_AMOUNT']), discountValue: z.number().int().positive().max(1000000000),
     minOrderAmount: z.number().int().nonnegative().max(1000000000).optional(),
-    maxDiscountAmount: z.number().int().positive().max(1000000000).optional(),
+    maxDiscountAmount: z.number().int().positive().max(1000000000).nullable().optional(),
     maxRedemptions: z.number().int().positive().optional(), priority: z.number().int().min(0).max(10000).optional(),
     isActive: z.boolean().optional(), startTime: z.string().datetime({ offset: true }).optional(), endTime: z.string().datetime({ offset: true }).optional()
 }).strict();
