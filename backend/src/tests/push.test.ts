@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { query } from '../db/pool.js';
 import { PushService } from '../modules/push/push.service.js';
 import { config } from '../config/index.js';
+import webpush from 'web-push';
 
 describe('Web Push Notification System', () => {
     const tenantId = '11111111-1111-1111-1111-111111111111';
@@ -12,7 +13,12 @@ describe('Web Push Notification System', () => {
         userId = userRes.rows[0].id;
     });
 
-    it('returns configured VAPID public key', () => {
+    it('returns configured VAPID public key and availability', () => {
+        const avail = PushService.getAvailability();
+        expect(avail.available).toBe(true);
+        expect(avail.enabled).toBe(true);
+        expect(avail.publicKey).toBe(config.vapidPublicKey);
+
         const key = PushService.getPublicKey();
         expect(key).toBe(config.vapidPublicKey);
         expect(key.length).toBeGreaterThan(20);
@@ -34,6 +40,23 @@ describe('Web Push Notification System', () => {
         const status = await PushService.getStatus(tenantId, userId);
         expect(status.isSubscribed).toBe(true);
         expect(status.deviceCount).toBeGreaterThanOrEqual(1);
+    });
+
+    it('requires current device endpoint for test push (no silent arbitrary fallback)', async () => {
+        await expect(PushService.sendTest(tenantId, userId, undefined as any)).rejects.toMatchObject({
+            code: 'CURRENT_ENDPOINT_REQUIRED'
+        });
+        await expect(PushService.sendTest(tenantId, userId, '')).rejects.toMatchObject({
+            code: 'CURRENT_ENDPOINT_REQUIRED'
+        });
+    });
+
+    it('rejects test push for an unregistered endpoint', async () => {
+        await expect(
+            PushService.sendTest(tenantId, userId, 'https://fcm.googleapis.com/fcm/send/unregistered-endpoint-999')
+        ).rejects.toMatchObject({
+            code: 'DEVICE_NOT_REGISTERED'
+        });
     });
 
     it('rejects invalid or non-https push endpoints', async () => {

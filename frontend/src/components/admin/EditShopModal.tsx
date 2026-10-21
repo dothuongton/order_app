@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Edit3 } from 'lucide-react';
 import { ShopDetail, ShopSummary, UpdateShopPayload } from '../../types/admin.js';
+import { useModalA11y } from '../../hooks/admin/useModalA11y.js';
 
 interface EditShopModalProps {
     shop: ShopDetail | ShopSummary;
@@ -16,23 +17,17 @@ export const EditShopModal: React.FC<EditShopModalProps> = ({ shop, onClose, onS
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const nameInputRef = useRef<HTMLInputElement>(null);
+    const modalContainerRef = useRef<HTMLDivElement>(null);
 
-    // ESC key closes modal (Issue #88)
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !isSubmitting) {
-                onClose();
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, isSubmitting]);
-
-    // Auto-focus on open
-    useEffect(() => {
-        const timer = setTimeout(() => nameInputRef.current?.focus(), 60);
-        return () => clearTimeout(timer);
-    }, []);
+        // Standard accessible modal: focus trap, restore, topmost ESC, scroll lock (Issue #88)
+    useModalA11y({
+        isOpen: true,
+        onClose,
+        isSubmitting,
+        initialFocusRef: nameInputRef,
+        containerRef: modalContainerRef,
+        modalId: 'edit-shop-modal'
+    });
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -59,6 +54,8 @@ export const EditShopModal: React.FC<EditShopModalProps> = ({ shop, onClose, onS
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
             <div
+                ref={modalContainerRef}
+                tabIndex={-1}
                 className="bg-white rounded-3xl w-full max-w-lg max-h-[92vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 role="dialog"
                 aria-modal="true"

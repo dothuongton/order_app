@@ -246,10 +246,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         isDrawerOpen,
         drawerContent,
         openShopDetail: openShopDetailDrawer,
+        openShopDetailById,
         openShopDetailDirectly,
         openRolePermissions,
         openAuditDetail,
         closeDrawer,
+        invalidateSelection,
+        cancelRequest,
+        getGeneration,
         setDrawerContent,
         setIsDrawerOpen
     } = useAdminShopDrawer();
@@ -325,9 +329,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         // Read-only: no false success toast without backend persistence
     };
 
-    // Deep-link effect (Issue #87): load shop detail from URL parameter
-    const deepLinkFetchIdRef = React.useRef(0);
+    // Deep-link effect (Issue #87, PR #110 R1 & R2 review): load shop detail from URL parameter
+    // Coordinated across navigation, tab switching, drawer close, popstate, and unmount
     useEffect(() => {
+        // 1. If no shop is selected in URL, close shop detail drawer if open
         if (!selectedShopId) {
             if (drawerContent?.type === 'shop-detail') {
                 closeDrawer();
@@ -335,28 +340,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             return;
         }
 
-        if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === selectedShopId) {
-            setIsDrawerOpen(true);
+        // 2. If tab is not 'shops', shop detail drawer should not open
+        if (activeTab !== 'shops') {
+            if (drawerContent?.type === 'shop-detail') {
+                closeDrawer();
+            }
             return;
         }
 
-        const currentFetchId = ++deepLinkFetchIdRef.current;
-        AdminApi.getShopDetail(selectedShopId)
-            .then((shopDetail) => {
-                if (currentFetchId !== deepLinkFetchIdRef.current) return;
-                openShopDetailDirectly(shopDetail);
-            })
+        // 3. Early return if drawer already displays this shop (prevents parallel fetch with fix #105)
+        // CRITICAL R2 FIX: Do NOT invalidate selection here! The legitimate detail fetch from table click is active!
+        if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === selectedShopId) {
+            return;
+        }
+
+        // 4. Fetch detail by ID with strict generation and selection guards
+        let isCancelled = false;
+        openShopDetailById(selectedShopId, AdminApi.getShopDetail)
             .catch(() => {
-                if (currentFetchId !== deepLinkFetchIdRef.current) return;
-                showToast('Không tìm thấy cơ sở quán theo liên kết hoặc đã bị xoá.');
-                closeShopDetail();
+                if (!isCancelled) {
+                    showToast('Không tìm thấy cơ sở quán theo liên kết hoặc đã bị xoá.');
+                    closeShopDetail();
+                }
             });
-    }, [selectedShopId]);
+        const myGen = getGeneration();
+
+        return () => {
+            isCancelled = true;
+            // Only cancel the request THIS effect started, never cancel a subsequent user action
+            cancelRequest(myGen);
+        };
+    }, [selectedShopId, activeTab, closeDrawer, closeShopDetail, cancelRequest, getGeneration, openShopDetailById]);
 
     // Handler: Open Drawer for Shop Detail
     const handleOpenShopDetail = (shop: ShopSummary) => {
-        openShopDetail(shop.id);
         openShopDetailDrawer(shop, AdminApi.getShopDetail);
+        openShopDetail(shop.id);
     };
 
     // Handler: Open Drawer for Audit Log Diff
@@ -379,6 +398,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         showToast('Đã cập nhật thông tin quán thành công!');
         if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === id) {
             closeDrawer();
+            closeShopDetail();
         }
         reloadShops();
         loadAuditLogs();
@@ -401,6 +421,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 : `Đã chuyển trạng thái quán sang "${targetStatus}"!`
         );
         closeDrawer();
+        closeShopDetail();
         loadStats();
         reloadShops();
         loadAuditLogs();
@@ -701,6 +722,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 onSavePermissions={handleSaveRolePermissions}
                 onEditShop={(shop) => {
                     closeDrawer();
+                    closeShopDetail();
                     setEditingShop(shop);
                 }}
                 onToggleShopStatus={handleRequestLifecycleChange}

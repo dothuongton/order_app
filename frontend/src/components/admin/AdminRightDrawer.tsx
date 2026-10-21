@@ -19,6 +19,7 @@ import {
     Edit3
 } from 'lucide-react';
 import { SystemRole, ShopDetail, ShopSummary, AuditLogItem } from '../../types/admin.js';
+import { useModalA11y } from '../../hooks/admin/useModalA11y.js';
 
 export type RightDrawerContent =
     | { type: 'permissions'; role: SystemRole }
@@ -54,25 +55,13 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
         }
     }, [content]);
 
-    // ESC key closes drawer (Issue #88)
-    React.useEffect(() => {
-        if (!isOpen) return;
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                onClose();
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpen, onClose]);
-
-    // Auto-focus drawer on open
-    React.useEffect(() => {
-        if (isOpen) {
-            const timer = setTimeout(() => drawerRef.current?.focus(), 60);
-            return () => clearTimeout(timer);
-        }
-    }, [isOpen]);
+    // Standard accessible drawer: focus trap, restore, topmost ESC, scroll lock (Issue #88)
+    useModalA11y({
+        isOpen: isOpen && !!content,
+        onClose,
+        containerRef: drawerRef,
+        modalId: 'admin-right-drawer'
+    });
 
     if (!isOpen || !content) return null;
 

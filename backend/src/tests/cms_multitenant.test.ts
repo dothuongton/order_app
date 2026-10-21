@@ -399,6 +399,88 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             expect(orderData.items[0].discountAmount).toBe(20000);
             expect(orderData.items[0].finalPrice).toBe(120000);
         });
+
+        it('supports Contract #6 nullable maxDiscountAmount and clearing promotion code (Issue #71 R1 & R2)', async () => {
+            // 1. Create a promo with code 'SUMMER50' and cap 50,000đ
+            const createRes = await fetch(`${baseUrl}/api/v1/cms/promotions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({
+                    code: 'SUMMER50',
+                    title: 'Giảm 20% Có Trần và Code',
+                    discountType: 'PERCENT',
+                    discountValue: 20,
+                    minOrderAmount: 30000,
+                    maxDiscountAmount: 50000,
+                    priority: 5
+                })
+            });
+            expect(createRes.status).toBe(201);
+            const created = (await createRes.json() as any).promotion;
+            expect(created.code).toBe('SUMMER50');
+            expect(Number(created.max_discount_amount)).toBe(50000);
+
+            // 2. Reject maxDiscountAmount: 0 (must be positive or null)
+            const rejectZeroRes = await fetch(`${baseUrl}/api/v1/cms/promotions/${created.id}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({ maxDiscountAmount: 0 })
+            });
+            expect(rejectZeroRes.status).toBe(400);
+
+            // 3. Clear cap by sending maxDiscountAmount: null (R1 Contract #6)
+            const patchCapRes = await fetch(`${baseUrl}/api/v1/cms/promotions/${created.id}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({ maxDiscountAmount: null })
+            });
+            expect(patchCapRes.status).toBe(200);
+            const patchedCap = (await patchCapRes.json() as any).promotion;
+            expect(patchedCap.max_discount_amount).toBeNull();
+            // Code was omitted so it must remain intact
+            expect(patchedCap.code).toBe('SUMMER50');
+
+            // 4. Clear promo code by sending code: null (R2)
+            const patchCodeRes = await fetch(`${baseUrl}/api/v1/cms/promotions/${created.id}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({ code: null })
+            });
+            expect(patchCodeRes.status).toBe(200);
+            const patchedCode = (await patchCodeRes.json() as any).promotion;
+            expect(patchedCode.code).toBeNull();
+            // maxDiscountAmount was omitted so it must remain null
+            expect(patchedCode.max_discount_amount).toBeNull();
+
+            // 5. Read back via GET /cms/promotions to verify list semantics
+            const listRes = await fetch(`${baseUrl}/api/v1/cms/promotions`, {
+                headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
+            });
+            expect(listRes.status).toBe(200);
+            const listData = await listRes.json() as any;
+            const fetchedPromo = (listData.promotions || listData).find((p: any) => p.id === created.id);
+            expect(fetchedPromo).toBeDefined();
+            expect(fetchedPromo.code).toBeNull();
+            expect(fetchedPromo.maxDiscountAmount).toBeUndefined(); // listPromotions converts null to undefined
+
+            // Cleanup
+            await fetch(`${baseUrl}/api/v1/cms/promotions/${created.id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
+            });
+        });
     });
 
     // ==========================================

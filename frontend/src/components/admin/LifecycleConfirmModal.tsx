@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, Archive, X } from 'lucide-react';
 import { ShopSummary, ShopStatus } from '../../types/admin.js';
+import { useModalA11y } from '../../hooks/admin/useModalA11y.js';
 
 interface LifecycleConfirmModalProps {
     shop: ShopSummary;
@@ -18,23 +19,17 @@ export const LifecycleConfirmModal: React.FC<LifecycleConfirmModalProps> = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const confirmButtonRef = useRef<HTMLButtonElement>(null);
+    const modalContainerRef = useRef<HTMLDivElement>(null);
 
-    // ESC key closes modal (Issue #88)
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !isSubmitting) {
-                onClose();
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, isSubmitting]);
-
-    // Focus confirm button on open
-    useEffect(() => {
-        const timer = setTimeout(() => confirmButtonRef.current?.focus(), 60);
-        return () => clearTimeout(timer);
-    }, []);
+        // Standard accessible modal: focus trap, restore, topmost ESC, scroll lock (Issue #88)
+    useModalA11y({
+        isOpen: true,
+        onClose,
+        isSubmitting,
+        initialFocusRef: confirmButtonRef,
+        containerRef: modalContainerRef,
+        modalId: 'lifecycle-confirm-modal'
+    });
 
     const getModalContent = () => {
         switch (targetStatus) {
@@ -88,6 +83,8 @@ export const LifecycleConfirmModal: React.FC<LifecycleConfirmModalProps> = ({
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
             <div
+                ref={modalContainerRef}
+                tabIndex={-1}
                 className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 role="alertdialog"
                 aria-modal="true"

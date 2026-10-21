@@ -298,12 +298,296 @@ staffRouter.get('/tables/:id/qr-code', async (req: Request, res: Response) => {
     }
 });
 
-// 12. Menu toggle availability
+// 12. Menu categories CRUD (Issue #100)
 staffRouter.get('/menu/categories', async (req: Request, res: Response) => {
     try {
-        const result = await query('SELECT id, name, sort_order FROM menu_categories WHERE tenant_id = $1 AND is_active = true ORDER BY sort_order, name', [req.staff!.tenantId]);
+        const staff = req.staff!;
+        const includeInactive = req.query.include_inactive === 'true' || req.query.all === 'true';
+        const whereSql = includeInactive
+            ? 'mc.tenant_id = $1'
+            : 'mc.tenant_id = $1 AND mc.is_active = true';
+
+        const result = await query(`
+            SELECT
+                mc.id,
+                mc.name,
+                mc.sort_order,
+                mc.is_active,
+                COUNT(mi.id)::int AS item_count
+            FROM menu_categories mc
+            LEFT JOIN menu_items mi ON mi.category_id = mc.id AND mi.tenant_id = mc.tenant_id
+            WHERE ${whereSql}
+            GROUP BY mc.id, mc.name, mc.sort_order, mc.is_active
+            ORDER BY mc.sort_order ASC, mc.name ASC
+        `, [staff.tenantId]);
+
         return res.json({ categories: result.rows });
-    } catch { return res.status(500).json({ error: 'SERVER_ERROR' }); }
+    } catch (err: any) {
+        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message || 'Lỗi lấy danh sách danh mục' });
+    }
+});
+
+staffRouter.post('/menu/categories', requirePermission('menu.manage'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const schema = z.object({
+            name: z.string().trim().min(1, 'Tên danh mục không được để trống').max(255, 'Tên danh mục không được vượt quá 255 ký tự'),
+            sort_order: z.coerce.number().int().optional(),
+            is_active: z.boolean().optional().default(true)
+        });
+
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({
+                error: 'INVALID_CATEGORY_NAME',
+                code: 'INVALID_CATEGORY_NAME',
+                message: parsed.error.issues[0]?.message || 'Tên danh mục không hợp lệ'
+            });
+        }
+
+        const { name, is_active } = parsed.data;
+
+        const category = await withTransaction(async (client) => {
+            // Check duplicate name within tenant (case-insensitive)
+            const dupCheck = await client.query(
+                'SELECT id FROM menu_categories WHERE tenant_id = $1 AND LOWER(TRIM(name)) = LOWER($2)',
+                [staff.tenantId, name]
+            );
+            if (dupCheck.rows.length > 0) {
+                throw { status: 409, code: 'CATEGORY_NAME_EXISTS', message: 'Tên danh mục đã tồn tại trong quán' };
+            }
+
+            // Determine sort_order if not provided
+            let sortOrder = parsed.data.sort_order;
+            if (sortOrder === undefined) {
+                const sortRes = await client.query(
+                    'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort FROM menu_categories WHERE tenant_id = $1',
+                    [staff.tenantId]
+                );
+                sortOrder = parseInt(sortRes.rows[0].next_sort, 10);
+            }
+
+            const insertRes = await client.query(`
+                INSERT INTO menu_categories (tenant_id, name, sort_order, is_active)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id, tenant_id, name, sort_order, is_active, created_at, updated_at
+            `, [staff.tenantId, name, sortOrder, is_active]);
+
+            const newCat = insertRes.rows[0];
+
+            // Record audit log
+            await client.query(`
+                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                VALUES ($1, $2, 'category_create', 'menu_category', $3, $4)
+            `, [staff.tenantId, staff.id, newCat.id, JSON.stringify({ name, sort_order: sortOrder })]);
+
+            return { ...newCat, item_count: 0 };
+        });
+
+        return res.status(201).json({
+            category,
+            message: 'Thêm danh mục món thành công'
+        });
+    } catch (err: any) {
+        if (err.code === '23505' && (err.constraint === 'idx_menu_categories_tenant_name' || err.message?.includes('idx_menu_categories_tenant_name') || err.detail?.includes('LOWER(TRIM(name))'))) {
+            return res.status(409).json({
+                error: 'CATEGORY_NAME_EXISTS',
+                code: 'CATEGORY_NAME_EXISTS',
+                message: 'Tên danh mục đã tồn tại trong quán'
+            });
+        }
+        return res.status(err.status || 500).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi thêm danh mục'
+        });
+    }
+});
+
+const handleUpdateCategory = async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const categoryId = req.params.id;
+
+        const schema = z.object({
+            name: z.string().trim().min(1, 'Tên danh mục không được để trống').max(255, 'Tên danh mục không được vượt quá 255 ký tự').optional(),
+            sort_order: z.coerce.number().int().optional(),
+            is_active: z.boolean().optional()
+        });
+
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({
+                error: 'INVALID_CATEGORY_NAME',
+                code: 'INVALID_CATEGORY_NAME',
+                message: parsed.error.issues[0]?.message || 'Dữ liệu không hợp lệ'
+            });
+        }
+
+        const { name, sort_order, is_active } = parsed.data;
+        if (name === undefined && sort_order === undefined && is_active === undefined) {
+            return res.status(400).json({
+                error: 'INVALID_INPUT',
+                code: 'INVALID_INPUT',
+                message: 'Cần ít nhất một trường để cập nhật danh mục'
+            });
+        }
+
+        const updatedCategory = await withTransaction(async (client) => {
+            // Lock category row FOR UPDATE
+            const curRes = await client.query(
+                'SELECT * FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR UPDATE',
+                [categoryId, staff.tenantId]
+            );
+            if (curRes.rows.length === 0) {
+                throw { status: 404, code: 'CATEGORY_NOT_FOUND', message: 'Không tìm thấy danh mục món' };
+            }
+
+            const current = curRes.rows[0];
+
+            // If renaming, check duplicate name within tenant
+            if (name && name.toLowerCase() !== current.name.toLowerCase()) {
+                const dupCheck = await client.query(
+                    'SELECT id FROM menu_categories WHERE tenant_id = $1 AND LOWER(TRIM(name)) = LOWER($2) AND id != $3',
+                    [staff.tenantId, name, categoryId]
+                );
+                if (dupCheck.rows.length > 0) {
+                    throw { status: 409, code: 'CATEGORY_NAME_EXISTS', message: 'Tên danh mục đã tồn tại trong quán' };
+                }
+            }
+
+            const updateRes = await client.query(`
+                UPDATE menu_categories
+                SET name = COALESCE($1, name),
+                    sort_order = COALESCE($2, sort_order),
+                    is_active = COALESCE($3, is_active),
+                    updated_at = NOW()
+                WHERE id = $4 AND tenant_id = $5
+                RETURNING id, tenant_id, name, sort_order, is_active, created_at, updated_at
+            `, [
+                name !== undefined ? name : null,
+                sort_order !== undefined ? sort_order : null,
+                is_active !== undefined ? is_active : null,
+                categoryId,
+                staff.tenantId
+            ]);
+
+            const updated = updateRes.rows[0];
+
+            // Get current item count
+            const countRes = await client.query(
+                'SELECT COUNT(*)::int AS count FROM menu_items WHERE category_id = $1 AND tenant_id = $2',
+                [categoryId, staff.tenantId]
+            );
+
+            // Record audit log
+            await client.query(`
+                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                VALUES ($1, $2, 'category_update', 'menu_category', $3, $4)
+            `, [staff.tenantId, staff.id, categoryId, JSON.stringify({
+                old: { name: current.name, sort_order: current.sort_order, is_active: current.is_active },
+                new: { name: updated.name, sort_order: updated.sort_order, is_active: updated.is_active }
+            })]);
+
+            return { ...updated, item_count: countRes.rows[0].count };
+        });
+
+        return res.json({
+            category: updatedCategory,
+            message: 'Cập nhật danh mục thành công'
+        });
+    } catch (err: any) {
+        if (err.code === '23505' && (err.constraint === 'idx_menu_categories_tenant_name' || err.message?.includes('idx_menu_categories_tenant_name') || err.detail?.includes('LOWER(TRIM(name))'))) {
+            return res.status(409).json({
+                error: 'CATEGORY_NAME_EXISTS',
+                code: 'CATEGORY_NAME_EXISTS',
+                message: 'Tên danh mục đã tồn tại trong quán'
+            });
+        }
+        return res.status(err.status || 500).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi cập nhật danh mục'
+        });
+    }
+};
+
+staffRouter.put('/menu/categories/:id', requirePermission('menu.manage'), handleUpdateCategory);
+staffRouter.patch('/menu/categories/:id', requirePermission('menu.manage'), handleUpdateCategory);
+
+staffRouter.delete('/menu/categories/:id', requirePermission('menu.manage'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const categoryId = req.params.id;
+
+        const deletedCategory = await withTransaction(async (client) => {
+            // Lock category row FOR UPDATE
+            const catRes = await client.query(
+                'SELECT id, name FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR UPDATE',
+                [categoryId, staff.tenantId]
+            );
+            if (catRes.rows.length === 0) {
+                throw { status: 404, code: 'CATEGORY_NOT_FOUND', message: 'Không tìm thấy danh mục món' };
+            }
+
+            const cat = catRes.rows[0];
+
+            // Check if any menu items reference this category (including available and unavailable)
+            const countRes = await client.query(
+                'SELECT COUNT(*)::int AS count FROM menu_items WHERE category_id = $1 AND tenant_id = $2',
+                [categoryId, staff.tenantId]
+            );
+
+            const count = countRes.rows[0].count;
+            if (count > 0) {
+                throw {
+                    status: 409,
+                    code: 'CATEGORY_NOT_EMPTY',
+                    itemCount: count,
+                    message: `Danh mục "${cat.name}" đang chứa ${count} món ăn. Vui lòng chuyển hoặc xóa các món thuộc danh mục này trước khi xóa danh mục.`
+                };
+            }
+
+            try {
+                await client.query(
+                    'DELETE FROM menu_categories WHERE id = $1 AND tenant_id = $2',
+                    [categoryId, staff.tenantId]
+                );
+            } catch (dbErr: any) {
+                // If a concurrent transaction inserted an item, foreign key RESTRICT will raise 23503
+                if (dbErr.code === '23503') {
+                    throw {
+                        status: 409,
+                        code: 'CATEGORY_NOT_EMPTY',
+                        itemCount: 1,
+                        message: `Danh mục "${cat.name}" đang chứa món ăn. Vui lòng chuyển hoặc xóa các món thuộc danh mục này trước khi xóa danh mục.`
+                    };
+                }
+                throw dbErr;
+            }
+
+            // Record audit log
+            await client.query(`
+                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                VALUES ($1, $2, 'category_delete', 'menu_category', $3, $4)
+            `, [staff.tenantId, staff.id, categoryId, JSON.stringify({ name: cat.name })]);
+
+            return cat;
+        });
+
+        return res.json({
+            success: true,
+            code: 'CATEGORY_DELETED',
+            message: `Đã xóa danh mục "${deletedCategory.name}" thành công`
+        });
+    } catch (err: any) {
+        return res.status(err.status || 500).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi xóa danh mục',
+            ...(err.itemCount !== undefined ? { itemCount: err.itemCount } : {})
+        });
+    }
 });
 
 // Helpers for menu items & option groups
@@ -834,10 +1118,10 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
         const normalizedGroups = normalizeOptionGroups(parsed.data);
 
         const createdItem = await withTransaction(async (client) => {
-            // Verify category
-            const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+            // Verify category with FOR SHARE so concurrent category delete waits or fails properly
+            const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR SHARE', [category_id, staff.tenantId]);
             if (catRes.rows.length === 0) {
-                throw { status: 400, code: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' };
+                throw { status: 400, code: 'CATEGORY_NOT_FOUND', message: 'Danh mục không tồn tại hoặc đã bị xóa' };
             }
 
             // Determine sort_order
@@ -867,6 +1151,13 @@ staffRouter.post('/menu/items', requirePermission('menu.manage'), async (req: Re
             message: 'Thêm món mới thành công'
         });
     } catch (err: any) {
+        if (err.code === '23503' && (err.constraint === 'menu_items_category_id_fkey' || err.detail?.includes('category_id'))) {
+            return res.status(400).json({
+                error: 'CATEGORY_NOT_FOUND',
+                code: 'CATEGORY_NOT_FOUND',
+                message: 'Danh mục không tồn tại hoặc đã bị xóa'
+            });
+        }
         console.error('Staff create menu item error:', err);
         return res.status(err.status || 500).json({ error: err.code || 'SERVER_ERROR', message: err.message });
     }
@@ -910,9 +1201,9 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
 
             let newSortOrder = sort_order;
             if (category_id && category_id !== current.category_id) {
-                const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2', [category_id, staff.tenantId]);
+                const catRes = await client.query('SELECT id FROM menu_categories WHERE id = $1 AND tenant_id = $2 FOR SHARE', [category_id, staff.tenantId]);
                 if (catRes.rows.length === 0) {
-                    throw { status: 400, code: 'INVALID_CATEGORY', message: 'Danh mục không tồn tại' };
+                    throw { status: 400, code: 'CATEGORY_NOT_FOUND', message: 'Danh mục không tồn tại hoặc đã bị xóa' };
                 }
                 // When moving to new category, put at the end if not explicitly specified
                 if (newSortOrder === undefined) {
@@ -963,6 +1254,13 @@ staffRouter.put('/menu/items/:id', requirePermission('menu.manage'), async (req:
             message: 'Cập nhật món thành công'
         });
     } catch (err: any) {
+        if (err.code === '23503' && (err.constraint === 'menu_items_category_id_fkey' || err.detail?.includes('category_id'))) {
+            return res.status(400).json({
+                error: 'CATEGORY_NOT_FOUND',
+                code: 'CATEGORY_NOT_FOUND',
+                message: 'Danh mục không tồn tại hoặc đã bị xóa'
+            });
+        }
         console.error('Staff update menu item error:', err);
         return res.status(err.status || 500).json({ error: err.code || 'SERVER_ERROR', message: err.message });
     }

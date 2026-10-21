@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { AdminDrawerContent, ShopDetail, ShopSummary, SystemRole, AuditLogItem } from '../../types/admin.js';
 
 export interface ShopDrawerState {
@@ -7,12 +7,14 @@ export interface ShopDrawerState {
 }
 
 /**
- * Headless state coordinator for admin right drawer.
- * Guarantees request & selection generation tracking to prevent race conditions:
- * - A -> đóng -> B: out-of-order responses do not overwrite current drawer
- * - Rejected prior requests do not corrupt current drawer state
- * - Failed active request retains summary metrics truthfully without fallback to 0
- * - Explicit drawer close invalidates any in-flight detail requests
+ * Headless state coordinator for admin right drawer and deep-link selection.
+ * Guarantees request & selection generation tracking across:
+ * - Direct-link navigation (?tab=shops&shopId=A)
+ * - Tab switching (?tab=roles, ?tab=audit, etc.)
+ * - Browser history navigation (Back / Forward popstate)
+ * - Explicit drawer dismissal (Escape key, close button, backdrop)
+ * - Table row selection (immediate summary presentation)
+ * - Out-of-order network responses & late failures
  */
 export class ShopDrawerCoordinator {
     private generation = 0;
@@ -45,6 +47,31 @@ export class ShopDrawerCoordinator {
         this.listeners.forEach((listener) => listener(this.state));
     }
 
+    /**
+     * Invalidate any in-flight selection or detail requests unconditionally.
+     * Called on tab change, popstate, selection reset, or drawer close.
+     */
+    invalidateSelection(): number {
+        this.activeShopId = null;
+        return ++this.generation;
+    }
+
+    /**
+     * Cancel / invalidate only if the coordinator is still on the specified generation.
+     * Prevents an unmounting or cleaning up effect from destroying a subsequent request
+     * registered by another user action or table click.
+     */
+    cancelRequest(generation: number): void {
+        if (this.generation === generation) {
+            this.activeShopId = null;
+            this.generation++;
+        }
+    }
+
+    /**
+     * Open shop detail drawer immediately with summary, then fetch deep metrics asynchronously.
+     * (Fix #105: Generation & active shop guards ensure late/stale responses do not corrupt state).
+     */
     async openShopDetail(
         shop: ShopSummary,
         fetchDetail: (id: string) => Promise<ShopDetail>
@@ -67,15 +94,46 @@ export class ShopDrawerCoordinator {
                 });
             }
         } catch {
-            // Guard: only apply fallback if still the active selection
+            // Guard: on error, retain existing summary without fallback to 0
             if (this.generation === currentGen && this.activeShopId === shop.id) {
-                // Retain existing summary content (do not fallback to 0 or lose data)
                 if (this.state.content?.type === 'shop-detail' && this.state.content.shop.id === shop.id) {
                     this.setState({
                         content: this.state.content
                     });
                 }
             }
+        }
+    }
+
+    /**
+     * Deep-link shop detail fetch by ID without initial summary.
+     * Guarantees that if the user leaves the tab, closes drawer, navigates back/forward,
+     * or selects another shop before this resolves, the late response is dropped and
+     * will NOT open the drawer or alter navigation.
+     * Throws error only if the request failed WHILE still the active selection.
+     */
+    async openShopDetailById(
+        shopId: string,
+        fetchDetail: (id: string) => Promise<ShopDetail>
+    ): Promise<ShopDetail | null> {
+        const currentGen = ++this.generation;
+        this.activeShopId = shopId;
+
+        try {
+            const detail = await fetchDetail(shopId);
+            if (this.generation === currentGen && this.activeShopId === shopId) {
+                this.setState({
+                    isOpen: true,
+                    content: { type: 'shop-detail', shop: detail }
+                });
+                return detail;
+            }
+            return null;
+        } catch (err) {
+            if (this.generation === currentGen && this.activeShopId === shopId) {
+                throw err;
+            }
+            return null;
         }
     }
 
@@ -122,89 +180,107 @@ export class ShopDrawerCoordinator {
 
 /**
  * React hook integrating ShopDrawerCoordinator into React lifecycle.
+ * Single source of truth guaranteeing generation isolation and deep-link resilience.
  */
 export function useAdminShopDrawer() {
-    const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
-    const [drawerContent, setDrawerContent] = useState<AdminDrawerContent | null>(null);
+    const coordinatorRef = useRef<ShopDrawerCoordinator | null>(null);
+    if (!coordinatorRef.current) {
+        coordinatorRef.current = new ShopDrawerCoordinator();
+    }
+    const coordinator = coordinatorRef.current;
 
-    const drawerGenerationRef = useRef<number>(0);
-    const activeShopIdRef = useRef<string | null>(null);
+    const [drawerState, setDrawerState] = useState<ShopDrawerState>(() => coordinator.getState());
+
+    useEffect(() => {
+        return coordinator.subscribe((nextState) => {
+            setDrawerState(nextState);
+        });
+    }, [coordinator]);
 
     const openShopDetail = useCallback(
-        async (shop: ShopSummary, fetchDetail: (id: string) => Promise<ShopDetail>) => {
-            const currentGen = ++drawerGenerationRef.current;
-            activeShopIdRef.current = shop.id;
-
-            // 1. Immediately open drawer with summary metrics
-            setDrawerContent({ type: 'shop-detail', shop });
-            setIsDrawerOpen(true);
-
-            try {
-                // 2. Fetch deep metrics asynchronously
-                const detail = await fetchDetail(shop.id);
-
-                // 3. Guard: only apply if still viewing this shop and generation
-                if (
-                    drawerGenerationRef.current === currentGen &&
-                    activeShopIdRef.current === shop.id
-                ) {
-                    setDrawerContent({ type: 'shop-detail', shop: detail });
-                }
-            } catch {
-                // 4. Guard: on error, retain existing summary without fallback to 0
-                if (
-                    drawerGenerationRef.current === currentGen &&
-                    activeShopIdRef.current === shop.id
-                ) {
-                    setDrawerContent((prev: AdminDrawerContent) => {
-                        if (prev?.type === 'shop-detail' && prev.shop.id === shop.id) {
-                            return prev;
-                        }
-                        return { type: 'shop-detail', shop };
-                    });
-                }
-            }
+        (shop: ShopSummary, fetchDetail: (id: string) => Promise<ShopDetail>) => {
+            return coordinator.openShopDetail(shop, fetchDetail);
         },
-        []
+        [coordinator]
     );
 
-    const openRolePermissions = useCallback((role: SystemRole) => {
-        drawerGenerationRef.current++;
-        activeShopIdRef.current = null;
-        setDrawerContent({ type: 'permissions', role });
-        setIsDrawerOpen(true);
-    }, []);
+    const openShopDetailById = useCallback(
+        (shopId: string, fetchDetail: (id: string) => Promise<ShopDetail>) => {
+            return coordinator.openShopDetailById(shopId, fetchDetail);
+        },
+        [coordinator]
+    );
 
-    const openShopDetailDirectly = useCallback((detail: ShopDetail) => {
-        drawerGenerationRef.current++;
-        activeShopIdRef.current = detail.id;
-        setDrawerContent({ type: 'shop-detail', shop: detail });
-        setIsDrawerOpen(true);
-    }, []);
+    const openShopDetailDirectly = useCallback(
+        (detail: ShopDetail) => {
+            coordinator.openShopDetailDirectly(detail);
+        },
+        [coordinator]
+    );
 
-    const openAuditDetail = useCallback((log: AuditLogItem) => {
-        drawerGenerationRef.current++;
-        activeShopIdRef.current = null;
-        setDrawerContent({ type: 'audit-detail', log });
-        setIsDrawerOpen(true);
-    }, []);
+    const openRolePermissions = useCallback(
+        (role: SystemRole) => {
+            coordinator.openRolePermissions(role);
+        },
+        [coordinator]
+    );
+
+    const openAuditDetail = useCallback(
+        (log: AuditLogItem) => {
+            coordinator.openAuditDetail(log);
+        },
+        [coordinator]
+    );
 
     const closeDrawer = useCallback(() => {
-        drawerGenerationRef.current++;
-        activeShopIdRef.current = null;
-        setIsDrawerOpen(false);
-        setDrawerContent(null);
-    }, []);
+        coordinator.closeDrawer();
+    }, [coordinator]);
+
+    const invalidateSelection = useCallback(() => {
+        return coordinator.invalidateSelection();
+    }, [coordinator]);
+
+    const cancelRequest = useCallback(
+        (generation: number) => {
+            coordinator.cancelRequest(generation);
+        },
+        [coordinator]
+    );
+
+    const getGeneration = useCallback(() => {
+        return coordinator.getGeneration();
+    }, [coordinator]);
+
+    const setIsDrawerOpen = useCallback(
+        (isOpen: boolean) => {
+            if (!isOpen) {
+                coordinator.closeDrawer();
+            }
+        },
+        [coordinator]
+    );
+
+    const setDrawerContent = useCallback(
+        (content: AdminDrawerContent | null) => {
+            coordinator.setContent(content);
+        },
+        [coordinator]
+    );
 
     return {
-        isDrawerOpen,
-        drawerContent,
+        isDrawerOpen: drawerState.isOpen,
+        drawerContent: drawerState.content,
         openShopDetail,
+        openShopDetailById,
         openShopDetailDirectly,
         openRolePermissions,
         openAuditDetail,
         closeDrawer,
+        invalidateSelection,
+        cancelRequest,
+        getGeneration,
         setDrawerContent,
-        setIsDrawerOpen
+        setIsDrawerOpen,
+        coordinator
     };
 }
