@@ -19,8 +19,17 @@ export const createShopSchema = z.object({
     address: z.string().trim().max(1000, 'Địa chỉ tối đa 1000 ký tự').optional().nullable(),
     ownerFullName: z.string().trim().min(1, 'Tên chủ quán không được để trống').max(200, 'Tên chủ quán tối đa 200 ký tự'),
     ownerEmail: z.string().trim().email('Email chủ quán không hợp lệ').max(254).transform(v => v.toLowerCase()),
-    ownerPassword: z.string().min(8, 'Mật khẩu tối thiểu 8 ký tự').refine(v => Buffer.byteLength(v) <= 72, 'Mật khẩu tối đa 72 bytes')
-}).strict();
+    ownerPassword: z.string().min(8, 'Mật khẩu tối thiểu 8 ký tự').refine(v => Buffer.byteLength(v) <= 72, 'Mật khẩu tối đa 72 bytes').optional(),
+    linkExistingOwner: z.boolean().optional()
+}).strict().refine(data => {
+    if (!data.linkExistingOwner && !data.ownerPassword) {
+        return false;
+    }
+    return true;
+}, {
+    message: 'Mật khẩu khởi tạo bắt buộc khi tạo tài khoản chủ quán mới',
+    path: ['ownerPassword']
+});
 
 export type CreateShopInput = z.infer<typeof createShopSchema>;
 

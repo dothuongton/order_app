@@ -18,6 +18,7 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
     const [ownerEmail, setOwnerEmail] = useState('');
     const [ownerPassword, setOwnerPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [linkExistingOwner, setLinkExistingOwner] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +58,7 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
         setOwnerEmail('');
         setOwnerPassword('');
         setShowPassword(false);
+        setLinkExistingOwner(false);
         setError(null);
     };
 
@@ -87,14 +89,16 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
         if (!trimmedEmail) {
             return setError('Vui lòng nhập email chủ quán.');
         }
-        if (!ownerPassword) {
-            return setError('Vui lòng nhập mật khẩu khởi tạo cho chủ quán.');
-        }
-        if (ownerPassword.length < 8) {
-            return setError('Mật khẩu khởi tạo phải từ 8 ký tự trở lên.');
-        }
-        if (new TextEncoder().encode(ownerPassword).length > 72) {
-            return setError('Mật khẩu không được vượt quá 72 ký tự (giới hạn bảo mật Bcrypt).');
+        if (!linkExistingOwner) {
+            if (!ownerPassword) {
+                return setError('Vui lòng nhập mật khẩu khởi tạo cho chủ quán.');
+            }
+            if (ownerPassword.length < 8) {
+                return setError('Mật khẩu khởi tạo phải từ 8 ký tự trở lên.');
+            }
+            if (new TextEncoder().encode(ownerPassword).length > 72) {
+                return setError('Mật khẩu không được vượt quá 72 ký tự (giới hạn bảo mật Bcrypt).');
+            }
         }
 
         try {
@@ -106,7 +110,8 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                 address: address.trim() || undefined,
                 ownerFullName: trimmedFullName,
                 ownerEmail: trimmedEmail,
-                ownerPassword
+                ownerPassword: linkExistingOwner ? undefined : ownerPassword,
+                linkExistingOwner
             });
             resetForm();
             onClose();
@@ -256,6 +261,22 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                             </div>
                         </div>
 
+                        {/* Existing account linking toggle (Issue #82) */}
+                        <div className="mt-3.5 p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-slate-800">Liên kết tài khoản chủ quán có sẵn</p>
+                                <p className="text-[11px] text-slate-400">Nếu email này đã có tài khoản, gán quyền chủ quán và giữ nguyên mật khẩu cũ</p>
+                            </div>
+                            <input
+                                type="checkbox"
+                                id="linkExistingOwner"
+                                checked={linkExistingOwner}
+                                onChange={(e) => setLinkExistingOwner(e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded-sm border-slate-300 focus:ring-blue-500 cursor-pointer"
+                            />
+                        </div>
+
+                        {!linkExistingOwner ? (
                         <div className="mt-3">
                             <label className="block text-xs font-bold text-slate-700 mb-1">
                                 Mật khẩu khởi tạo <span className="text-rose-500">*</span>
@@ -287,6 +308,11 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
                                 Mật khẩu an toàn dành cho tài khoản quản lý quán, tối thiểu 8 ký tự.
                             </p>
                         </div>
+                        ) : (
+                        <div className="mt-3 p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-800">
+                            <span className="font-semibold">Chế độ liên kết:</span> Chủ quán sẽ đăng nhập bằng mật khẩu tài khoản hiện tại của họ.
+                        </div>
+                        )}
                     </div>
 
                     {/* Actions */}

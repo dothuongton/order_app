@@ -338,6 +338,206 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(detailsStr).not.toContain('password_hash');
         });
 
+        it('rejects duplicate owner email without linkExistingOwner flag with 409', async () => {
+            const conflictPayload = {
+                name: 'Quán Trùng Email Owner',
+                slug: `conflict-email-${Date.now()}`,
+                ownerFullName: 'Lê Hoàng Nam',
+                ownerEmail: `nam.${Date.now()}@buncha.vn`,
+                ownerPassword: 'AnotherPassword123!'
+            };
+
+            // First create shop
+            const res1 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify(conflictPayload)
+            });
+            expect(res1.status).toBe(201);
+
+            // Attempt to create another shop with same email without linking flag
+            const res2 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    ...conflictPayload,
+                    name: 'Quán Thứ Hai',
+                    slug: `second-shop-${Date.now()}`
+                })
+            });
+            expect(res2.status).toBe(409);
+            const data2: any = await res2.json();
+            expect(data2.error).toBe('OWNER_EMAIL_EXISTS');
+        });
+
+        it('successfully links existing owner without altering password when linkExistingOwner is true', async () => {
+            const existingEmail = `nam.${Date.now()}@buncha.vn`;
+            const initPayload = {
+                name: 'Quán Gốc',
+                slug: `orig-shop-${Date.now()}`,
+                ownerFullName: 'Chủ Quán Cũ',
+                ownerEmail: existingEmail,
+                ownerPassword: 'OriginalSecretPassword123!'
+            };
+
+            const res1 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify(initPayload)
+            });
+            expect(res1.status).toBe(201);
+
+            // Check original password hash
+            const userBefore = await query('SELECT password_hash FROM users WHERE email = $1', [existingEmail]);
+            const origHash = userBefore.rows[0].password_hash;
+
+            // Link existing owner to second shop
+            const res2 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    name: 'Quán Chi Nhánh',
+                    slug: `branch-shop-${Date.now()}`,
+                    ownerFullName: 'Chủ Quán Cũ',
+                    ownerEmail: existingEmail,
+                    linkExistingOwner: true
+                })
+            });
+            expect(res2.status).toBe(201);
+
+            // Verify password hash was NOT altered
+            const userAfter = await query('SELECT password_hash FROM users WHERE email = $1', [existingEmail]);
+            expect(userAfter.rows[0].password_hash).toBe(origHash);
+        });
+
+        it('handles concurrent shop creations with same email (normalized case) with 201 winner, 409 loser, and 0 orphan tenants (Issue #82)', async () => {
+            const timestamp = Date.now();
+            const emailLower = `concurrent.owner.${timestamp}@domain.vn`;
+            const emailUpper = `CONCURRENT.OWNER.${timestamp}@DOMAIN.VN`;
+            const slug1 = `race-shop-1-${timestamp}`;
+            const slug2 = `race-shop-2-${timestamp}`;
+
+            // Fire two simultaneous creation requests
+            const [resA, resB] = await Promise.all([
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Đua A',
+                        slug: slug1,
+                        ownerFullName: 'Chủ Đua A',
+                        ownerEmail: emailLower,
+                        ownerPassword: 'SecretPasswordA123!'
+                    })
+                }),
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Đua B',
+                        slug: slug2,
+                        ownerFullName: 'Chủ Đua B',
+                        ownerEmail: emailUpper,
+                        ownerPassword: 'SecretPasswordB123!'
+                    })
+                })
+            ]);
+
+            const statuses = [resA.status, resB.status].sort();
+            expect(statuses).toEqual([201, 409]);
+
+            const winnerRes = resA.status === 201 ? resA : resB;
+            const loserRes = resA.status === 409 ? resA : resB;
+            const loserData: any = await loserRes.json();
+            expect(loserData.error).toBe('OWNER_EMAIL_EXISTS');
+
+            const winnerData: any = await winnerRes.json();
+            const winnerSlug = winnerData.shop.slug;
+            const loserSlug = winnerSlug === slug1 ? slug2 : slug1;
+
+            // Database invariants:
+            // 1. Exactly 1 user exists in users table
+            const userCheck = await query('SELECT id, email, password_hash FROM users WHERE LOWER(email) = LOWER($1)', [emailLower]);
+            expect(userCheck.rows.length).toBe(1);
+
+            // 2. Winner tenant exists, Loser tenant rolled back (NO orphan tenant)
+            const winnerTenant = await query('SELECT id, slug FROM tenants WHERE slug = $1', [winnerSlug]);
+            expect(winnerTenant.rows.length).toBe(1);
+
+            const loserTenant = await query('SELECT id, slug FROM tenants WHERE slug = $1', [loserSlug]);
+            expect(loserTenant.rows.length).toBe(0);
+
+            // 3. No orphaned memberships or audit logs for loser
+            const allMemberships = await query('SELECT tenant_id FROM memberships WHERE user_id = $1', [userCheck.rows[0].id]);
+            expect(allMemberships.rows.length).toBe(1);
+            expect(allMemberships.rows[0].tenant_id).toBe(winnerTenant.rows[0].id);
+        });
+
+        it('handles concurrent shop creations with identical slug with 201 winner and 400 loser (Issue #82)', async () => {
+            const timestamp = Date.now();
+            const identicalSlug = `same-slug-race-${timestamp}`;
+
+            const [resA, resB] = await Promise.all([
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Trùng Slug A',
+                        slug: identicalSlug,
+                        ownerFullName: 'Chủ Slug A',
+                        ownerEmail: `ownerA.${timestamp}@domain.vn`,
+                        ownerPassword: 'PasswordA123!'
+                    })
+                }),
+                fetch(`${baseUrl}/api/v1/admin/shops`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken}`
+                    },
+                    body: JSON.stringify({
+                        name: 'Quán Trùng Slug B',
+                        slug: identicalSlug,
+                        ownerFullName: 'Chủ Slug B',
+                        ownerEmail: `ownerB.${timestamp}@domain.vn`,
+                        ownerPassword: 'PasswordB123!'
+                    })
+                })
+            ]);
+
+            const statuses = [resA.status, resB.status].sort();
+            expect(statuses).toEqual([201, 400]);
+
+            const loserRes = resA.status === 400 ? resA : resB;
+            const loserData: any = await loserRes.json();
+            expect(loserData.error).toBe('BAD_REQUEST');
+
+            // Exactly 1 tenant exists in DB for this slug
+            const tenantsInDb = await query('SELECT id FROM tenants WHERE slug = $1', [identicalSlug]);
+            expect(tenantsInDb.rows.length).toBe(1);
+        });
+
         it('rejects duplicate shop slug and rolls back transaction', async () => {
             const dupPayload = {
                 name: 'Quán Trùng Slug',
