@@ -17,6 +17,12 @@ services:
         value: production
       - key: AUTO_SEED
         value: "false"
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:contact@phoco.vn
 
 databases:
   - name: order-app-db

@@ -9,22 +9,43 @@ pushRouter.use(authenticateStaff);
 
 /**
  * GET /api/v1/staff/push/public-key
- * Returns public VAPID key to frontend for subscription
+ * Returns public VAPID key and availability to frontend for subscription
  */
 pushRouter.get('/public-key', (req: Request, res: Response) => {
-    const publicKey = PushService.getPublicKey();
-    return res.json({ publicKey });
+    const availability = PushService.getAvailability();
+    return res.json({
+        available: availability.available,
+        enabled: availability.enabled,
+        publicKey: availability.publicKey,
+        reason: availability.reason
+    });
 });
 
 /**
  * GET /api/v1/staff/push/status
- * Returns subscription status for current staff member
+ * Returns subscription status and push availability for current staff member
  */
 pushRouter.get('/status', async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;
+        const availability = PushService.getAvailability();
+        if (!availability.available) {
+            return res.json({
+                available: false,
+                enabled: false,
+                reason: availability.reason,
+                isSubscribed: false,
+                deviceCount: 0,
+                lastSuccessAt: null
+            });
+        }
         const status = await PushService.getStatus(staff.tenantId, staff.id);
-        return res.json(status);
+        return res.json({
+            available: true,
+            enabled: true,
+            reason: null,
+            ...status
+        });
     } catch (err: any) {
         const status = err.status || 500;
         return res.status(status).json({
