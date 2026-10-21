@@ -13,7 +13,27 @@ import {
     parseDateFilter
 } from './admin.validation.js';
 
-const SENSITIVE_KEY_REGEX = /(?:password|hash|token|secret|cookie|credential|authorization|private[-_]?key|session[-_]?id|api[-_]?key|user[-_]?agent|\bip\b|ip[-_]?address)/i;
+export function isSensitiveKey(key: string): boolean {
+    const normalized = key.toLowerCase().replace(/[-_]/g, '');
+
+    // 1. Password, tokens, secrets, hashes, cookies, credentials, auth, keys, agent
+    if (/(?:password|passwd|token|secret|hash|cookie|credential|authorization|privatekey|apikey|useragent)/i.test(normalized)) {
+        return true;
+    }
+
+    // 2. IP variations: clientIp, request_ip, remote_ip, ipAddress, userIp, callerIp, etc.
+    if (/(?:^|client|request|remote|user|caller|source|peer|device|host|server)ip(?:address|addr)?$/i.test(normalized)) {
+        return true;
+    }
+
+    // 3. Word-tokenized check: any token that is exactly 'ip', 'ipaddress', or 'ipaddr'
+    const tokens = key.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/);
+    if (tokens.includes('ip') || tokens.includes('ipaddress') || tokens.includes('ipaddr')) {
+        return true;
+    }
+
+    return false;
+}
 
 export function redactSensitiveDetails(obj: any): any {
     if (!obj || typeof obj !== 'object') {
@@ -24,7 +44,7 @@ export function redactSensitiveDetails(obj: any): any {
     }
     const cleaned: Record<string, any> = {};
     for (const [k, v] of Object.entries(obj)) {
-        if (SENSITIVE_KEY_REGEX.test(k)) {
+        if (isSensitiveKey(k)) {
             cleaned[k] = '[REDACTED]';
         } else if (typeof v === 'object' && v !== null) {
             cleaned[k] = redactSensitiveDetails(v);
@@ -674,22 +694,11 @@ export class AdminService {
 
         const whereSql = whereClauses.join(' AND ');
 
-        // 1. Total count check
-        const countRes = await query(`SELECT COUNT(*) as total FROM audit_logs al WHERE ${whereSql}`, params);
-        const total = parseInt(countRes.rows[0]?.total || '0', 10);
-
         const MAX_EXPORT_ROWS = 1000;
-        if (total > MAX_EXPORT_ROWS) {
-            throw new AdminApiError(
-                400,
-                'EXPORT_LIMIT_EXCEEDED',
-                `Dữ liệu xuất vượt quá giới hạn 1.000 bản ghi (hiện có ${total.toLocaleString('vi-VN')} bản ghi). Vui lòng thu hẹp khoảng thời gian hoặc áp dụng thêm bộ lọc để xuất.`,
-                { total, limit: MAX_EXPORT_ROWS }
-            );
-        }
+        const FETCH_LIMIT = MAX_EXPORT_ROWS + 1; // 1001
 
-        // 2. Data query up to MAX_EXPORT_ROWS with deterministic tie-breaker sort
-        const dataParams = [...params, MAX_EXPORT_ROWS];
+        // Single atomic query with LIMIT 1001 to prevent two-snapshot race condition (R1)
+        const dataParams = [...params, FETCH_LIMIT];
         const dataSql = `
             SELECT
                 al.id, al.tenant_id, al.user_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
@@ -704,6 +713,18 @@ export class AdminService {
         `;
 
         const dataRes = await query(dataSql, dataParams);
+
+        // Strict limit enforcement: If matching rows > 1000, reject immediately without silent truncation
+        if (dataRes.rows.length > MAX_EXPORT_ROWS) {
+            throw new AdminApiError(
+                400,
+                'EXPORT_LIMIT_EXCEEDED',
+                'Dữ liệu xuất vượt quá giới hạn 1.000 bản ghi. Vui lòng thu hẹp khoảng thời gian hoặc áp dụng thêm bộ lọc để xuất.',
+                { limit: MAX_EXPORT_ROWS, overflow: true }
+            );
+        }
+
+        const total = dataRes.rows.length;
 
         // 3. Build CSV lines with RFC 4180 escaping and formula neutralization
         const headers = [

@@ -1369,12 +1369,158 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
                 expect(data.error).toBe('EXPORT_LIMIT_EXCEEDED');
                 expect(data.message).toContain('1.000');
                 expect(data.message).toContain('thu hẹp');
-                expect(data.details.total).toBe(1005);
                 expect(data.details.limit).toBe(1000);
+                expect(data.details.overflow).toBe(true);
             } finally {
                 // Always clean up probe rows
                 await query('DELETE FROM audit_logs WHERE action = $1', [probeAction]);
             }
+        });
+
+        // =========================================================================
+        // REGRESSION R1: Single-query atomic LIMIT 1001 prevents silent truncation
+        // =========================================================================
+        it('R1 Regression: verifies boundary at 1,000 (PASS) and 1,001 (EXPORT_LIMIT_EXCEEDED) without silent truncation', async () => {
+            const boundaryAction = 'PROBE_R1_BOUNDARY_TEST';
+
+            try {
+                // 1. Insert exactly 1,000 rows
+                await query(`
+                    INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                    SELECT
+                        $1::uuid,
+                        $2::uuid,
+                        $3::text,
+                        'tenant',
+                        $1::text,
+                        jsonb_build_object('idx', s.i)
+                    FROM generate_series(1, 1000) AS s(i)
+                `, [
+                    seedTenantId,
+                    superAdminUserId,
+                    boundaryAction
+                ]);
+
+                // Exactly 1,000 rows must succeed
+                const res1000 = await fetch(
+                    `${baseUrl}/api/v1/admin/audit-logs/export?action=${boundaryAction}`,
+                    { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+                );
+                expect(res1000.status).toBe(200);
+                expect(res1000.headers.get('x-total-count')).toBe('1000');
+                const text1000 = await res1000.text();
+                const lines1000 = text1000.split('\r\n');
+                // 1 header line + 1,000 data lines = 1,001 total lines
+                expect(lines1000.length).toBe(1001);
+
+                // 2. Insert exactly 1 more row -> total 1,001 rows
+                await query(`
+                    INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                    VALUES ($1::uuid, $2::uuid, $3::text, 'tenant', $1::text, jsonb_build_object('idx', 1001))
+                `, [
+                    seedTenantId,
+                    superAdminUserId,
+                    boundaryAction
+                ]);
+
+                // With single-query LIMIT 1001, 1,001 rows MUST be detected as overflow and return 400
+                const res1001 = await fetch(
+                    `${baseUrl}/api/v1/admin/audit-logs/export?action=${boundaryAction}`,
+                    { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+                );
+                expect(res1001.status).toBe(400);
+                const data1001: any = await res1001.json();
+                expect(data1001.error).toBe('EXPORT_LIMIT_EXCEEDED');
+                expect(data1001.details.overflow).toBe(true);
+            } finally {
+                await query('DELETE FROM audit_logs WHERE action = $1', [boundaryAction]);
+            }
+        });
+
+        // =========================================================================
+        // REGRESSION R2: Comprehensive redaction of IP aliases (camelCase, snake_case, nested)
+        // =========================================================================
+        it('R2 Regression: redacts all IP aliases (clientIp, request_ip, remote_ip, etc.) and preserves safe business fields', async () => {
+            const probeTenantId = '55555555-5555-5555-5555-555555555555';
+            const clientIpVal = '198.51.100.42';
+            const requestIpVal = '203.0.113.21';
+            const remoteIpVal = '10.0.0.1';
+            const ipAddressVal = '172.16.0.1';
+            const userIpVal = '192.168.1.55';
+
+            await query(`
+                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `, [
+                probeTenantId,
+                superAdminUserId,
+                'SUPER_ADMIN_R2_IP_PROBE',
+                'tenant',
+                probeTenantId,
+                JSON.stringify({
+                    context: {
+                        clientIp: clientIpVal
+                    },
+                    request_ip: requestIpVal,
+                    remote_ip: remoteIpVal,
+                    ipAddress: ipAddressVal,
+                    user_ip: userIpVal,
+                    // Safe fields that contain 'ip' substring but are NOT IP addresses:
+                    membership: 'gold_tier',
+                    relationship_type: 'franchise',
+                    tip_amount: 25000,
+                    recipe_name: 'Phở bò tái nạm',
+                    equipment_id: 'pos_01'
+                })
+            ]);
+
+            try {
+                const res = await fetch(
+                    `${baseUrl}/api/v1/admin/audit-logs/export?tenantId=${probeTenantId}`,
+                    { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+                );
+                expect(res.status).toBe(200);
+
+                const text = await res.text();
+
+                // 1. None of the raw IP values must appear anywhere in the export CSV
+                expect(text).not.toContain(clientIpVal);
+                expect(text).not.toContain(requestIpVal);
+                expect(text).not.toContain(remoteIpVal);
+                expect(text).not.toContain(ipAddressVal);
+                expect(text).not.toContain(userIpVal);
+
+                // 2. Safe fields containing 'ip' substring must NOT be redacted
+                expect(text).toContain('gold_tier');
+                expect(text).toContain('franchise');
+                expect(text).toContain('25000');
+                expect(text).toContain('Phở bò tái nạm');
+                expect(text).toContain('pos_01');
+
+                // 3. Redacted marker present
+                expect(text).toContain('[REDACTED]');
+            } finally {
+                await query('DELETE FROM audit_logs WHERE tenant_id = $1', [probeTenantId]);
+            }
+        });
+
+        // =========================================================================
+        // Browser Download & Cache Control Headers Verification
+        // =========================================================================
+        it('verifies browser download headers, cache busting, and UTF-8 charset', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs/export`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+
+            // Browser download headers
+            expect(res.headers.get('content-type')).toBe('text/csv; charset=utf-8');
+            expect(res.headers.get('content-disposition')).toMatch(/^attachment; filename="audit-logs-\d{8}\.csv"$/);
+
+            // Strict cache prevention headers so browser downloads are never stale
+            expect(res.headers.get('cache-control')).toBe('no-cache, no-store, must-revalidate');
+            expect(res.headers.get('pragma')).toBe('no-cache');
+            expect(res.headers.get('expires')).toBe('0');
         });
     });
 });
