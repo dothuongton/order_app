@@ -17,6 +17,7 @@ import { DashboardHeroBanner } from '../../components/admin/DashboardHeroBanner.
 import { DashboardStatsCards } from '../../components/admin/DashboardStatsCards.js';
 import { RecentActivityTimeline } from '../../components/admin/RecentActivityTimeline.js';
 import { ShopListTable } from '../../components/admin/ShopListTable.js';
+import { useAdminShopList } from '../../hooks/admin/useAdminShopList.js';
 import { RolesView } from '../../components/admin/RolesView.js';
 import { AuditLogsView } from '../../components/admin/AuditLogsView.js';
 import { AdminRightDrawer, RightDrawerContent } from '../../components/admin/AdminRightDrawer.js';
@@ -198,25 +199,38 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
     // Navigation & Query States
     const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [shopStatus, setShopStatus] = useState('all');
-    const [page, setPage] = useState(1);
     const [auditPage, setAuditPage] = useState(1);
     const [auditAction, setAuditAction] = useState<string>('');
     const [auditStartDate, setAuditStartDate] = useState<string>('');
     const [auditEndDate, setAuditEndDate] = useState<string>('');
 
+    // Centralized Stable Shops List State (Issue #86)
+    const {
+        shops,
+        pagination,
+        isLoading: loadingShops,
+        error: shopsError,
+        page,
+        searchQuery,
+        status: shopStatus,
+        sortBy: shopSortBy,
+        sortOrder: shopSortOrder,
+        setPage,
+        setSearchQuery,
+        setStatus: setShopStatus,
+        setSort: setShopSort,
+        clearSearch: clearShopSearch,
+        reload: reloadShops
+    } = useAdminShopList({ initialLimit: 10 });
+
     // Data States
     const [stats, setStats] = useState<PlatformStats | null>(null);
-    const [shops, setShops] = useState<ShopSummary[]>([]);
-    const [pagination, setPagination] = useState<PaginationMeta | null>(null);
     const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
     const [auditPagination, setAuditPagination] = useState<PaginationMeta | null>(null);
     const [roles, setRoles] = useState<SystemRole[]>(INITIAL_SYSTEM_ROLES);
 
     // UI Loading & Toast States
     const [loadingStats, setLoadingStats] = useState(true);
-    const [loadingShops, setLoadingShops] = useState(true);
     const [loadingLogs, setLoadingLogs] = useState(true);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -247,31 +261,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             setLoadingStats(true);
             const data = await AdminApi.getStats();
             setStats(data);
-        } catch (err: any) {
-            console.error('Failed to load platform stats', err);
+        } catch {
+            setStats(null);
         } finally {
             setLoadingStats(false);
         }
     }, []);
-
-    // 2. Fetch Shops
-    const loadShops = useCallback(async () => {
-        try {
-            setLoadingShops(true);
-            const data = await AdminApi.getShops({
-                page,
-                limit: 10,
-                search: searchQuery,
-                status: shopStatus
-            });
-            setShops(data.shops || []);
-            setPagination(data.pagination || null);
-        } catch (err: any) {
-            console.error('Failed to load shops', err);
-        } finally {
-            setLoadingShops(false);
-        }
-    }, [page, searchQuery, shopStatus]);
 
     // 3. Fetch Audit Logs
     const loadAuditLogs = useCallback(async () => {
@@ -299,10 +294,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         loadAuditLogs();
     }, [loadStats, loadAuditLogs]);
 
-    // Re-fetch shops on page, query, status changes
-    useEffect(() => {
-        loadShops();
-    }, [loadShops]);
+
 
     // Handler: Search Submission from Header
     const handleSearchSubmit = () => {
@@ -310,7 +302,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         if (activeTab !== 'shops') {
             setActiveTab('shops');
         }
-        loadShops();
+        reloadShops();
     };
 
     // Handler: Open Drawer for Role Permissions (Image 1)
@@ -338,7 +330,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         await AdminApi.createShop(payload);
         showToast(`Đã tạo thành công quán "${payload.name}"!`);
         loadStats();
-        loadShops();
+        reloadShops();
         loadAuditLogs();
     };
 
@@ -349,7 +341,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === id) {
             closeDrawer();
         }
-        loadShops();
+        reloadShops();
         loadAuditLogs();
     };
 
@@ -371,7 +363,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         );
         closeDrawer();
         loadStats();
-        loadShops();
+        reloadShops();
         loadAuditLogs();
     };
 
@@ -547,14 +539,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                                 shops={shops}
                                 pagination={pagination}
                                 currentStatus={shopStatus}
-                                onStatusChange={(st) => {
-                                    setShopStatus(st);
-                                    setPage(1);
-                                }}
-                                onPageChange={(p) => setPage(p)}
+                                onStatusChange={setShopStatus}
+                                onPageChange={setPage}
                                 onSelectShop={handleOpenShopDetail}
                                 onCreateShopClick={() => setIsCreateModalOpen(true)}
                                 isLoading={loadingShops}
+                                error={shopsError}
+                                onRetry={reloadShops}
+                                sortBy={shopSortBy}
+                                sortOrder={shopSortOrder}
+                                onSortChange={setShopSort}
+                                searchQuery={searchQuery}
+                                onClearSearch={clearShopSearch}
                             />
                         </div>
                     )}
