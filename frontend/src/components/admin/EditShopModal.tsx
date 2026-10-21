@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Edit3 } from 'lucide-react';
 import { ShopDetail, ShopSummary, UpdateShopPayload } from '../../types/admin.js';
+import { useModalA11y } from '../../hooks/admin/useModalA11y.js';
 
 interface EditShopModalProps {
     shop: ShopDetail | ShopSummary;
@@ -15,6 +16,18 @@ export const EditShopModal: React.FC<EditShopModalProps> = ({ shop, onClose, onS
     const [description, setDescription] = useState((shop as ShopDetail).description || '');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const nameInputRef = useRef<HTMLInputElement>(null);
+    const modalContainerRef = useRef<HTMLDivElement>(null);
+
+        // Standard accessible modal: focus trap, restore, topmost ESC, scroll lock (Issue #88)
+    useModalA11y({
+        isOpen: true,
+        onClose,
+        isSubmitting,
+        initialFocusRef: nameInputRef,
+        containerRef: modalContainerRef,
+        modalId: 'edit-shop-modal'
+    });
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -40,14 +53,21 @@ export const EditShopModal: React.FC<EditShopModalProps> = ({ shop, onClose, onS
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-            <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div
+                ref={modalContainerRef}
+                tabIndex={-1}
+                className="bg-white rounded-3xl w-full max-w-lg max-h-[92vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="edit-shop-title"
+            >
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
                             <Edit3 className="w-5 h-5" />
                         </div>
                         <div>
-                            <h3 className="text-base font-bold text-slate-900">Chỉnh Sửa Thông Tin Quán</h3>
+                            <h3 id="edit-shop-title" className="text-base font-bold text-slate-900">Chỉnh Sửa Thông Tin Quán</h3>
                             <p className="text-xs text-slate-400 font-mono">ID: {shop.id}</p>
                         </div>
                     </div>
@@ -59,7 +79,7 @@ export const EditShopModal: React.FC<EditShopModalProps> = ({ shop, onClose, onS
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
                     {error && (
                         <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold">
                             {error}
@@ -69,11 +89,14 @@ export const EditShopModal: React.FC<EditShopModalProps> = ({ shop, onClose, onS
                     <div>
                         <label className="block text-xs font-bold text-slate-700 mb-1">Tên Quán</label>
                         <input
+                            ref={nameInputRef}
+                            id="edit-shop-name"
                             type="text"
                             required
+                            disabled={isSubmitting}
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium"
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium disabled:opacity-60"
                         />
                     </div>
 

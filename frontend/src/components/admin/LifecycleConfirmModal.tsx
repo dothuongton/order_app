@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, Archive, X } from 'lucide-react';
 import { ShopSummary, ShopStatus } from '../../types/admin.js';
+import { useModalA11y } from '../../hooks/admin/useModalA11y.js';
 
 interface LifecycleConfirmModalProps {
     shop: ShopSummary;
@@ -17,6 +18,18 @@ export const LifecycleConfirmModal: React.FC<LifecycleConfirmModalProps> = ({
 }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const confirmButtonRef = useRef<HTMLButtonElement>(null);
+    const modalContainerRef = useRef<HTMLDivElement>(null);
+
+        // Standard accessible modal: focus trap, restore, topmost ESC, scroll lock (Issue #88)
+    useModalA11y({
+        isOpen: true,
+        onClose,
+        isSubmitting,
+        initialFocusRef: confirmButtonRef,
+        containerRef: modalContainerRef,
+        modalId: 'lifecycle-confirm-modal'
+    });
 
     const getModalContent = () => {
         switch (targetStatus) {
@@ -69,7 +82,15 @@ export const LifecycleConfirmModal: React.FC<LifecycleConfirmModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-            <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div
+                ref={modalContainerRef}
+                tabIndex={-1}
+                className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="lifecycle-confirm-title"
+                aria-describedby="lifecycle-confirm-desc"
+            >
                 <div className="p-6">
                     <div className="flex items-start justify-between">
                         <div className={`w-12 h-12 rounded-2xl ${content.iconBg} flex items-center justify-center`}>
@@ -84,8 +105,8 @@ export const LifecycleConfirmModal: React.FC<LifecycleConfirmModalProps> = ({
                     </div>
 
                     <div className="mt-4">
-                        <h3 className="text-lg font-bold text-slate-900">{content.title}</h3>
-                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">{content.message}</p>
+                        <h3 id="lifecycle-confirm-title" className="text-lg font-bold text-slate-900">{content.title}</h3>
+                        <p id="lifecycle-confirm-desc" className="text-xs text-slate-500 mt-2 leading-relaxed">{content.message}</p>
                     </div>
 
                     {error && (
@@ -103,6 +124,7 @@ export const LifecycleConfirmModal: React.FC<LifecycleConfirmModalProps> = ({
                             Hủy
                         </button>
                         <button
+                            ref={confirmButtonRef}
                             type="button"
                             disabled={isSubmitting}
                             onClick={handleConfirm}

@@ -19,6 +19,7 @@ import {
     Edit3
 } from 'lucide-react';
 import { SystemRole, ShopDetail, ShopSummary, AuditLogItem } from '../../types/admin.js';
+import { useModalA11y } from '../../hooks/admin/useModalA11y.js';
 
 export type RightDrawerContent =
     | { type: 'permissions'; role: SystemRole }
@@ -46,11 +47,21 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
     // Local state for permissions checkboxes when in permissions mode
     const [permissionGroups, setPermissionGroups] = React.useState<any[]>([]);
 
+    const drawerRef = React.useRef<HTMLElement>(null);
+
     React.useEffect(() => {
         if (content?.type === 'permissions') {
             setPermissionGroups(JSON.parse(JSON.stringify(content.role.permissionGroups)));
         }
     }, [content]);
+
+    // Standard accessible drawer: focus trap, restore, topmost ESC, scroll lock (Issue #88)
+    useModalA11y({
+        isOpen: isOpen && !!content,
+        onClose,
+        containerRef: drawerRef,
+        modalId: 'admin-right-drawer'
+    });
 
     if (!isOpen || !content) return null;
 
@@ -65,7 +76,13 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
             />
 
             {/* Slide-over panel */}
-            <aside className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-right duration-300">
+            <aside
+                ref={drawerRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                className="relative w-full max-w-full sm:max-w-md bg-white h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-right duration-300 outline-none"
+            >
                 {/* =========================================================================
                     1. PERMISSIONS MODE (Image 1 style)
                    ========================================================================= */}
