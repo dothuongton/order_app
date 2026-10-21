@@ -70,6 +70,21 @@ class CDPClient {
     this.eventHandlers.get(event).push(handler);
   }
 
+  off(event, handler) {
+    if (!this.eventHandlers.has(event)) return;
+    const handlers = this.eventHandlers.get(event);
+    const idx = handlers.indexOf(handler);
+    if (idx !== -1) handlers.splice(idx, 1);
+  }
+
+  removeAllListeners(event) {
+    if (event) {
+      this.eventHandlers.delete(event);
+    } else {
+      this.eventHandlers.clear();
+    }
+  }
+
   async send(method, params = {}) {
     const id = this.id++;
     return new Promise((resolve, reject) => {
@@ -294,7 +309,7 @@ async function main() {
       SELECT t.id, t.table_number, t.tenant_id
       FROM tables t
       JOIN tenants tn ON tn.id = t.tenant_id
-      WHERE tn.slug = 'pho-co' AND t.table_number IN ('A01', 'A02', 'A03')
+      WHERE tn.slug = 'pho-co' AND t.table_number IN ('A01', 'A02', 'A03', 'B01')
       ORDER BY t.table_number
     `);
     const tables = {};
@@ -364,6 +379,7 @@ async function main() {
     const s1A01 = await createServedSessionOnTable(tables['A01'].id);
     const s1A02 = await createEmptySessionOnTable(tables['A02'].id);
     const s1A03 = await createServedSessionOnTable(tables['A03'].id);
+    const s1B01 = await createServedSessionOnTable(tables['B01'].id);
 
     // =========================================================================
     // STAFF LOGIN
@@ -640,9 +656,11 @@ async function main() {
     console.log('  ✅ Scenario 2 Passed: 0đ close followed by normal session settlement succeeds!');
 
     // =========================================================================
-    // SCENARIO 3: API error / 409 conflict and simulated failed refresh do not lock settlement button
+    // SCENARIO 3: Genuine POST 409 Conflict Assertion (R2 Requirement 1)
+    // Preflight GET succeeds with original version -> DB version updated right
+    // as POST is sent -> POST actually executes and returns HTTP 409
     // =========================================================================
-    console.log('\n--- SCENARIO 3: 409 Conflict & refresh resilience does not lock settlement button ---');
+    console.log('\n--- SCENARIO 3: Genuine POST 409 Conflict Assertion ---');
 
     // Click Table A03
     await chromeStaff.evaluate(`
@@ -665,28 +683,58 @@ async function main() {
     `);
     await sleep(1000);
 
-    // SIMULATE 409 CONFLICT: update settlement_version on DB behind the scenes
-    console.log('  Simulating 409 Conflict: incrementing settlement_version in DB...');
-    await dbClient.query(`UPDATE table_sessions SET settlement_version = settlement_version + 1 WHERE id = $1`, [s1A03]);
+    // Track network responses to prove POST actually returned 409
+    let postStatusCode = null;
+    let post409Intercepted = false;
+    const handleNetworkResponse = ({ response }) => {
+      if (response.url.includes('confirm-payment-and-close')) {
+        postStatusCode = response.status;
+        console.log(`  🎯 Network response received: HTTP ${response.status} for ${response.url}`);
+      }
+    };
+    chromeStaff.cdp.on('Network.responseReceived', handleNetworkResponse);
 
-    // Now click "Đã nhận đủ tiền"
+    await chromeStaff.cdp.send('Fetch.enable', {
+      patterns: [{ urlPattern: '*/confirm-payment-and-close*', requestStage: 'Request' }]
+    });
+
+    const handlePostIntercept = async ({ requestId, request }) => {
+      if (request.method === 'POST') {
+        post409Intercepted = true;
+        console.log('  🎯 Intercepted POST /confirm-payment-and-close. Preflight GET already passed!');
+        // Invalidate settlement_version in PostgreSQL DB right now before POST transaction locks the row!
+        await dbClient.query(`UPDATE table_sessions SET settlement_version = settlement_version + 1 WHERE id = $1`, [s1A03]);
+        await chromeStaff.cdp.send('Fetch.continueRequest', { requestId });
+      } else {
+        await chromeStaff.cdp.send('Fetch.continueRequest', { requestId });
+      }
+    };
+    chromeStaff.cdp.on('Fetch.requestPaused', handlePostIntercept);
+
+    // Click "Đã nhận đủ tiền"
     await chromeStaff.evaluate(`
       (() => {
         const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Đã nhận đủ tiền'));
         if (confirmBtn) confirmBtn.click();
       })()
     `);
-    await sleep(2000);
+    await sleep(2500);
 
-    // Verify:
-    // 1. Error message is displayed in modal
-    // 2. isSettling is false, button is NOT disabled, does NOT say "Đang xác nhận..."
+    chromeStaff.cdp.off('Fetch.requestPaused', handlePostIntercept);
+    await chromeStaff.cdp.send('Fetch.disable');
+    chromeStaff.cdp.off('Network.responseReceived', handleNetworkResponse);
+
+    assert(post409Intercepted, 'POST /confirm-payment-and-close must be intercepted');
+    assert(postStatusCode === 409, `POST must genuinely return HTTP 409, got ${postStatusCode}`);
+    console.log('  ✅ Verified POST /confirm-payment-and-close actually returned HTTP 409');
+
+    // Verify modal state after 409:
     modalText = await chromeStaff.evaluate('document.body.innerText');
     assert(
       modalText.includes('thay đổi') || modalText.includes('kiểm tra và xác nhận lại'),
       `Modal must display 409 error message, got:\n${modalText}`
     );
-    console.log('  ✅ 409 Conflict error message displayed properly');
+    console.log('  ✅ 409 Conflict error message displayed properly in modal');
 
     const recoverBtnState = await chromeStaff.evaluate(`
       (() => {
@@ -703,11 +751,263 @@ async function main() {
     assert(!recoverBtnState.disabled, 'Settlement button must NOT be permanently locked/disabled after 409 error');
     assert(!recoverBtnState.text.includes('Đang'), 'Settlement button must NOT be stuck in loading state');
     console.log('  ✅ Verified: 409 error did NOT lock the settlement button!');
+    await chromeStaff.screenshot('pay_reg_03_post_409_conflict.png');
+    console.log('  ✅ Scenario 3 Passed: Real POST 409 conflict verified!');
 
-    await chromeStaff.screenshot('pay_reg_03_conflict_recovery.png');
-    console.log('  ✅ Scenario 3 Passed: 409 conflict and refresh recovery verified cleanly!');
+    // =========================================================================
+    // SCENARIO 4: Refresh failure after conflict recovers UI cleanly (R2 Requirement 2)
+    // When 409 conflict occurs, the subsequent bill-summary refresh fails,
+    // but UI still recovers and allows retry without permanent button lock.
+    // =========================================================================
+    console.log('\n--- SCENARIO 4: Failed refresh after 409 conflict recovers UI cleanly ---');
 
-    console.log('\n🎉 ALL PAYMENT LIFECYCLE REGRESSION SCENARIOS VERIFIED SUCCESSFULLY!');
+    // Modal is currently showing error. Click "Xác nhận đã thanh toán..." to open confirm modal again
+    await chromeStaff.evaluate(`
+      (() => {
+        const settleBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Xác nhận đã thanh toán'));
+        if (settleBtn) settleBtn.click();
+      })()
+    `);
+    await sleep(1000);
+
+    let refreshFailedInjected = false;
+    let postHit = false;
+
+    await chromeStaff.cdp.send('Fetch.enable', {
+      patterns: [
+        { urlPattern: '*/confirm-payment-and-close*', requestStage: 'Request' },
+        { urlPattern: '*/bill-summary*', requestStage: 'Request' }
+      ]
+    });
+
+    const handleRefreshFail = async ({ requestId, request }) => {
+      if (request.url.includes('confirm-payment-and-close')) {
+        postHit = true;
+        console.log('  🎯 Intercepted POST /confirm-payment-and-close: responding with 409');
+        await chromeStaff.cdp.send('Fetch.fulfillRequest', {
+          requestId,
+          responseCode: 409,
+          responseHeaders: [
+            { name: 'Content-Type', value: 'application/json' },
+            { name: 'Access-Control-Allow-Origin', value: '*' }
+          ],
+          body: Buffer.from(JSON.stringify({ error: 'SUMMARY_CHANGED', message: 'Hóa đơn đã thay đổi trên máy chủ' })).toString('base64')
+        });
+      } else if (request.url.includes('bill-summary')) {
+        if (postHit) {
+          refreshFailedInjected = true;
+          console.log('  🎯 Injected network failure on bill-summary refresh request following 409 conflict');
+          await chromeStaff.cdp.send('Fetch.failRequest', { requestId, errorReason: 'ConnectionFailed' });
+        } else {
+          await chromeStaff.cdp.send('Fetch.continueRequest', { requestId });
+        }
+      } else {
+        await chromeStaff.cdp.send('Fetch.continueRequest', { requestId });
+      }
+    };
+    chromeStaff.cdp.on('Fetch.requestPaused', handleRefreshFail);
+
+    // Click "Đã nhận đủ tiền"
+    await chromeStaff.evaluate(`
+      (() => {
+        const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Đã nhận đủ tiền'));
+        if (confirmBtn) confirmBtn.click();
+      })()
+    `);
+    await sleep(2500);
+
+    chromeStaff.cdp.off('Fetch.requestPaused', handleRefreshFail);
+    await chromeStaff.cdp.send('Fetch.disable');
+
+    assert(refreshFailedInjected, 'Bill-summary refresh failure must have been injected');
+    const refreshFailBtnState = await chromeStaff.evaluate(`
+      (() => {
+        const settleBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Xác nhận đã thanh toán'));
+        if (!settleBtn) return { found: false };
+        return { found: true, disabled: settleBtn.disabled, text: settleBtn.innerText };
+      })()
+    `);
+    assert(refreshFailBtnState.found, 'Settlement button must be present after failed refresh');
+    assert(!refreshFailBtnState.disabled, 'Settlement button must NOT be disabled when bill refresh fails');
+    assert(!refreshFailBtnState.text.includes('Đang'), 'Settlement button must NOT be stuck in loading state');
+    console.log('  ✅ Scenario 4 Passed: Failed refresh after 409 conflict cleanly recovers UI!');
+    await chromeStaff.screenshot('pay_reg_04_failed_refresh_recovered.png');
+
+    // Close Table A03 modal cleanly
+    await chromeStaff.evaluate(`
+      (() => {
+        const closeBtn = document.querySelector('button[title*="Đóng"]') || Array.from(document.querySelectorAll('button')).find(b => b.querySelector('svg.lucide-x'));
+        if (closeBtn) closeBtn.click();
+      })()
+    `);
+    await sleep(1000);
+
+    // =========================================================================
+    // SCENARIO 5: Delayed A completion while B settlement is pending (R1 + R2 Requirement 3)
+    // Hold A response -> switch to B and start B settlement -> release A
+    // ASSERTION: Modal B remains OPEN and button remains LOCKED until B finishes!
+    // =========================================================================
+    console.log('\n--- SCENARIO 5: Delayed Operation A while Operation B is pending ---');
+
+    // Create a fresh served session on Table A01 (which is currently closed and free)
+    const s3A01 = await createServedSessionOnTable(tables['A01'].id);
+
+    // Refresh staff dashboard
+    await chromeStaff.evaluate(`
+      (() => {
+        const refreshBtn = Array.from(document.querySelectorAll('button')).find(b => b.querySelector('svg.lucide-refresh-cw'));
+        if (refreshBtn) refreshBtn.click();
+      })()
+    `);
+    await sleep(2000);
+
+    await chromeStaff.cdp.send('Fetch.enable', {
+      patterns: [{ urlPattern: '*/confirm-payment-and-close*', requestStage: 'Request' }]
+    });
+
+    let delayedRequestIdA = null;
+    let delayedRequestIdB = null;
+
+    const handleDelayedRace = async ({ requestId, request }) => {
+      if (!delayedRequestIdA) {
+        console.log('  🎯 Intercepted Operation A (Table A01) - Holding response...');
+        delayedRequestIdA = requestId;
+        // HOLD request! Do not continue yet.
+      } else {
+        console.log('  🎯 Intercepted Operation B (Table B01) - Holding response...');
+        delayedRequestIdB = requestId;
+        // HOLD request! Do not continue yet.
+      }
+    };
+    chromeStaff.cdp.on('Fetch.requestPaused', handleDelayedRace);
+
+    // Open Table A01
+    await chromeStaff.evaluate(`
+      (() => {
+        const card = Array.from(document.querySelectorAll('div.cursor-pointer')).find(el => el.innerText && el.innerText.includes('Bàn A01'));
+        if (card) card.click();
+      })()
+    `);
+    await sleep(1500);
+
+    // Click "Xác nhận đã thanh toán..." on Table A01
+    await chromeStaff.evaluate(`
+      (() => {
+        const settleBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Xác nhận đã thanh toán'));
+        if (settleBtn) settleBtn.click();
+      })()
+    `);
+    await sleep(1000);
+
+    // Click "Đã nhận đủ tiền" on Table A01 -> Operation A starts and is held
+    await chromeStaff.evaluate(`
+      (() => {
+        const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Đã nhận đủ tiền'));
+        if (confirmBtn) confirmBtn.click();
+      })()
+    `);
+    await sleep(1000);
+    assert(delayedRequestIdA !== null, 'Operation A request must be intercepted and held');
+
+    // While Operation A is held in-flight:
+    // Close Modal A01 and switch to Table B01
+    await chromeStaff.evaluate(`
+      (() => {
+        const closeBtn = document.querySelector('button[title*="Đóng"]') || Array.from(document.querySelectorAll('button')).find(b => b.querySelector('svg.lucide-x'));
+        if (closeBtn) closeBtn.click();
+      })()
+    `);
+    await sleep(1000);
+
+    // Open Table B01
+    await chromeStaff.evaluate(`
+      (() => {
+        const card = Array.from(document.querySelectorAll('div.cursor-pointer')).find(el => el.innerText && el.innerText.includes('Bàn B01'));
+        if (card) card.click();
+      })()
+    `);
+    await sleep(1500);
+
+    modalText = await chromeStaff.evaluate('document.body.innerText');
+    assert(modalText.includes('Bàn B01'), 'TableDetailModal must open for B01');
+
+    // Start settlement on Table B01
+    await chromeStaff.evaluate(`
+      (() => {
+        const settleBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Xác nhận đã thanh toán'));
+        if (settleBtn) settleBtn.click();
+      })()
+    `);
+    await sleep(1000);
+
+    // Click "Đã nhận đủ tiền" on Table B01 -> Operation B starts and is held
+    await chromeStaff.evaluate(`
+      (() => {
+        const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('Đã nhận đủ tiền'));
+        if (confirmBtn) confirmBtn.click();
+      })()
+    `);
+    await sleep(1000);
+    assert(delayedRequestIdB !== null, 'Operation B request must be intercepted and held');
+
+    // Now Operation B is in-flight on Table B01
+    const modalBLockedBeforeA = await chromeStaff.evaluate(`
+      (() => {
+        const modal = Array.from(document.querySelectorAll('.fixed.inset-0')).pop();
+        if (!modal) return { found: false, detail: 'no modal' };
+        const btn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText && (b.innerText.includes('Đang xác nhận') || b.innerText.includes('Đã nhận đủ tiền')));
+        return { found: Boolean(btn), disabled: btn?.disabled, text: btn?.innerText };
+      })()
+    `);
+    assert(modalBLockedBeforeA.found, 'Modal B01 must show settlement in-flight state');
+    assert(modalBLockedBeforeA.disabled, 'Modal B01 button must be disabled while Operation B is pending');
+
+    // NOW RELEASE Operation A's held request!
+    console.log('  🚀 Resuming Operation A completion while Operation B is pending on Table B01...');
+    await chromeStaff.cdp.send('Fetch.continueRequest', { requestId: delayedRequestIdA });
+    await sleep(2000); // Allow Operation A to complete on server and in browser
+
+    // CRITICAL ASSERTION 1: Modal B01 is STILL OPEN! Modal B01 was NOT closed by Operation A's completion!
+    const isModalBStillOpen = await chromeStaff.evaluate('document.body.innerText.includes("Chi tiết Bàn B01") || document.body.innerText.includes("Bàn B01")');
+    assert(isModalBStillOpen, 'Modal B01 must NOT be closed by stale Operation A completion');
+
+    // CRITICAL ASSERTION 2: Modal B01's settlement button is STILL DISABLED (isSettling remains true for B01)!
+    const modalBStillLocked = await chromeStaff.evaluate(`
+      (() => {
+        const modal = Array.from(document.querySelectorAll('.fixed.inset-0')).pop();
+        if (!modal) return { found: false, detail: 'no modal' };
+        const btn = Array.from(modal.querySelectorAll('button')).find(b => b.innerText && (b.innerText.includes('Đang xác nhận') || b.innerText.includes('Đã nhận đủ tiền')));
+        return { found: Boolean(btn), disabled: btn?.disabled, text: btn?.innerText };
+      })()
+    `);
+    assert(modalBStillLocked.found, 'Modal B01 must still show settlement button');
+    assert(modalBStillLocked.disabled, 'Modal B01 button must REMAIN DISABLED (Operation A did NOT clear B01 loading state)');
+    console.log('  ✅ Verified: Operation A completion did NOT close Modal B01 or clear B01 isSettling loading state!');
+
+    // Verify Table A01 session 3 is CLOSED in DB
+    const s3A01DbRes = await dbClient.query(`SELECT status FROM table_sessions WHERE id = $1`, [s3A01]);
+    assert(s3A01DbRes.rows[0]?.status === 'CLOSED', 'Table A01 Session 3 must be CLOSED in DB');
+
+    // NOW RELEASE Operation B's held request
+    console.log('  🚀 Resuming Operation B completion...');
+    await chromeStaff.cdp.send('Fetch.continueRequest', { requestId: delayedRequestIdB });
+    await sleep(2500); // Allow Operation B to complete
+
+    chromeStaff.cdp.off('Fetch.requestPaused', handleDelayedRace);
+    await chromeStaff.cdp.send('Fetch.disable');
+
+    // FINAL ASSERTIONS:
+    // Modal B01 closes
+    const isModalBClosed = await chromeStaff.evaluate('!document.querySelector(".fixed.inset-0")');
+    assert(isModalBClosed, 'Modal B01 must close upon Operation B completion');
+
+    // Table B01 is CLOSED in DB
+    const s1B01DbRes = await dbClient.query(`SELECT status FROM table_sessions WHERE id = $1`, [s1B01]);
+    assert(s1B01DbRes.rows[0]?.status === 'CLOSED', 'Table B01 Session 1 must be CLOSED in DB');
+    await chromeStaff.screenshot('pay_reg_05_delayed_a_while_b_pending_success.png');
+    console.log('  ✅ Scenario 5 Passed: Delayed Operation A cleanly isolated from Operation B!');
+
+    console.log('\n🎉 ALL PAYMENT LIFECYCLE REGRESSION SCENARIOS (1-5) VERIFIED SUCCESSFULLY!');
   } finally {
     console.log('\n🧹 Cleaning up browser and server processes...');
     if (chromeStaff?.proc) {

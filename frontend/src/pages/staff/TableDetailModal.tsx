@@ -49,10 +49,18 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const [showConfirmSettlement, setShowConfirmSettlement] = useState(false);
   const [settlementNote, setSettlementNote] = useState('');
   const [isSettling, setIsSettling] = useState(false);
+
+  // Scope & Operation Identity refs (R1)
   const currentSessionRef = useRef<string | null>(null);
+  const modalScopeRef = useRef<number>(0);
+  const activeOperationRef = useRef<number>(0);
+  const operationCounterRef = useRef<number>(0);
 
   // Reset modal state whenever the active table or session changes or closes
   useEffect(() => {
+    // Invalidate prior scope on table/session change or close/reopen
+    modalScopeRef.current += 1;
+    activeOperationRef.current = 0;
     const currentSessionId = table?.active_session_id || null;
     currentSessionRef.current = currentSessionId;
     setIsSettling(false);
@@ -72,24 +80,25 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const loadSessionData = async (targetSessionId?: string) => {
     const sessionId = targetSessionId || table?.active_session_id;
     if (!sessionId) return;
+    const capturedScope = modalScopeRef.current;
     setIsLoading(true);
     setActionError(null);
     try {
       const summary = await request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`);
-      if (currentSessionRef.current !== sessionId) return;
+      if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setBillSummary(summary);
 
       // Also fetch items for the table session
       const ordersRes = await request<{ orders: any[] }>('/guest/orders', {
         headers: { 'x-tenant-id': localStorage.getItem('staff_tenant_id') || '' }
       }).catch(() => ({ orders: [] }));
-      if (currentSessionRef.current !== sessionId) return;
+      if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setOrders(ordersRes.orders || []);
     } catch (err: any) {
-      if (currentSessionRef.current !== sessionId) return;
+      if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setActionError(err.message || 'Lỗi tải dữ liệu phiên');
     } finally {
-      if (currentSessionRef.current === sessionId) {
+      if (modalScopeRef.current === capturedScope && currentSessionRef.current === sessionId) {
         setIsLoading(false);
       }
     }
@@ -187,9 +196,19 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const handleConfirmPaymentAndClose = async () => {
     if (!table?.active_session_id || !billSummary) return;
     if (isSettling) return; // Prevent duplicate clicks while in-flight
+    const operationId = ++operationCounterRef.current;
+    activeOperationRef.current = operationId;
+    const capturedScope = modalScopeRef.current;
+    const targetSessionId = table.active_session_id;
+
+    const isCurrentOperation = () => (
+      modalScopeRef.current === capturedScope &&
+      activeOperationRef.current === operationId &&
+      currentSessionRef.current === targetSessionId
+    );
+
     setIsSettling(true);
     setActionError(null);
-    const targetSessionId = table.active_session_id;
     try {
       if (billSummary.unresolvedCount > 0) {
         setActionError('Còn món chưa được tiếp nhận hoặc phục vụ. Vui lòng hoàn tất hoặc hủy trước khi chốt hóa đơn.');
@@ -202,12 +221,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
       // Verify with server summary to prevent closing on stale data without re-confirmation
       const latestSummary = await request<any>(`/staff/sessions/${targetSessionId}/bill-summary`).catch(() => null);
-      if (currentSessionRef.current !== targetSessionId) return;
+      if (!isCurrentOperation()) return;
 
       if (latestSummary && (latestSummary.validBillTotal !== displayedAmount || latestSummary.settlementVersion !== displayedVersion)) {
-        try {
-          await loadSessionData(targetSessionId);
-        } catch {}
+        await loadSessionData(targetSessionId);
+        if (!isCurrentOperation()) return;
         setShowConfirmSettlement(false);
         setActionError(
           `Số tiền thanh toán hoặc thông tin đơn đã thay đổi (từ ${displayedAmount.toLocaleString('vi-VN')}đ sang ${(latestSummary.validBillTotal ?? 0).toLocaleString('vi-VN')}đ). Vui lòng kiểm tra và xác nhận lại hóa đơn mới.`
@@ -224,22 +242,30 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
           requestId: `pay-${Date.now()}`
         })
       });
+
+      if (!isCurrentOperation()) {
+        // Old mutation completed on server: synchronize dashboard but do not close unrelated modal
+        onRefresh();
+        return;
+      }
+
       setShowConfirmSettlement(false);
       onRefresh();
       onClose();
     } catch (err: any) {
-      if (currentSessionRef.current !== targetSessionId) return;
+      if (!isCurrentOperation()) return;
       if (err.code === 'PRICE_CHANGED' || err.code === 'PROMOTION_EXHAUSTED' || err.status === 409 || err.message?.includes('thay đổi') || err.message?.includes('hết lượt')) {
-        try {
-          await loadSessionData(targetSessionId);
-        } catch {}
+        await loadSessionData(targetSessionId);
+        if (!isCurrentOperation()) return;
         setShowConfirmSettlement(false);
         setActionError(err.message || 'Số tiền thanh toán hoặc khuyến mãi đã thay đổi. Vui lòng kiểm tra và xác nhận lại hóa đơn mới.');
       } else {
         setActionError(err.message || 'Lỗi xác nhận thanh toán');
       }
     } finally {
-      setIsSettling(false);
+      if (activeOperationRef.current === operationId && modalScopeRef.current === capturedScope) {
+        setIsSettling(false);
+      }
     }
   };
 
@@ -247,31 +273,55 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const handleCloseWithoutCharge = async () => {
     if (!table?.active_session_id) return;
     if (isSettling) return; // Prevent duplicate clicks
+    const operationId = ++operationCounterRef.current;
+    activeOperationRef.current = operationId;
+    const capturedScope = modalScopeRef.current;
+    const targetSessionId = table.active_session_id;
+
+    const isCurrentOperation = () => (
+      modalScopeRef.current === capturedScope &&
+      activeOperationRef.current === operationId &&
+      currentSessionRef.current === targetSessionId
+    );
+
     setIsSettling(true);
     setActionError(null);
-    const targetSessionId = table.active_session_id;
     try {
       await request(`/staff/sessions/${targetSessionId}/close-without-charge`, {
         method: 'POST',
         body: JSON.stringify({ reason: 'WITHOUT_CHARGE' })
       });
+
+      if (!isCurrentOperation()) {
+        onRefresh();
+        return;
+      }
+
       onRefresh();
       onClose();
     } catch (err: any) {
-      if (currentSessionRef.current !== targetSessionId) return;
+      if (!isCurrentOperation()) return;
       setActionError(err.message || 'Lỗi kết thúc phiên');
     } finally {
-      setIsSettling(false);
+      if (activeOperationRef.current === operationId && modalScopeRef.current === capturedScope) {
+        setIsSettling(false);
+      }
     }
   };
 
   // Mark table ready after cleaning (F11)
   const handleMarkReady = async () => {
+    const capturedScope = modalScopeRef.current;
     try {
       await request(`/staff/tables/${table.table_id}/mark-ready`, { method: 'POST' });
+      if (modalScopeRef.current !== capturedScope) {
+        onRefresh();
+        return;
+      }
       onRefresh();
       onClose();
     } catch (err: any) {
+      if (modalScopeRef.current !== capturedScope) return;
       setActionError(err.message || 'Lỗi đánh dấu sẵn sàng');
     }
   };
