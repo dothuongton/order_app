@@ -133,3 +133,9 @@ export interface SystemRole {
     color: string;
     permissionGroups: PermissionGroup[];
 }
+
+export type AdminDrawerContent =
+    | { type: 'permissions'; role: SystemRole }
+    | { type: 'shop-detail'; shop: ShopDetail | ShopSummary }
+    | { type: 'audit-detail'; log: AuditLogItem }
+    | null;
