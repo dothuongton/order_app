@@ -131,6 +131,12 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(firstShop).toHaveProperty('tableCount');
             expect(firstShop).toHaveProperty('orderCount');
             expect(firstShop).toHaveProperty('totalRevenue');
+            expect(firstShop).toHaveProperty('metrics');
+            expect(firstShop.metrics).toEqual({
+                tableCount: firstShop.tableCount,
+                orderCount: firstShop.orderCount,
+                totalRevenue: firstShop.totalRevenue
+            });
         });
 
         it('filters shops by status', async () => {
@@ -213,6 +219,11 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(data.shop.slug).toBe('pho-co');
             expect(data.shop.metrics).toBeDefined();
             expect(data.shop.metrics.tableCount).toBeGreaterThanOrEqual(1);
+            expect(typeof data.shop.metrics.orderCount).toBe('number');
+            expect(typeof data.shop.metrics.totalRevenue).toBe('number');
+            expect(data.shop.tableCount).toBe(data.shop.metrics.tableCount);
+            expect(data.shop.orderCount).toBe(data.shop.metrics.orderCount);
+            expect(data.shop.totalRevenue).toBe(data.shop.metrics.totalRevenue);
         });
     });
 

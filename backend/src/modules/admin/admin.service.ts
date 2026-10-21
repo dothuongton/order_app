@@ -132,26 +132,36 @@ export class AdminService {
         `;
 
         const dataRes = await query(dataSql, dataParams);
-        const shops = dataRes.rows.map(row => ({
-            id: row.id,
-            name: row.name,
-            slug: row.slug,
-            status: row.status,
-            phone: row.phone,
-            address: row.address,
-            activeTemplateId: row.active_template_id,
-            activePublishedVersion: row.active_published_version,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
-            owner: row.owner_id ? {
-                id: row.owner_id,
-                email: row.owner_email,
-                fullName: row.owner_name
-            } : null,
-            tableCount: parseInt(row.table_count || '0', 10),
-            orderCount: parseInt(row.order_count || '0', 10),
-            totalRevenue: parseInt(row.total_revenue || '0', 10)
-        }));
+        const shops = dataRes.rows.map(row => {
+            const tableCount = parseInt(row.table_count || '0', 10);
+            const orderCount = parseInt(row.order_count || '0', 10);
+            const totalRevenue = parseInt(row.total_revenue || '0', 10);
+            return {
+                id: row.id,
+                name: row.name,
+                slug: row.slug,
+                status: row.status,
+                phone: row.phone,
+                address: row.address,
+                activeTemplateId: row.active_template_id,
+                activePublishedVersion: row.active_published_version,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                owner: row.owner_id ? {
+                    id: row.owner_id,
+                    email: row.owner_email,
+                    fullName: row.owner_name
+                } : null,
+                tableCount,
+                orderCount,
+                totalRevenue,
+                metrics: {
+                    tableCount,
+                    orderCount,
+                    totalRevenue
+                }
+            };
+        });
 
         return {
             shops,
@@ -195,6 +205,10 @@ export class AdminService {
         }
 
         const row = res.rows[0];
+        const tableCount = parseInt(row.table_count || '0', 10);
+        const orderCount = parseInt(row.order_count || '0', 10);
+        const totalRevenue = parseInt(row.total_revenue || '0', 10);
+
         return {
             id: row.id,
             name: row.name,
@@ -213,10 +227,13 @@ export class AdminService {
                 fullName: row.owner_name,
                 phone: row.owner_phone
             } : null,
+            tableCount,
+            orderCount,
+            totalRevenue,
             metrics: {
-                tableCount: parseInt(row.table_count || '0', 10),
-                orderCount: parseInt(row.order_count || '0', 10),
-                totalRevenue: parseInt(row.total_revenue || '0', 10)
+                tableCount,
+                orderCount,
+                totalRevenue
             }
         };
     }
