@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StaffTable, BillSummary } from '../../types/index.js';
 import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
@@ -49,30 +49,49 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const [showConfirmSettlement, setShowConfirmSettlement] = useState(false);
   const [settlementNote, setSettlementNote] = useState('');
   const [isSettling, setIsSettling] = useState(false);
+  const currentSessionRef = useRef<string | null>(null);
 
+  // Reset modal state whenever the active table or session changes or closes
   useEffect(() => {
-    if (table?.active_session_id) {
-      loadSessionData();
-    }
-  }, [table?.active_session_id]);
+    const currentSessionId = table?.active_session_id || null;
+    currentSessionRef.current = currentSessionId;
+    setIsSettling(false);
+    setShowConfirmSettlement(false);
+    setSettlementNote('');
+    setActionError(null);
+    setActionSuccess(null);
 
-  const loadSessionData = async () => {
-    if (!table?.active_session_id) return;
+    if (currentSessionId) {
+      loadSessionData(currentSessionId);
+    } else {
+      setBillSummary(null);
+      setOrders([]);
+    }
+  }, [table?.table_id, table?.active_session_id]);
+
+  const loadSessionData = async (targetSessionId?: string) => {
+    const sessionId = targetSessionId || table?.active_session_id;
+    if (!sessionId) return;
     setIsLoading(true);
     setActionError(null);
     try {
-      const summary = await request<BillSummary>(`/staff/sessions/${table.active_session_id}/bill-summary`);
+      const summary = await request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`);
+      if (currentSessionRef.current !== sessionId) return;
       setBillSummary(summary);
 
       // Also fetch items for the table session
       const ordersRes = await request<{ orders: any[] }>('/guest/orders', {
         headers: { 'x-tenant-id': localStorage.getItem('staff_tenant_id') || '' }
       }).catch(() => ({ orders: [] }));
+      if (currentSessionRef.current !== sessionId) return;
       setOrders(ordersRes.orders || []);
     } catch (err: any) {
+      if (currentSessionRef.current !== sessionId) return;
       setActionError(err.message || 'Lỗi tải dữ liệu phiên');
     } finally {
-      setIsLoading(false);
+      if (currentSessionRef.current === sessionId) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -166,13 +185,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   // Confirm payment & close session (F10)
   const handleConfirmPaymentAndClose = async () => {
-    if (!table.active_session_id || !billSummary) return;
+    if (!table?.active_session_id || !billSummary) return;
+    if (isSettling) return; // Prevent duplicate clicks while in-flight
     setIsSettling(true);
     setActionError(null);
+    const targetSessionId = table.active_session_id;
     try {
       if (billSummary.unresolvedCount > 0) {
         setActionError('Còn món chưa được tiếp nhận hoặc phục vụ. Vui lòng hoàn tất hoặc hủy trước khi chốt hóa đơn.');
-        setIsSettling(false);
         return;
       }
 
@@ -181,18 +201,21 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       const displayedVersion = billSummary.settlementVersion;
 
       // Verify with server summary to prevent closing on stale data without re-confirmation
-      const latestSummary = await request<any>(`/staff/sessions/${table.active_session_id}/bill-summary`).catch(() => null);
+      const latestSummary = await request<any>(`/staff/sessions/${targetSessionId}/bill-summary`).catch(() => null);
+      if (currentSessionRef.current !== targetSessionId) return;
+
       if (latestSummary && (latestSummary.validBillTotal !== displayedAmount || latestSummary.settlementVersion !== displayedVersion)) {
-        await loadSessionData();
+        try {
+          await loadSessionData(targetSessionId);
+        } catch {}
         setShowConfirmSettlement(false);
         setActionError(
           `Số tiền thanh toán hoặc thông tin đơn đã thay đổi (từ ${displayedAmount.toLocaleString('vi-VN')}đ sang ${(latestSummary.validBillTotal ?? 0).toLocaleString('vi-VN')}đ). Vui lòng kiểm tra và xác nhận lại hóa đơn mới.`
         );
-        setIsSettling(false);
         return;
       }
 
-      await request(`/staff/sessions/${table.active_session_id}/confirm-payment-and-close`, {
+      await request(`/staff/sessions/${targetSessionId}/confirm-payment-and-close`, {
         method: 'POST',
         body: JSON.stringify({
           settlementVersion: displayedVersion,
@@ -205,31 +228,39 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       onRefresh();
       onClose();
     } catch (err: any) {
+      if (currentSessionRef.current !== targetSessionId) return;
       if (err.code === 'PRICE_CHANGED' || err.code === 'PROMOTION_EXHAUSTED' || err.status === 409 || err.message?.includes('thay đổi') || err.message?.includes('hết lượt')) {
-        await loadSessionData();
+        try {
+          await loadSessionData(targetSessionId);
+        } catch {}
         setShowConfirmSettlement(false);
         setActionError(err.message || 'Số tiền thanh toán hoặc khuyến mãi đã thay đổi. Vui lòng kiểm tra và xác nhận lại hóa đơn mới.');
       } else {
         setActionError(err.message || 'Lỗi xác nhận thanh toán');
       }
+    } finally {
       setIsSettling(false);
     }
   };
 
   // Close session without charge (F12)
   const handleCloseWithoutCharge = async () => {
-    if (!table.active_session_id) return;
+    if (!table?.active_session_id) return;
+    if (isSettling) return; // Prevent duplicate clicks
     setIsSettling(true);
     setActionError(null);
+    const targetSessionId = table.active_session_id;
     try {
-      await request(`/staff/sessions/${table.active_session_id}/close-without-charge`, {
+      await request(`/staff/sessions/${targetSessionId}/close-without-charge`, {
         method: 'POST',
         body: JSON.stringify({ reason: 'WITHOUT_CHARGE' })
       });
       onRefresh();
       onClose();
     } catch (err: any) {
+      if (currentSessionRef.current !== targetSessionId) return;
       setActionError(err.message || 'Lỗi kết thúc phiên');
+    } finally {
       setIsSettling(false);
     }
   };
@@ -455,7 +486,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                   <span className={`font-bold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                                     {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
                                   </span>
-                                  {item.status !== 'CANCELLED' && item.rawPrice && item.rawPrice > item.subtotal && (
+                                  {item.status !== 'CANCELLED' && typeof item.rawPrice === 'number' && item.rawPrice > item.subtotal && (
                                     <span className="block text-[10px] text-slate-400 line-through">
                                       {item.rawPrice.toLocaleString('vi-VN')}đ
                                     </span>
@@ -514,7 +545,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   )}
 
                   {/* Promo discount breakdown */}
-                  {billSummary.totalDiscount && billSummary.totalDiscount > 0 && (
+                  {typeof billSummary.totalDiscount === 'number' && billSummary.totalDiscount > 0 && (
                     <div className="p-3 bg-emerald-50/70 border-t border-emerald-100 space-y-1 text-xs">
                       <div className="flex items-center justify-between text-slate-600">
                         <span>Tạm tính (chưa giảm):</span>
@@ -756,7 +787,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     {((billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0)).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
-                {billSummary.totalDiscount && billSummary.totalDiscount > 0 && (
+                {typeof billSummary.totalDiscount === 'number' && billSummary.totalDiscount > 0 && (
                   <div className="flex justify-between text-emerald-600 font-semibold">
                     <span>Đã trừ khuyến mãi:</span>
                     <span>-{billSummary.totalDiscount.toLocaleString('vi-VN')}đ</span>

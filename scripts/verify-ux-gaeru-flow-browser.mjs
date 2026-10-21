@@ -20,6 +20,8 @@ try {
 }
 
 const createdProfileDirs = [];
+const BACKEND_PORT = process.env.TEST_BACKEND_PORT || '4012';
+const FRONTEND_PORT = process.env.TEST_FRONTEND_PORT || '5182';
 
 async function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -233,16 +235,16 @@ async function main() {
     dbClient = new Client({ connectionString: testDbUrl });
     await dbClient.connect();
 
-    // 1. Launch Backend on Port 4010 with test DB and approved_single_device mode
-    console.log('1️⃣ Launching backend on port 4010 with isolated test DB...');
+    // 1. Launch Backend on Port BACKEND_PORT with test DB and approved_single_device mode
+    console.log(`1️⃣ Launching backend on port ${BACKEND_PORT} with isolated test DB...`);
     backendProc = spawn('node', ['dist/server.js'], {
       cwd: path.join(ROOT_DIR, 'backend'),
       env: {
         ...process.env,
-        PORT: '4010',
+        PORT: BACKEND_PORT,
         ORDERING_MODE: 'approved_single_device',
-        FRONTEND_URL: 'http://localhost:5180',
-        CORS_ORIGINS: 'http://localhost:5180',
+        FRONTEND_URL: `http://localhost:${FRONTEND_PORT}`,
+        CORS_ORIGINS: `http://localhost:${FRONTEND_PORT}`,
         DATABASE_URL: testDbUrl,
         JWT_SECRET: 'test-jwt-secret-gaeru-flow-1234567890'
       },
@@ -259,7 +261,7 @@ async function main() {
     let backendReady = false;
     for (let i = 0; i < 30; i++) {
       try {
-        const res = await fetch('http://localhost:4010/health');
+        const res = await fetch(`http://localhost:${BACKEND_PORT}/health`);
         if (res.ok) {
           backendReady = true;
           break;
@@ -267,16 +269,16 @@ async function main() {
       } catch {}
       await sleep(200);
     }
-    assert(backendReady, 'Backend failed to start on port 4010');
-    console.log('✅ Backend running on http://localhost:4010 (ORDERING_MODE=approved_single_device)');
+    assert(backendReady, `Backend failed to start on port ${BACKEND_PORT}`);
+    console.log(`✅ Backend running on http://localhost:${BACKEND_PORT} (ORDERING_MODE=approved_single_device)`);
 
-    // 2. Launch Frontend on Port 5180 proxying to 4010
-    console.log('2️⃣ Launching frontend on port 5180...');
-    frontendProc = spawn('npx', ['vite', '--port', '5180', '--strictPort'], {
+    // 2. Launch Frontend on Port FRONTEND_PORT proxying to BACKEND_PORT
+    console.log(`2️⃣ Launching frontend on port ${FRONTEND_PORT}...`);
+    frontendProc = spawn('npx', ['vite', '--port', FRONTEND_PORT, '--strictPort'], {
       cwd: path.join(ROOT_DIR, 'frontend'),
       env: {
         ...process.env,
-        VITE_BACKEND_URL: 'http://localhost:4010'
+        VITE_BACKEND_URL: `http://localhost:${BACKEND_PORT}`
       },
       stdio: 'pipe'
     });
@@ -284,7 +286,7 @@ async function main() {
     let frontendReady = false;
     for (let i = 0; i < 40; i++) {
       try {
-        const res = await fetch('http://localhost:5180');
+        const res = await fetch(`http://localhost:${FRONTEND_PORT}`);
         if (res.ok) {
           frontendReady = true;
           break;
@@ -292,8 +294,8 @@ async function main() {
       } catch {}
       await sleep(250);
     }
-    assert(frontendReady, 'Frontend failed to start on port 5180');
-    console.log('✅ Frontend running on http://localhost:5180');
+    assert(frontendReady, `Frontend failed to start on port ${FRONTEND_PORT}`);
+    console.log(`✅ Frontend running on http://localhost:${FRONTEND_PORT}`);
 
     // 3. Launch Chrome for Device A (Mobile 390x844)
     console.log('3️⃣ Spawning Chrome for Device A (Requester / Claimed)...');
@@ -329,7 +331,7 @@ async function main() {
     // STEP 1: Device A scans Table A01 (Vacant) and submits Request Open
     // =========================================================================
     console.log('\n--- STEP 1: Device A scans Table A01 (Vacant) ---');
-    await chromeDeviceA.cdp.send('Page.navigate', { url: 'http://localhost:5180/t/qr-phoco-a01' });
+    await chromeDeviceA.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/t/qr-phoco-a01` });
     await sleep(2000);
 
     let textA = await chromeDeviceA.evaluate('document.body.innerText');
@@ -368,7 +370,7 @@ async function main() {
     // STEP 2: Device B scans Table A01 (Pending Approval) -> Read-Only Viewer
     // =========================================================================
     console.log('\n--- STEP 2: Device B scans Table A01 (Pending Approval) ---');
-    await chromeDeviceB.cdp.send('Page.navigate', { url: 'http://localhost:5180/t/qr-phoco-a01' });
+    await chromeDeviceB.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/t/qr-phoco-a01` });
     await sleep(2000);
 
     let textB = await chromeDeviceB.evaluate('document.body.innerText');
@@ -383,7 +385,7 @@ async function main() {
     // STEP 3: Staff Logs in and views Pending Requests
     // =========================================================================
     console.log('\n--- STEP 3: Staff logs in and views Pending Requests ---');
-    await chromeStaff.cdp.send('Page.navigate', { url: 'http://localhost:5180/staff' });
+    await chromeStaff.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/staff` });
     await sleep(1500);
 
     // Login as admin@phoco.vn / 123456
@@ -443,7 +445,7 @@ async function main() {
     // STEP 5: Device A automatically transitions to CLAIMED and places an order
     // =========================================================================
     console.log('\n--- STEP 5: Device A receives claim and places order ---');
-    await chromeDeviceA.cdp.send('Page.navigate', { url: 'http://localhost:5180/t/qr-phoco-a01' });
+    await chromeDeviceA.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/t/qr-phoco-a01` });
     await sleep(2000);
 
     textA = await chromeDeviceA.evaluate('document.body.innerText');
@@ -526,7 +528,7 @@ async function main() {
     // STEP 6: Device B verifies Viewer Isolation on Active Session
     // =========================================================================
     console.log('\n--- STEP 6: Device B views active session (Read-Only Viewer) ---');
-    await chromeDeviceB.cdp.send('Page.navigate', { url: 'http://localhost:5180/t/qr-phoco-a01' });
+    await chromeDeviceB.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/t/qr-phoco-a01` });
     await sleep(2000);
 
     textB = await chromeDeviceB.evaluate('document.body.innerText');
@@ -585,7 +587,7 @@ async function main() {
     // STEP 8: Device B (Viewer) reloads and sees Replacement Request form (G3e)
     // =========================================================================
     console.log('\n--- STEP 8: Device B requests replacement claim (G3e) ---');
-    await chromeDeviceB.cdp.send('Page.navigate', { url: 'http://localhost:5180/t/qr-phoco-a01' });
+    await chromeDeviceB.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/t/qr-phoco-a01` });
     await sleep(2000);
 
     textB = await chromeDeviceB.evaluate('document.body.innerText');
@@ -622,7 +624,7 @@ async function main() {
     // STEP 9: Staff Dashboard shows replacement request and Staff approves it
     // =========================================================================
     console.log('\n--- STEP 9: Staff Dashboard shows replacement request and approves ---');
-    await chromeStaff.cdp.send('Page.navigate', { url: 'http://localhost:5180/staff' });
+    await chromeStaff.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/staff` });
     await sleep(2000);
 
     staffText = await chromeStaff.evaluate('document.body.innerText');
@@ -646,7 +648,7 @@ async function main() {
     // STEP 10: Device B transitions to CLAIMED and places second order
     // =========================================================================
     console.log('\n--- STEP 10: Device B claims session and places second order ---');
-    await chromeDeviceB.cdp.send('Page.navigate', { url: 'http://localhost:5180/t/qr-phoco-a01' });
+    await chromeDeviceB.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/t/qr-phoco-a01` });
     await sleep(2000);
 
     textB = await chromeDeviceB.evaluate('document.body.innerText');
@@ -706,7 +708,7 @@ async function main() {
     // STEP 11: Device A has lost claim, demoted to VIEWER, and forbidden by API
     // =========================================================================
     console.log('\n--- STEP 11: Device A demoted to VIEWER and forbidden by API ---');
-    await chromeDeviceA.cdp.send('Page.navigate', { url: 'http://localhost:5180/t/qr-phoco-a01' });
+    await chromeDeviceA.cdp.send('Page.navigate', { url: `http://localhost:${FRONTEND_PORT}/t/qr-phoco-a01` });
     await sleep(2000);
 
     textA = await chromeDeviceA.evaluate('document.body.innerText');
@@ -836,15 +838,15 @@ async function main() {
     await sleep(1000);
 
     // Launch Backend with ORDERING_MODE=multi_device on the same isolated DB
-    console.log('  Restarting backend on port 4010 with ORDERING_MODE=multi_device...');
+    console.log(`  Restarting backend on port ${BACKEND_PORT} with ORDERING_MODE=multi_device...`);
     backendProc = spawn('node', ['dist/server.js'], {
       cwd: path.join(ROOT_DIR, 'backend'),
       env: {
         ...process.env,
-        PORT: '4010',
+        PORT: BACKEND_PORT,
         ORDERING_MODE: 'multi_device',
-        FRONTEND_URL: 'http://localhost:5180',
-        CORS_ORIGINS: 'http://localhost:5180',
+        FRONTEND_URL: `http://localhost:${FRONTEND_PORT}`,
+        CORS_ORIGINS: `http://localhost:${FRONTEND_PORT}`,
         DATABASE_URL: testDbUrl,
         JWT_SECRET: 'test-jwt-secret-gaeru-flow-1234567890'
       },
@@ -860,7 +862,7 @@ async function main() {
     let multiBackendReady = false;
     for (let i = 0; i < 30; i++) {
       try {
-        const res = await fetch('http://localhost:4010/health');
+        const res = await fetch(`http://localhost:${BACKEND_PORT}/health`);
         if (res.ok) {
           multiBackendReady = true;
           break;
@@ -871,14 +873,14 @@ async function main() {
     assert(multiBackendReady, 'Backend failed to restart in multi_device mode');
 
     // Verify public menu reflects multi_device mode
-    const multiMenuRes = await fetch('http://localhost:4010/api/v1/public/tables/qr-phoco-a02/menu');
+    const multiMenuRes = await fetch(`http://localhost:${BACKEND_PORT}/api/v1/public/tables/qr-phoco-a02/menu`);
     assert(multiMenuRes.ok, 'Menu API must respond 200 in multi_device mode');
     const multiMenuJson = await multiMenuRes.json();
     assert(multiMenuJson.table?.orderingMode === 'multi_device', `Expected multi_device, got ${multiMenuJson.table?.orderingMode}`);
     console.log('  ✅ Backend successfully switched to ORDERING_MODE=multi_device');
 
     // In multi_device mode: Staff opens Table A02
-    const staffLoginRes = await fetch('http://localhost:4010/api/v1/auth/staff-login', {
+    const staffLoginRes = await fetch(`http://localhost:${BACKEND_PORT}/api/v1/auth/staff-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin@phoco.vn', password: 'password123' })
@@ -902,7 +904,7 @@ async function main() {
     `, [multiSessionId, tableA02Id]);
 
     // Both Device A and Device B join Table A02
-    const joinA = await fetch('http://localhost:4010/api/v1/public/tables/qr-phoco-a02/join', {
+    const joinA = await fetch(`http://localhost:${BACKEND_PORT}/api/v1/public/tables/qr-phoco-a02/join`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceFingerprint: 'device-a-multi' })
@@ -910,7 +912,7 @@ async function main() {
     assert(joinA.ok, `Device A must join in multi_device mode (status: ${joinA.status})`);
     const joinDataA = await joinA.json();
 
-    const joinB = await fetch('http://localhost:4010/api/v1/public/tables/qr-phoco-a02/join', {
+    const joinB = await fetch(`http://localhost:${BACKEND_PORT}/api/v1/public/tables/qr-phoco-a02/join`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceFingerprint: 'device-b-multi' })
@@ -925,7 +927,7 @@ async function main() {
     const item2Id = validItemsRes.rows[1].id;
 
     // Both Device A and Device B place orders concurrently
-    const orderA = await fetch('http://localhost:4010/api/v1/guest/orders', {
+    const orderA = await fetch(`http://localhost:${BACKEND_PORT}/api/v1/guest/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-guest-token': joinDataA.token },
       body: JSON.stringify({
@@ -935,7 +937,7 @@ async function main() {
     });
     assert(orderA.ok, `Device A must order in multi_device mode (status: ${orderA.status})`);
 
-    const orderB = await fetch('http://localhost:4010/api/v1/guest/orders', {
+    const orderB = await fetch(`http://localhost:${BACKEND_PORT}/api/v1/guest/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-guest-token': joinDataB.token },
       body: JSON.stringify({
