@@ -1,5 +1,11 @@
 # Quy tắc làm việc trong dothuongton/order_app
 
+## Thực thi khi nhận lệnh ngắn
+
+Đọc [quy trình agent](docs/coordination/AGENT_WORKFLOW.md) trước mỗi lần nhận việc. Lệnh chỉ có số issue/PR hoặc chuỗi `#87/PR #110 → #88/PR #111 → #90/PR #112` là yêu cầu tra GitHub và thực hiện theo quy trình này; không cần chủ dự án lặp lại quy tắc pull, lane, review hoặc bàn giao. Chuỗi là thứ tự, không là quyền code đồng thời hoặc tự merge.
+
+Lấy role từ chỉ định của chủ dự án và assignee/ownership đã chốt; tài khoản CLI đang đăng nhập hoặc tên nhánh không tự đổi role. Core theo đầu [#2](https://github.com/dothuongton/order_app/issues/2), Sang theo đầu [#85](https://github.com/dothuongton/order_app/issues/85); contract dùng [#6](https://github.com/dothuongton/order_app/issues/6). Trước sửa phải kiểm tra state/head/review/dependency mới trên GitHub. Issue đã hoàn tất không làm lại; umbrella/verification không tự biến thành nhánh code. Mỗi lane một nhiệm vụ coding, chuyển bước khi PR trước đã merge và điều kiện kế tiếp đã đủ.
+
 ## Đọc trước khi làm
 
 1. Yêu cầu trực tiếp mới nhất của chủ dự án, ADR docs/architecture/decisions/0001-current-stack-table-order-mvp.md và issue được giao.
@@ -14,7 +20,7 @@
 - SangVuxx: backend/src/modules/admin/**; frontend/src/pages/admin/** TRỪ AdminLogin.tsx; namespace admin mới trong components/hooks/api/types, tests/admin-cms và docs/admin-cms theo issue#2.
 - dothuongton/core: mọi phần còn lại, gồm auth/AdminLogin, DB/schema/migrations, guest/staff/pricing/reports, socket/push, App/shared API/styles/config/deps/CI/deploy.
 - Một tệp một owner; mỗi lane một issue tại một thời điểm; working directory riêng. Core không sửa admin của Sang, Sang không sửa shared để mở rộng CMS. Cần thay đổi contract/schema/shared thì ghi #6, owner thực hiện và bàn giao SHA.
-- Baseline nhánh main/core/CMS khác nhau; fetch và kiểm tra diff trước làm. Không force-push hoặc tự merge main. CI boundary phải dùng đủ mapping và metadata đáng tin; guideline không thay thế required review/checks.
+- Baseline nhánh main/core/CMS khác nhau; fetch và kiểm tra diff trước làm. Không force-push; không tự merge PR vào main khi chưa được chủ dự án ủy quyền. CI boundary phải dùng đủ mapping và metadata đáng tin; guideline không thay thế required review/checks.
 
 ## Nguyên tắc code và kiểm chứng
 
