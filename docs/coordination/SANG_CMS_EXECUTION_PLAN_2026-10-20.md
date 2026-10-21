@@ -1,5 +1,7 @@
 # Kế hoạch thực hiện CMS của Sang — 20/10/2026
 
+> **Bản lịch sử, không dùng để chọn nhiệm vụ hiện hành.** Trạng thái PR/issue và baseline bên dưới là snapshot 20/10/2026. Khi nhận việc phải theo [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md), đầu [queue #85](https://github.com/dothuongton/order_app/issues/85) và review mới nhất. Issue đã đóng không làm lại; không dừng theo các mục “đang chờ” lịch sử nếu dependency đã merge.
+
 Nguồn điều phối: https://github.com/dothuongton/order_app/issues/85; epic #80. Baseline mainaceb906, PR79 đã merge nhưng acceptance hậu kiểm còn mở. Không thay đổi công nghệ hoặc phạm vi MVP.
 
 | Issue | Ưu tiên | Phần việc độc quyền | Điều kiện |
