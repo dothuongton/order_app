@@ -8,7 +8,8 @@ import {
     ListShopsQueryInput,
     ListAuditLogsQueryInput,
     createShopSchema,
-    updateShopSchema
+    updateShopSchema,
+    parseDateFilter
 } from './admin.validation.js';
 
 export class AdminService {
@@ -518,16 +519,15 @@ export class AdminService {
 
         const fromDateStr = input.startDate || input.from;
         if (fromDateStr) {
-            const fromDate = new Date(fromDateStr);
-            params.push(fromDate.toISOString());
+            const fromIso = parseDateFilter(fromDateStr, false);
+            params.push(fromIso);
             whereClauses.push(`al.created_at >= $${params.length}`);
         }
 
         const toDateStr = input.endDate || input.to;
         if (toDateStr) {
-            const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(toDateStr);
-            const toDate = isDateOnly ? new Date(`${toDateStr}T23:59:59.999Z`) : new Date(toDateStr);
-            params.push(toDate.toISOString());
+            const toIso = parseDateFilter(toDateStr, true);
+            params.push(toIso);
             whereClauses.push(`al.created_at <= $${params.length}`);
         }
 

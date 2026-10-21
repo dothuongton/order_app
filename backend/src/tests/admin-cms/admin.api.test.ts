@@ -766,6 +766,64 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(resInvalid.status).toBe(400);
             const errorData: any = await resInvalid.json();
             expect(errorData.error).toBe('BAD_REQUEST');
+
+            // Non-existent calendar date returns 400 (Issue #84)
+            const resFeb30 = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-02-30`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resFeb30.status).toBe(400);
+
+            // Chronological order violation (from > to) returns 400
+            const resReversed = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-10-25&endDate=2026-10-20`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resReversed.status).toBe(400);
+
+            // Conflicting alias parameters return 400
+            const resConflictAlias = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-10-20&from=2026-10-21`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resConflictAlias.status).toBe(400);
+        });
+
+        it('filters audit logs matching UTC+7 Vietnam day boundaries accurately (Issue #84)', async () => {
+            const probeAction = 'SUPER_ADMIN_TIMEZONE_PROBE_' + Date.now();
+            // Entry 1: 2026-10-19T18:00:00Z -> In UTC+7 this is 2026-10-20 01:00:00
+            const entry1Time = new Date('2026-10-19T18:00:00.000Z');
+            // Entry 2: 2026-10-20T18:00:00Z -> In UTC+7 this is 2026-10-21 01:00:00
+            const entry2Time = new Date('2026-10-20T18:00:00.000Z');
+
+            await query(
+                `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, created_at)
+                 VALUES ($1::uuid, NULL, $2, 'tenant', $3, '{"entry":1}', $4)`,
+                [seedTenantId, probeAction, String(seedTenantId), entry1Time]
+            );
+
+            await query(
+                `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, created_at)
+                 VALUES ($1::uuid, NULL, $2, 'tenant', $3, '{"entry":2}', $4)`,
+                [seedTenantId, probeAction, String(seedTenantId), entry2Time]
+            );
+
+            // Query specifically for day 2026-10-20 in Vietnam time (UTC+7)
+            const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs?startDate=2026-10-20&endDate=2026-10-20&action=${probeAction}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            // Must include Entry 1 (Oct 20 01:00 VN) and exclude Entry 2 (Oct 21 01:00 VN)
+            expect(data.logs.length).toBe(1);
+            expect(data.logs[0].details.entry).toBe(1);
+
+            // Also test via aliases from / to
+            const resAlias = await fetch(`${baseUrl}/api/v1/admin/audit-logs?from=2026-10-20&to=2026-10-20&action=${probeAction}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resAlias.status).toBe(200);
+            const dataAlias: any = await resAlias.json();
+            expect(dataAlias.logs.length).toBe(1);
+            expect(dataAlias.logs[0].details.entry).toBe(1);
         });
 
         it('guarantees stable pagination with identical timestamps (Issue #84 deterministic order)', async () => {
