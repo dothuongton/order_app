@@ -54,26 +54,7 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
 
     if (!isOpen || !content) return null;
 
-    const togglePermission = (groupId: string, permId: string) => {
-        setPermissionGroups((prev) =>
-            prev.map((g) => {
-                if (g.id !== groupId) return g;
-                return {
-                    ...g,
-                    permissions: g.permissions.map((p: any) =>
-                        p.id === permId ? { ...p, enabled: !p.enabled } : p
-                    )
-                };
-            })
-        );
-    };
-
-    const handleSavePerms = () => {
-        if (content.type === 'permissions' && onSavePermissions) {
-            onSavePermissions(content.role.id, permissionGroups);
-            onClose();
-        }
-    };
+    // Read-only permissions mode (Issue #81): RBAC modification is reserved for Identity phase (#38/#48)
 
     return (
         <div className="fixed inset-0 z-50 flex justify-end">
@@ -93,10 +74,11 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
                         {/* Header */}
                         <div className="p-6 border-b border-slate-100 flex items-start justify-between">
                             <div>
-                                <h3 className="text-xl font-bold text-slate-900">Chi tiết Quyền hạn</h3>
+                                <h3 className="text-xl font-bold text-slate-900">Chi tiết Quyền hạn (Read-only)</h3>
                                 <p className="text-xs text-slate-500 mt-1">
-                                    Đang chỉnh sửa:{' '}
+                                    Vai trò:{' '}
                                     <span className="font-bold text-blue-600">{content.role.name}</span>
+                                    <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-mono bg-slate-100 text-slate-500 uppercase">{content.role.code}</span>
                                 </p>
                             </div>
                             <button
@@ -125,8 +107,7 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
                                         {group.permissions.map((perm: any) => (
                                             <div
                                                 key={perm.id}
-                                                onClick={() => togglePermission(group.id, perm.id)}
-                                                className="flex items-center gap-3 p-1.5 rounded-lg hover:bg-white transition cursor-pointer select-none"
+                                                className="flex items-center gap-3 p-1.5 rounded-lg select-none"
                                             >
                                                 {perm.enabled ? (
                                                     <CheckSquare className="w-5 h-5 text-blue-600 shrink-0 fill-blue-50" />
@@ -154,13 +135,19 @@ export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({
                             ))}
                         </div>
 
-                        {/* Sticky Action Footer */}
-                        <div className="p-6 border-t border-slate-100 bg-white">
+                        {/* Sticky Action Footer (truthful read-only policy notice) */}
+                        <div className="p-6 border-t border-slate-100 bg-slate-50/80">
+                            <div className="flex items-start gap-2.5 p-3 bg-blue-50/60 border border-blue-100 rounded-xl mb-3">
+                                <Shield className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                                <p className="text-[11px] text-slate-600 leading-relaxed">
+                                    Chính sách phân quyền mặc định của nền tảng (Read-only). Tùy chỉnh vai trò và cấp quyền động sẽ được hỗ trợ trong phân hệ Quản lý Danh tính (#38/#48).
+                                </p>
+                            </div>
                             <button
-                                onClick={handleSavePerms}
-                                className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-blue-500/25 transition active:scale-98"
+                                onClick={onClose}
+                                className="w-full py-3 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition"
                             >
-                                Lưu thay đổi
+                                Đóng
                             </button>
                         </div>
                     </>
