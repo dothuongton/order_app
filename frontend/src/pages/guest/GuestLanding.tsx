@@ -144,6 +144,34 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     init();
   }, [qrId, loadTableMenu, joinSession]);
 
+  // When a device gets approved into CLAIMED state, join session if not already joined
+  const joiningClaimRef = useRef(false);
+  useEffect(() => {
+    if (deviceState !== 'CLAIMED' || !session || session.status !== 'OPEN' || isSessionClosed) return;
+    const scopedKey = `guest_auth_${qrId}`;
+    let hasValidToken = false;
+    try {
+      const raw = sessionStorage.getItem(scopedKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.sessionId === session.id && sessionStorage.getItem('guest_token')) {
+          hasValidToken = true;
+        }
+      }
+    } catch {}
+
+    if (!hasValidToken && !joiningClaimRef.current) {
+      joiningClaimRef.current = true;
+      joinSession(qrId)
+        .catch((err: any) => {
+          setInitError(err.message || 'Không thể tham gia phiên đặt món');
+        })
+        .finally(() => {
+          joiningClaimRef.current = false;
+        });
+    }
+  }, [deviceState, session, qrId, joinSession, isSessionClosed]);
+
   // A guest who scans before staff open the table should not need to reload.
   // Stop after the first successful join; never auto-join a later customer session.
   useEffect(() => {
@@ -277,15 +305,19 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       {/* Gaeru Flow - Single Device Mode Banners & Interactive Cards */}
       {orderingMode === 'approved_single_device' ? (
         <>
-          {/* Card 1: IDLE - Request Table Open */}
-          {deviceState === 'IDLE' && canRequest && !isSessionClosed && (
+          {/* Card 1: IDLE or VIEWER with canRequest - Request Table Open / Replacement Claim */}
+          {(deviceState === 'IDLE' || deviceState === 'VIEWER') && canRequest && !isSessionClosed && (
             <div className="mx-4 mt-3 p-4 bg-orange-50 border border-orange-200 rounded-2xl shadow-xs">
               <div className="flex items-center gap-2 mb-2">
                 <Sparkles className="w-5 h-5 text-orange-600 shrink-0" />
-                <h3 className="font-bold text-sm text-slate-900">Yêu cầu mở bàn</h3>
+                <h3 className="font-bold text-sm text-slate-900">
+                  {deviceState === 'VIEWER' ? 'Yêu cầu đổi máy gọi món' : 'Yêu cầu mở bàn'}
+                </h3>
               </div>
               <p className="text-xs text-slate-600 mb-3">
-                Nhập tên để gửi yêu cầu nhân viên mở bàn và cấp quyền gọi món cho thiết bị của bạn.
+                {deviceState === 'VIEWER'
+                  ? 'Bàn đã mở nhưng chưa có máy gọi món. Nhập tên để gửi yêu cầu cấp quyền gọi món cho thiết bị của bạn.'
+                  : 'Nhập tên để gửi yêu cầu nhân viên mở bàn và cấp quyền gọi món cho thiết bị của bạn.'}
               </p>
               <form onSubmit={handleRequestTable} className="flex gap-2">
                 <input
@@ -337,7 +369,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
           )}
 
           {/* Card 3: VIEWER - Read-Only Viewer Banner */}
-          {deviceState === 'VIEWER' && !isSessionClosed && (
+          {deviceState === 'VIEWER' && !canRequest && !isSessionClosed && (
             <div className="mx-4 mt-3 p-3.5 bg-slate-100 border border-slate-200 rounded-2xl flex items-center gap-2.5 text-xs text-slate-700 shadow-2xs">
               <AlertCircle className="w-4 h-4 text-slate-500 shrink-0" />
               <div>
