@@ -160,9 +160,34 @@ export class StaffService {
     // 2. Open Session (F01)
     static async openSession(tenantId: string, tableId: string, userId: string) {
         return await withTransaction(async (client) => {
-            const tenant = await client.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
-            if (tenant.rows[0]?.status !== 'active') throw { status: 403, code: 'SHOP_SUSPENDED', message: 'Quán đang ngừng nhận khách' };
-            // Lock table row
+            // 1. Lock tenant row with FOR SHARE and recheck lifecycle status atomically (Contract #6 / Issue #116)
+            // Lock order: tenant -> table -> session -> bill
+            const tenantRes = await client.query(
+                `SELECT id, status FROM tenants WHERE id = $1 FOR SHARE`,
+                [tenantId]
+            );
+
+            if (tenantRes.rows.length === 0) {
+                throw { status: 404, code: 'SHOP_NOT_FOUND', message: 'Không tìm thấy quán ăn' };
+            }
+
+            const tenant = tenantRes.rows[0];
+            if (tenant.status === 'archived') {
+                throw {
+                    status: 403,
+                    code: 'SHOP_ARCHIVED',
+                    message: 'Quán ăn này đã được đưa vào lưu trữ và ngừng hoạt động hoàn toàn'
+                };
+            }
+            if (tenant.status !== 'active') {
+                throw {
+                    status: 403,
+                    code: 'SHOP_SUSPENDED',
+                    message: 'Quán đang ngừng nhận khách'
+                };
+            }
+
+            // 2. Lock table row FOR UPDATE
             const tableRes = await client.query(`
                 SELECT id, table_number, readiness, is_enabled
                 FROM tables
