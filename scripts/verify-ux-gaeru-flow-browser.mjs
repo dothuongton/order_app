@@ -155,33 +155,11 @@ async function startChromeInstance(port, profileName) {
 async function main() {
   console.log('🚀 Starting Gaeru P1 Browser E2E Verification (Request Table Open -> Staff Approve -> Claim Device -> Viewer Isolation -> Replacement Claim -> Multi-Device Flag-Off)');
 
-  // 0. Isolated DB Setup (P1: strictly isolate DB per run, no fallback to ambient DB)
-  const testDbName = `qr_order_test_harness_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
-  const adminDbUrl = process.env.TEST_ADMIN_DATABASE_URL || 'postgres://admin:@localhost:5432/postgres';
+  // 0. Isolated DB Setup (H1b: full lifecycle protected inside try/finally)
   let adminClient = null;
-  let testDbUrl = null;
-
-  console.log(`0️⃣ Setting up isolated test DB: ${testDbName}...`);
-  adminClient = new Client({ connectionString: adminDbUrl });
-  await adminClient.connect();
-  await adminClient.query(`CREATE DATABASE "${testDbName}"`);
-  testDbUrl = `postgres://admin:@localhost:5432/${testDbName}`;
-
-  execSync('node dist/db/migrate.js', {
-    cwd: path.join(ROOT_DIR, 'backend'),
-    env: { ...process.env, DATABASE_URL: testDbUrl, NODE_ENV: 'test' },
-    stdio: 'pipe'
-  });
-  execSync('node dist/db/seed.js', {
-    cwd: path.join(ROOT_DIR, 'backend'),
-    env: { ...process.env, DATABASE_URL: testDbUrl, NODE_ENV: 'test' },
-    stdio: 'pipe'
-  });
-  console.log(`✅ Migrated and seeded isolated test DB: ${testDbName}`);
-
-  let dbClient = new Client({ connectionString: testDbUrl });
-  await dbClient.connect();
-
+  let testDbName = null;
+  let testDbCreated = false;
+  let dbClient = null;
   let backendProc = null;
   let frontendProc = null;
   let chromeDeviceA = null;
@@ -189,6 +167,47 @@ async function main() {
   let chromeStaff = null;
 
   try {
+    testDbName = `qr_order_test_harness_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const adminDbUrl = process.env.TEST_ADMIN_DATABASE_URL || 'postgres://admin:@localhost:5432/postgres';
+    console.log(`0️⃣ Setting up isolated test DB: ${testDbName}...`);
+    adminClient = new Client({ connectionString: adminDbUrl });
+    await adminClient.connect();
+    await adminClient.query(`CREATE DATABASE "${testDbName}"`);
+    testDbCreated = true;
+    const testDbUrl = `postgres://admin:@localhost:5432/${testDbName}`;
+
+    if (process.env.FAULT_INJECT_SETUP === 'pre-migrate') {
+      throw new Error('FAULT_INJECT: Simulated failure right before migration');
+    }
+
+    if (process.env.FAULT_INJECT_SETUP === 'migrate') {
+      execSync('node -e "console.error(\\"Simulated migration failure\\"); process.exit(1)"', { stdio: 'pipe' });
+    } else {
+      execSync('node dist/db/migrate.js', {
+        cwd: path.join(ROOT_DIR, 'backend'),
+        env: { ...process.env, DATABASE_URL: testDbUrl, NODE_ENV: 'test' },
+        stdio: 'pipe'
+      });
+    }
+
+    if (process.env.FAULT_INJECT_SETUP === 'seed') {
+      execSync('node -e "console.error(\\"Simulated seed failure\\"); process.exit(1)"', { stdio: 'pipe' });
+    } else {
+      execSync('node dist/db/seed.js', {
+        cwd: path.join(ROOT_DIR, 'backend'),
+        env: { ...process.env, DATABASE_URL: testDbUrl, NODE_ENV: 'test' },
+        stdio: 'pipe'
+      });
+    }
+    console.log(`✅ Migrated and seeded isolated test DB: ${testDbName}`);
+
+    if (process.env.FAULT_INJECT_SETUP === 'connect') {
+      throw new Error('FAULT_INJECT: Simulated dbClient.connect failure');
+    }
+
+    dbClient = new Client({ connectionString: testDbUrl });
+    await dbClient.connect();
+
     // 1. Launch Backend on Port 4010 with test DB and approved_single_device mode
     console.log('1️⃣ Launching backend on port 4010 with isolated test DB...');
     backendProc = spawn('node', ['dist/server.js'], {
@@ -934,18 +953,25 @@ async function main() {
       }
     }
 
-    // Drop temporary test DB (H1)
+    // Drop temporary test DB (H1/H1b: guarantee drop even on early setup failures)
     if (dbClient) {
       try { await dbClient.end(); } catch {}
     }
-    if (adminClient && testDbName) {
+    if (testDbCreated && testDbName) {
       try {
+        if (!adminClient) {
+          const adminDbUrl = process.env.TEST_ADMIN_DATABASE_URL || 'postgres://admin:@localhost:5432/postgres';
+          adminClient = new Client({ connectionString: adminDbUrl });
+          await adminClient.connect();
+        }
         await adminClient.query(`DROP DATABASE IF EXISTS "${testDbName}" WITH (FORCE)`);
-        await adminClient.end();
         console.log(`🧹 Dropped isolated test DB: ${testDbName}`);
       } catch (e) {
         console.warn(`Failed to drop test DB ${testDbName}:`, e.message);
       }
+    }
+    if (adminClient) {
+      try { await adminClient.end(); } catch {}
     }
     // Notice: process.exit(0) is strictly NOT called in finally, preserving catch on failure (H1)
   }
