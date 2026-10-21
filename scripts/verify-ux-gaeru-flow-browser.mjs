@@ -152,6 +152,31 @@ async function startChromeInstance(port, profileName) {
   return { proc, cdp, evaluate, screenshot };
 }
 
+function getAdminDbUrl() {
+  if (process.env.TEST_ADMIN_DATABASE_URL) {
+    return process.env.TEST_ADMIN_DATABASE_URL;
+  }
+  if (process.env.DATABASE_URL) {
+    try {
+      const url = new URL(process.env.DATABASE_URL);
+      url.pathname = '/postgres';
+      return url.toString();
+    } catch {}
+  }
+  return 'postgres://admin:@localhost:5432/postgres';
+}
+
+function getTestDbUrl(testDbName) {
+  if (process.env.DATABASE_URL) {
+    try {
+      const url = new URL(process.env.DATABASE_URL);
+      url.pathname = `/${testDbName}`;
+      return url.toString();
+    } catch {}
+  }
+  return `postgres://admin:@localhost:5432/${testDbName}`;
+}
+
 async function main() {
   console.log('🚀 Starting Gaeru P1 Browser E2E Verification (Request Table Open -> Staff Approve -> Claim Device -> Viewer Isolation -> Replacement Claim -> Multi-Device Flag-Off)');
 
@@ -168,13 +193,13 @@ async function main() {
 
   try {
     testDbName = `qr_order_test_harness_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
-    const adminDbUrl = process.env.TEST_ADMIN_DATABASE_URL || 'postgres://admin:@localhost:5432/postgres';
+    const adminDbUrl = getAdminDbUrl();
     console.log(`0️⃣ Setting up isolated test DB: ${testDbName}...`);
     adminClient = new Client({ connectionString: adminDbUrl });
     await adminClient.connect();
     await adminClient.query(`CREATE DATABASE "${testDbName}"`);
     testDbCreated = true;
-    const testDbUrl = `postgres://admin:@localhost:5432/${testDbName}`;
+    const testDbUrl = getTestDbUrl(testDbName);
 
     if (process.env.FAULT_INJECT_SETUP === 'pre-migrate') {
       throw new Error('FAULT_INJECT: Simulated failure right before migration');
@@ -960,7 +985,7 @@ async function main() {
     if (testDbCreated && testDbName) {
       try {
         if (!adminClient) {
-          const adminDbUrl = process.env.TEST_ADMIN_DATABASE_URL || 'postgres://admin:@localhost:5432/postgres';
+          const adminDbUrl = getAdminDbUrl();
           adminClient = new Client({ connectionString: adminDbUrl });
           await adminClient.connect();
         }

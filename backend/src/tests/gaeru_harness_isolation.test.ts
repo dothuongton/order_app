@@ -5,7 +5,22 @@ import { Client } from 'pg';
 
 const repoRoot = path.resolve(__dirname, '../../../');
 const harnessScript = path.join(repoRoot, 'scripts/verify-ux-gaeru-flow-browser.mjs');
-const adminDbUrl = process.env.TEST_ADMIN_DATABASE_URL || 'postgres://admin:@localhost:5432/postgres';
+
+function getAdminDbUrl() {
+    if (process.env.TEST_ADMIN_DATABASE_URL) {
+        return process.env.TEST_ADMIN_DATABASE_URL;
+    }
+    if (process.env.DATABASE_URL) {
+        try {
+            const url = new URL(process.env.DATABASE_URL);
+            url.pathname = '/postgres';
+            return url.toString();
+        } catch {}
+    }
+    return 'postgres://admin:@localhost:5432/postgres';
+}
+
+const adminDbUrl = getAdminDbUrl();
 
 describe('H1b: Gaeru Browser Harness Setup Fault-Injection & Lifecycle Cleanup', () => {
     const runHarnessWithFault = async (faultType: string) => {
@@ -17,6 +32,7 @@ describe('H1b: Gaeru Browser Harness Setup Fault-Injection & Lifecycle Cleanup',
                 cwd: repoRoot,
                 env: {
                     ...process.env,
+                    TEST_ADMIN_DATABASE_URL: adminDbUrl,
                     FAULT_INJECT_SETUP: faultType
                 },
                 encoding: 'utf8',
