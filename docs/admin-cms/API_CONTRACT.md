@@ -328,3 +328,26 @@ Tài liệu đặc tả các giao thức API, DTOs (Data Transfer Objects), phâ
   }
 }
 ```
+
+---
+
+### 3.8. Xuất Nhật Ký Kiểm Toán CSV (Export Audit Logs CSV - Issue #99)
+- **Endpoint**: `GET /api/v1/admin/audit-logs/export`
+- **Quyền hạn**: Bắt buộc Super Admin (`authenticateSuperAdmin`). Các vai trò khác hoặc người dùng chưa xác thực bị chặn (401/403). Không mở URL công khai.
+- **Giới hạn số dòng**: Tối đa $\le 1.000$ bản ghi. Khi vượt quá 1.000 bản ghi, máy chủ trả mã lỗi `400 Bad Request` với mã lỗi `EXPORT_LIMIT_EXCEEDED` yêu cầu người dùng thu hẹp khoảng thời gian hoặc thêm bộ lọc; tuyệt đối không âm thầm cắt bớt dữ liệu.
+- **Query Parameters**:
+  - `tenantId` *(tùy chọn, định dạng UUID v4)*: Lọc theo quán mục tiêu.
+  - `userId` *(tùy chọn, định dạng UUID v4)*: Lọc theo người thực hiện.
+  - `action` *(tùy chọn, chuỗi)*: Lọc theo loại hành động.
+  - `startDate` / `from` *(tùy chọn, YYYY-MM-DD hoặc ISO)*: Lọc từ ngày.
+  - `endDate` / `to` *(tùy chọn, YYYY-MM-DD hoặc ISO)*: Lọc đến ngày.
+- **Bảo mật & Chuẩn hóa CSV**:
+  - **UTF-8 BOM**: Luôn gắn tiền tố `\uFEFF` (Byte Order Mark) để Microsoft Excel hiển thị đúng tiếng Việt có dấu mà không bị lỗi font (mojibake).
+  - **Chống Formula Injection (CSV Injection)**: Mọi ô dữ liệu bắt đầu bằng các ký tự điều khiển/công thức nguy hiểm (`=`, `+`, `-`, `@`, `\t`, `\r`, `\0`, kể cả sau khoảng trắng đầu dòng) đều được tiền tố hóa bằng dấu nháy đơn `'` và bao bọc trong cặp ngoặc kép `""` theo chuẩn RFC 4180.
+  - **Che giấu dữ liệu nhạy cảm (Redaction)**: Trường `details` tự động che giấu đệ quy các trường nhạy cảm như `password`, `hash`, `token`, `secret`, `cookie`, `ip`, `user_agent`, `credential` thành `"[REDACTED]"`.
+  - **Timezone**: Cột thời gian hiển thị theo giờ Việt Nam `YYYY-MM-DD HH:mm:ss` (UTC+7).
+- **Phản Hồi (200 OK)**:
+  - Header: `Content-Type: text/csv; charset=utf-8`
+  - Header: `Content-Disposition: attachment; filename="audit-logs-YYYYMMDD.csv"`
+  - Header: `X-Total-Count: <total>`
+  - Body: Nội dung file CSV kèm BOM.

@@ -126,5 +126,41 @@ export const AdminApi = {
         return request<AuditLogsResponse>(endpoint, {
             headers: getAdminHeaders()
         });
+    },
+
+    /**
+     * Export audit logs as CSV (bounded limit <= 1,000 rows)
+     */
+    async exportAuditLogsCsv(params: FetchAuditLogsParams = {}): Promise<Blob> {
+        const queryParams = new URLSearchParams();
+        if (params.tenantId) queryParams.set('tenantId', params.tenantId);
+        if (params.userId) queryParams.set('userId', params.userId);
+        if (params.action && params.action.trim()) queryParams.set('action', params.action.trim());
+        if (params.startDate) queryParams.set('startDate', params.startDate);
+        if (params.endDate) queryParams.set('endDate', params.endDate);
+        queryParams.set('_t', Date.now().toString());
+
+        const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+        const endpoint = `/admin/audit-logs/export?${queryParams.toString()}`;
+        const fullUrl = endpoint.startsWith('http') ? endpoint : `${apiBase}/api/v1${endpoint}`;
+
+        const response = await fetch(fullUrl, {
+            method: 'GET',
+            headers: {
+                ...getAdminHeaders(),
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            },
+            cache: 'no-store',
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.message || data.error || `Tải dữ liệu thất bại (${response.status})`);
+        }
+
+        return await response.blob();
     }
 };

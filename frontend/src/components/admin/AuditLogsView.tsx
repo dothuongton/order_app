@@ -1,6 +1,7 @@
-import React from 'react';
-import { History, ChevronRight, Filter, RotateCcw, ChevronLeft, Calendar } from 'lucide-react';
+import React, { useState } from 'react';
+import { History, ChevronRight, Filter, RotateCcw, ChevronLeft, Calendar, Download, Loader2, AlertCircle } from 'lucide-react';
 import { AuditLogItem, PaginationMeta } from '../../types/admin.js';
+import { AdminApi } from '../../api/admin.js';
 
 interface AuditLogsViewProps {
     logs: AuditLogItem[];
@@ -31,6 +32,39 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
     onEndDateChange,
     onResetFilters
 }) => {
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
+
+    const handleExportCsv = async () => {
+        try {
+            setIsExporting(true);
+            setExportError(null);
+
+            const blob = await AdminApi.exportAuditLogsCsv({
+                action: selectedAction || undefined,
+                startDate: startDate || undefined,
+                endDate: endDate || undefined
+            });
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const now = new Date();
+            const yyyy = now.getFullYear();
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            const dd = String(now.getDate()).padStart(2, '0');
+            a.download = `audit-logs-${yyyy}${mm}${dd}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (err: any) {
+            setExportError(err.message || 'Không thể xuất tệp CSV');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     const hasActiveFilters = Boolean(selectedAction || startDate || endDate);
 
     const formatDateTimeVN = (isoString: string) => {
@@ -46,15 +80,55 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
     return (
         <div className="space-y-6 max-w-6xl">
             {/* Header */}
-            <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                    AN NINH & KIỂM TOÁN
-                </span>
-                <h2 className="text-3xl font-extrabold text-slate-900 mt-1">Lịch sử Thao tác (Audit Trail)</h2>
-                <p className="text-slate-500 text-sm mt-1.5 leading-relaxed">
-                    Theo dõi toàn bộ các thao tác quản trị, thay đổi vòng đời và cấu hình cơ sở trên hệ thống.
-                </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                        AN NINH & KIỂM TOÁN
+                    </span>
+                    <h2 className="text-3xl font-extrabold text-slate-900 mt-1">Lịch sử Thao tác (Audit Trail)</h2>
+                    <p className="text-slate-500 text-sm mt-1.5 leading-relaxed">
+                        Theo dõi toàn bộ các thao tác quản trị, thay đổi vòng đời và cấu hình cơ sở trên hệ thống.
+                    </p>
+                </div>
+                <div>
+                    <button
+                        type="button"
+                        onClick={handleExportCsv}
+                        disabled={isExporting}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-semibold bg-white border border-slate-200/80 shadow-xs text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        title="Xuất tối đa 1.000 bản ghi theo bộ lọc hiện tại"
+                    >
+                        {isExporting ? (
+                            <>
+                                <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                                <span>Đang xuất CSV...</span>
+                            </>
+                        ) : (
+                            <>
+                                <Download className="w-4 h-4 text-slate-600" />
+                                <span>Xuất CSV (≤ 1.000)</span>
+                            </>
+                        )}
+                    </button>
+                </div>
             </div>
+
+            {/* Export Error Alert */}
+            {exportError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                        <span>{exportError}</span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setExportError(null)}
+                        className="text-rose-500 hover:text-rose-700 font-semibold text-xs ml-4"
+                    >
+                        Đóng
+                    </button>
+                </div>
+            )}
 
             {/* Filter Bar */}
             <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs flex flex-wrap items-center gap-3 text-xs">

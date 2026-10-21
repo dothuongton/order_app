@@ -1141,4 +1141,240 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(actions).toContain('SUPER_ADMIN_STATUS_CHANGE');
         });
     });
+
+    // =========================================================================
+    // 10. AUDIT LOGS CSV EXPORT (Issue #99)
+    // =========================================================================
+    describe('GET /api/v1/admin/audit-logs/export (Issue #99)', () => {
+        it('denies unauthenticated requests with 401', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs/export`);
+            expect(res.status).toBe(401);
+            const data: any = await res.json();
+            expect(data.error).toBe('UNAUTHORIZED');
+        });
+
+        it('denies non-superadmin staff requests with 403', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs/export`, {
+                headers: { 'Authorization': `Bearer ${staffToken}` }
+            });
+            expect(res.status).toBe(403);
+            const data: any = await res.json();
+            expect(data.error).toBe('FORBIDDEN');
+        });
+
+        it('exports valid CSV with UTF-8 BOM, headers, and metadata headers for superadmin', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/audit-logs/export`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+
+            // Verify Headers
+            const contentType = res.headers.get('content-type') || '';
+            expect(contentType).toContain('text/csv');
+            expect(contentType).toContain('charset=utf-8');
+
+            const contentDisposition = res.headers.get('content-disposition') || '';
+            expect(contentDisposition).toContain('attachment');
+            expect(contentDisposition).toMatch(/filename="audit-logs-\d{8}\.csv"/);
+
+            const totalCountHeader = res.headers.get('x-total-count');
+            expect(totalCountHeader).toBeTruthy();
+            expect(parseInt(totalCountHeader!, 10)).toBeGreaterThanOrEqual(1);
+
+            // Verify UTF-8 BOM
+            const buffer = await res.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            expect(bytes[0]).toBe(0xEF);
+            expect(bytes[1]).toBe(0xBB);
+            expect(bytes[2]).toBe(0xBF);
+
+            // Verify Header Line in CSV
+            const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(buffer);
+            const lines = text.split('\r\n');
+            const expectedHeaders = [
+                'Thời gian (UTC+7)',
+                'Mã nhật ký',
+                'Hành động',
+                'Mã quán',
+                'Tên quán',
+                'Mã người thực hiện',
+                'Người thực hiện',
+                'Email người thực hiện',
+                'Loại đối tượng',
+                'Mã đối tượng',
+                'Chi tiết'
+            ].map(h => `"${h}"`).join(',');
+
+            // Notice text starts with \uFEFF + expectedHeaders
+            expect(lines[0]).toBe('\uFEFF' + expectedHeaders);
+        });
+
+        it('neutralizes formula injection payloads (=, +, -, @, \t, \r, leading whitespace)', async () => {
+            const formulaAction = 'PROBE_FORMULA_INJECTION_TEST';
+            const formulaTenantId = '33333333-3333-3333-3333-333333333333';
+
+            // Insert audit record with dangerous formula cells
+            await query(`
+                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `, [
+                formulaTenantId,
+                superAdminUserId,
+                '=cmd|\' /C calc\'!A0',
+                '+resource_type',
+                '@SUM(1,2)',
+                JSON.stringify({
+                    maliciousFormula: '=1+1',
+                    subFormula: '   +dangerous_call()',
+                    atPrefix: '@HYPERLINK("http://attacker.com")',
+                    dashPrefix: '-2+5'
+                })
+            ]);
+
+            const res = await fetch(
+                `${baseUrl}/api/v1/admin/audit-logs/export?tenantId=${formulaTenantId}`,
+                { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+            );
+            expect(res.status).toBe(200);
+
+            const text = await res.text();
+
+            // All dangerous cells must start with single quote "'" inside quotes
+            expect(text).toContain("\"'=cmd|' /C calc'!A0\"");
+            expect(text).toContain("\"'+resource_type\"");
+            expect(text).toContain("\"'@SUM(1,2)\"");
+
+            // Clean up test record
+            await query('DELETE FROM audit_logs WHERE tenant_id = $1', [formulaTenantId]);
+        });
+
+        it('redacts sensitive keys in details JSON', async () => {
+            const redactTenantId = '44444444-4444-4444-4444-444444444444';
+            const secretPassword = 'MySuperSecretPassword#2026';
+            const secretToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.secret';
+            const secretHash = '$2b$10$abcdefghijklmnopqrstuvwxyz123456';
+            const secretIp = '192.168.1.100';
+            const secretAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AdminProbe';
+
+            await query(`
+                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `, [
+                redactTenantId,
+                superAdminUserId,
+                'SUPER_ADMIN_REDACTION_TEST',
+                'tenant',
+                redactTenantId,
+                JSON.stringify({
+                    password: secretPassword,
+                    password_hash: secretHash,
+                    token: secretToken,
+                    ip: secretIp,
+                    user_agent: secretAgent,
+                    cookie: 'session_cookie=abc',
+                    nested: {
+                        apiKey: 'sk_live_12345',
+                        safeParam: 'public_config_value'
+                    }
+                })
+            ]);
+
+            const res = await fetch(
+                `${baseUrl}/api/v1/admin/audit-logs/export?tenantId=${redactTenantId}`,
+                { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+            );
+            expect(res.status).toBe(200);
+
+            const text = await res.text();
+
+            // Sensitive plaintext must NEVER appear in the CSV
+            expect(text).not.toContain(secretPassword);
+            expect(text).not.toContain(secretToken);
+            expect(text).not.toContain(secretHash);
+            expect(text).not.toContain(secretIp);
+            expect(text).not.toContain(secretAgent);
+            expect(text).not.toContain('sk_live_12345');
+
+            // [REDACTED] must be present in the details column
+            expect(text).toContain('[REDACTED]');
+            expect(text).toContain('public_config_value');
+
+            // Clean up
+            await query('DELETE FROM audit_logs WHERE tenant_id = $1', [redactTenantId]);
+        });
+
+        it('respects query filters and rejects invalid date/uuid parameters', async () => {
+            // Invalid UUID
+            const resInvalidUuid = await fetch(
+                `${baseUrl}/api/v1/admin/audit-logs/export?tenantId=not-a-uuid`,
+                { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+            );
+            expect(resInvalidUuid.status).toBe(400);
+
+            // Non-existent calendar date
+            const resFeb30 = await fetch(
+                `${baseUrl}/api/v1/admin/audit-logs/export?startDate=2026-02-30`,
+                { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+            );
+            expect(resFeb30.status).toBe(400);
+
+            // Inverted date range
+            const resInverted = await fetch(
+                `${baseUrl}/api/v1/admin/audit-logs/export?startDate=2026-10-25&endDate=2026-10-20`,
+                { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+            );
+            expect(resInverted.status).toBe(400);
+
+            // Valid filter matching zero records
+            const resZero = await fetch(
+                `${baseUrl}/api/v1/admin/audit-logs/export?action=NON_EXISTENT_ACTION_99999`,
+                { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+            );
+            expect(resZero.status).toBe(200);
+            expect(resZero.headers.get('x-total-count')).toBe('0');
+            const zeroText = await resZero.text();
+            const lines = zeroText.split('\r\n');
+            // Contains header only
+            expect(lines.length).toBe(1);
+        });
+
+        it('strictly enforces row limit <= 1000 and rejects with EXPORT_LIMIT_EXCEEDED when exceeded', async () => {
+            const probeAction = 'PROBE_OVER_LIMIT_TEST_99';
+
+            // Insert 1005 rows in a single batch
+            await query(`
+                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
+                SELECT
+                    $1::uuid,
+                    $2::uuid,
+                    $3::text,
+                    'tenant',
+                    $1::text,
+                    jsonb_build_object('idx', s.i)
+                FROM generate_series(1, 1005) AS s(i)
+            `, [
+                seedTenantId,
+                superAdminUserId,
+                probeAction
+            ]);
+
+            try {
+                const res = await fetch(
+                    `${baseUrl}/api/v1/admin/audit-logs/export?action=${probeAction}`,
+                    { headers: { 'Authorization': `Bearer ${superAdminToken}` } }
+                );
+
+                expect(res.status).toBe(400);
+                const data: any = await res.json();
+                expect(data.error).toBe('EXPORT_LIMIT_EXCEEDED');
+                expect(data.message).toContain('1.000');
+                expect(data.message).toContain('thu hẹp');
+                expect(data.details.total).toBe(1005);
+                expect(data.details.limit).toBe(1000);
+            } finally {
+                // Always clean up probe rows
+                await query('DELETE FROM audit_logs WHERE action = $1', [probeAction]);
+            }
+        });
+    });
 });

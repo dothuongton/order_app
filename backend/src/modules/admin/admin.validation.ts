@@ -120,3 +120,47 @@ export const listAuditLogsQuerySchema = z.object({
 });
 
 export type ListAuditLogsQueryInput = z.infer<typeof listAuditLogsQuerySchema>;
+
+export const exportAuditLogsQuerySchema = z.object({
+    tenantId: z.string().uuid('ID quán không hợp lệ').optional(),
+    userId: z.string().uuid('ID người dùng không hợp lệ').optional(),
+    action: z.string().trim().max(64).optional(),
+    startDate: z.string().trim().optional(),
+    endDate: z.string().trim().optional(),
+    from: z.string().trim().optional(),
+    to: z.string().trim().optional(),
+    _t: z.any().optional()
+}).refine(data => {
+    // 1. Alias consistency
+    if (data.startDate && data.from && data.startDate !== data.from) {
+        return false;
+    }
+    if (data.endDate && data.to && data.endDate !== data.to) {
+        return false;
+    }
+
+    // 2. Real calendar dates
+    const dates = [data.startDate, data.endDate, data.from, data.to].filter(Boolean) as string[];
+    for (const d of dates) {
+        if (!isValidCalendarDate(d)) {
+            return false;
+        }
+    }
+
+    // 3. Chronological order (from <= to)
+    const effectiveFrom = data.startDate || data.from;
+    const effectiveTo = data.endDate || data.to;
+    if (effectiveFrom && effectiveTo) {
+        const fromIso = parseDateFilter(effectiveFrom, false);
+        const toIso = parseDateFilter(effectiveTo, true);
+        if (fromIso > toIso) {
+            return false;
+        }
+    }
+
+    return true;
+}, {
+    message: 'Bộ lọc ngày không hợp lệ hoặc khoảng thời gian bắt đầu lớn hơn kết thúc'
+});
+
+export type ExportAuditLogsQueryInput = z.infer<typeof exportAuditLogsQuerySchema>;
