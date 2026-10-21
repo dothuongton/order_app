@@ -354,4 +354,84 @@ describe('Admin CMS Shop Drawer Concurrency & Race Condition Guard (Issue #17 Re
         expect(coordinator.getState().isOpen).toBe(false);
         expect(coordinator.getState().content).toBe(null);
     });
+
+    it('Scenario 13 (PR #110 R2 review): User selects row Beta from table -> summary displayed immediately -> async detail resolves -> updates drawer with phone/address (NOT cancelled by navigation effect)', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        let resolveBeta!: (detail: ShopDetail) => void;
+        const promiseBeta = new Promise<ShopDetail>((resolve) => {
+            resolveBeta = resolve;
+        });
+
+        // 1. User clicks Shop Beta row in list table
+        const opBeta = coordinator.openShopDetail(mockSummaryB, () => promiseBeta);
+
+        // Immediately: summary is shown in drawer, phone is not yet present
+        expect(coordinator.getState().isOpen).toBe(true);
+        expect((coordinator.getState().content as any).shop.id).toBe('shop-beta');
+        expect((coordinator.getState().content as any).shop.phone).toBe(undefined);
+
+        // 2. Navigation effect updates URL and checks: drawer already has Beta, so it must NOT cancel Beta
+        // (In R2 bug, invalidateSelection was called here, which destroyed generation)
+        // With fix: cancelRequest with old generation does nothing, and branch 3 returns without invalidating
+        const oldGen = 999;
+        coordinator.cancelRequest(oldGen);
+
+        expect(coordinator.getActiveShopId()).toBe('shop-beta');
+
+        // 3. Detail Beta arrives with phone and address
+        const detailWithPhone: ShopDetail = {
+            ...mockDetailB,
+            phone: '0987654321',
+            address: '456 Đường Beta'
+        };
+        resolveBeta(detailWithPhone);
+        await opBeta;
+
+        // Drawer MUST be updated with full detail including phone and address!
+        expect(coordinator.getState().isOpen).toBe(true);
+        const activeShop = (coordinator.getState().content as any).shop;
+        expect(activeShop.id).toBe('shop-beta');
+        expect(activeShop.phone).toBe('0987654321');
+        expect(activeShop.address).toBe('456 Đường Beta');
+    });
+
+    it('Scenario 14 (PR #110 R2 review): cancelRequest only cancels matching generation, preserving subsequent user action', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        let resolveAlpha!: (detail: ShopDetail) => void;
+        const promiseAlpha = new Promise<ShopDetail>((resolve) => {
+            resolveAlpha = resolve;
+        });
+
+        // 1. Direct link starts Alpha (Gen 1)
+        const opAlpha = coordinator.openShopDetailById('shop-alpha', () => promiseAlpha);
+        const alphaGen = coordinator.getGeneration();
+        expect(alphaGen).toBe(1);
+
+        // 2. User clicks Beta from table (Gen 2)
+        const opBeta = coordinator.openShopDetail(mockSummaryB, async () => mockDetailB);
+        const betaGen = coordinator.getGeneration();
+        expect(betaGen).toBe(2);
+
+        // 3. Effect cleanup for Alpha calls cancelRequest(1)
+        coordinator.cancelRequest(alphaGen);
+
+        // Coordinator MUST still have Beta active (Gen 2 was not cancelled by Gen 1 cleanup)
+        expect(coordinator.getGeneration()).toBe(2);
+        expect(coordinator.getActiveShopId()).toBe('shop-beta');
+
+        // 4. Alpha resolves late
+        resolveAlpha(mockDetailA);
+        const resAlpha = await opAlpha;
+        expect(resAlpha).toBe(null);
+
+        // 5. Beta resolves
+        await opBeta;
+
+        // Drawer MUST be Beta with full details
+        expect(coordinator.getState().isOpen).toBe(true);
+        expect((coordinator.getState().content as any).shop.id).toBe('shop-beta');
+        expect((coordinator.getState().content as any).shop.address).toBe('456 Đường Beta');
+    });
 });

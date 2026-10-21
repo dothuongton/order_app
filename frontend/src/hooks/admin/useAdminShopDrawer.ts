@@ -48,12 +48,24 @@ export class ShopDrawerCoordinator {
     }
 
     /**
-     * Invalidate any in-flight selection or detail requests.
-     * Called on tab change, popstate, selection reset, or early return.
+     * Invalidate any in-flight selection or detail requests unconditionally.
+     * Called on tab change, popstate, selection reset, or drawer close.
      */
     invalidateSelection(): number {
         this.activeShopId = null;
         return ++this.generation;
+    }
+
+    /**
+     * Cancel / invalidate only if the coordinator is still on the specified generation.
+     * Prevents an unmounting or cleaning up effect from destroying a subsequent request
+     * registered by another user action or table click.
+     */
+    cancelRequest(generation: number): void {
+        if (this.generation === generation) {
+            this.activeShopId = null;
+            this.generation++;
+        }
     }
 
     /**
@@ -228,6 +240,17 @@ export function useAdminShopDrawer() {
         return coordinator.invalidateSelection();
     }, [coordinator]);
 
+    const cancelRequest = useCallback(
+        (generation: number) => {
+            coordinator.cancelRequest(generation);
+        },
+        [coordinator]
+    );
+
+    const getGeneration = useCallback(() => {
+        return coordinator.getGeneration();
+    }, [coordinator]);
+
     const setIsDrawerOpen = useCallback(
         (isOpen: boolean) => {
             if (!isOpen) {
@@ -254,6 +277,8 @@ export function useAdminShopDrawer() {
         openAuditDetail,
         closeDrawer,
         invalidateSelection,
+        cancelRequest,
+        getGeneration,
         setDrawerContent,
         setIsDrawerOpen,
         coordinator

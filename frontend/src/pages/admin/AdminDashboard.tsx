@@ -252,6 +252,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         openAuditDetail,
         closeDrawer,
         invalidateSelection,
+        cancelRequest,
+        getGeneration,
         setDrawerContent,
         setIsDrawerOpen
     } = useAdminShopDrawer();
@@ -327,37 +329,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         // Read-only: no false success toast without backend persistence
     };
 
-    // Deep-link effect (Issue #87 & #110 review): load shop detail from URL parameter
+    // Deep-link effect (Issue #87, PR #110 R1 & R2 review): load shop detail from URL parameter
     // Coordinated across navigation, tab switching, drawer close, popstate, and unmount
     useEffect(() => {
-        // 1. If no shop is selected in URL
+        // 1. If no shop is selected in URL, close shop detail drawer if open
         if (!selectedShopId) {
-            invalidateSelection();
             if (drawerContent?.type === 'shop-detail') {
                 closeDrawer();
             }
-            return () => {
-                invalidateSelection();
-            };
+            return;
         }
 
         // 2. If tab is not 'shops', shop detail drawer should not open
         if (activeTab !== 'shops') {
-            invalidateSelection();
             if (drawerContent?.type === 'shop-detail') {
                 closeDrawer();
             }
-            return () => {
-                invalidateSelection();
-            };
+            return;
         }
 
         // 3. Early return if drawer already displays this shop (prevents parallel fetch with fix #105)
+        // CRITICAL R2 FIX: Do NOT invalidate selection here! The legitimate detail fetch from table click is active!
         if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === selectedShopId) {
-            invalidateSelection();
-            return () => {
-                invalidateSelection();
-            };
+            return;
         }
 
         // 4. Fetch detail by ID with strict generation and selection guards
@@ -369,12 +363,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                     closeShopDetail();
                 }
             });
+        const myGen = getGeneration();
 
         return () => {
             isCancelled = true;
-            invalidateSelection();
+            // Only cancel the request THIS effect started, never cancel a subsequent user action
+            cancelRequest(myGen);
         };
-    }, [selectedShopId, activeTab, closeDrawer, closeShopDetail, invalidateSelection, openShopDetailById]);
+    }, [selectedShopId, activeTab, closeDrawer, closeShopDetail, cancelRequest, getGeneration, openShopDetailById]);
 
     // Handler: Open Drawer for Shop Detail
     const handleOpenShopDetail = (shop: ShopSummary) => {
