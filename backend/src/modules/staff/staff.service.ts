@@ -206,12 +206,12 @@ export class StaffService {
                 UPDATE table_sessions
                 SET status = 'CLOSED', close_reason = 'SUPERSEDED_BY_STAFF', closed_at = NOW(), closed_by = $1, updated_at = NOW()
                 WHERE table_id = $2 AND status = 'PENDING_APPROVAL'
-                RETURNING id, request_id, requester_guest_name
+                RETURNING id, request_id, requester_guest_name, requester_device_hash
             `, [userId, tableId]);
 
             for (const p of pendingRes.rows) {
                 if (p.request_id) {
-                    await recordIdempotency(client, tenantId, 'request_table_open', tableId, p.request_id, { guestName: p.requester_guest_name }, {
+                    await recordIdempotency(client, tenantId, 'request_table_open', tableId, p.request_id, { guestName: p.requester_guest_name, deviceHash: p.requester_device_hash }, {
                         status: 'SUPERSEDED_BY_STAFF',
                         sessionId: p.id,
                         requestId: p.request_id,
@@ -309,7 +309,7 @@ export class StaffService {
                     `, [session.id]);
                 }
                 if (session.request_id) {
-                    await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name }, {
+                    await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name, deviceHash: session.requester_device_hash }, {
                         status: 'EXPIRED',
                         sessionId: session.id,
                         requestId: session.request_id,
@@ -377,7 +377,8 @@ export class StaffService {
 
             // Record idempotency terminal state (G4)
             if (session.request_id) {
-                await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name }, {
+                const devHash = session.requester_device_hash || approvedSession.claimed_device_hash;
+                await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name, deviceHash: devHash }, {
                     status: 'OPEN',
                     sessionId: approvedSession.id,
                     requestId: session.request_id,
@@ -455,7 +456,7 @@ export class StaffService {
             }
 
             if (session.request_id) {
-                await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name }, {
+                await recordIdempotency(client, tenantId, 'request_table_open', tableId, session.request_id, { guestName: session.requester_guest_name, deviceHash: session.requester_device_hash }, {
                     status: 'REJECTED',
                     sessionId: session.id,
                     requestId: session.request_id,

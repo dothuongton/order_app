@@ -71,25 +71,63 @@ export class GuestService {
         if (activeSession) {
             if (activeSession.status === 'PENDING_APPROVAL') {
                 if (activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now()) {
-                    await query(`
-                        UPDATE table_sessions
-                        SET status = 'CLOSED', close_reason = 'EXPIRED'
-                        WHERE id = $1 AND status = 'PENDING_APPROVAL'
-                    `, [activeSession.id]);
+                    await withTransaction(async (client) => {
+                        await client.query(`
+                            UPDATE table_sessions
+                            SET status = 'CLOSED', close_reason = 'EXPIRED'
+                            WHERE id = $1 AND status = 'PENDING_APPROVAL'
+                        `, [activeSession.id]);
+
+                        if (activeSession.request_id) {
+                            await recordIdempotency(
+                                client,
+                                table.tenant_id,
+                                'request_table_open',
+                                table.table_id,
+                                activeSession.request_id,
+                                { guestName: activeSession.requester_guest_name, deviceHash: activeSession.requester_device_hash },
+                                {
+                                    status: 'EXPIRED',
+                                    sessionId: activeSession.id,
+                                    requestId: activeSession.request_id,
+                                    message: 'Yêu cầu mở bàn đã hết hạn'
+                                }
+                            );
+                        }
+                    });
                     activeSession = null;
                 }
             } else if (activeSession.status === 'OPEN' && !activeSession.claimed_device_hash && activeSession.requester_device_hash) {
                 if (activeSession.expires_at && new Date(activeSession.expires_at).getTime() <= Date.now()) {
-                    await query(`
-                        UPDATE table_sessions
-                        SET requester_device_hash = NULL,
-                            requester_guest_name = NULL,
-                            request_id = NULL,
-                            requested_at = NULL,
-                            expires_at = NULL,
-                            updated_at = NOW()
-                        WHERE id = $1 AND status = 'OPEN'
-                    `, [activeSession.id]);
+                    await withTransaction(async (client) => {
+                        await client.query(`
+                            UPDATE table_sessions
+                            SET requester_device_hash = NULL,
+                                requester_guest_name = NULL,
+                                request_id = NULL,
+                                requested_at = NULL,
+                                expires_at = NULL,
+                                updated_at = NOW()
+                            WHERE id = $1 AND status = 'OPEN'
+                        `, [activeSession.id]);
+
+                        if (activeSession.request_id) {
+                            await recordIdempotency(
+                                client,
+                                table.tenant_id,
+                                'request_table_open',
+                                table.table_id,
+                                activeSession.request_id,
+                                { guestName: activeSession.requester_guest_name, deviceHash: activeSession.requester_device_hash },
+                                {
+                                    status: 'EXPIRED',
+                                    sessionId: activeSession.id,
+                                    requestId: activeSession.request_id,
+                                    message: 'Yêu cầu mở bàn đã hết hạn'
+                                }
+                            );
+                        }
+                    });
                     activeSession.requester_device_hash = null;
                     activeSession.request_id = null;
                     activeSession.requester_guest_name = null;
@@ -504,13 +542,25 @@ export class GuestService {
                 throw { status: 400, code: 'TABLE_DISABLED', message: 'Bàn này hiện đang tạm ngừng sử dụng.' };
             }
 
-            // G4: Check idempotency BEFORE rate limit
-            const idempotency = await checkIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim() });
+            // G4: Check idempotency BEFORE rate limit, strictly scoped by deviceHash and payload
+            const idempotency = await checkIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash });
             if (idempotency.handled) {
-                return { ...idempotency.result, isRetry: true };
+                const cached = idempotency.result;
+                // G4a: If cached result was PENDING_APPROVAL but has expired, transition to terminal EXPIRED state
+                if (cached.status === 'PENDING_APPROVAL' && cached.expiresAt && new Date(cached.expiresAt).getTime() <= Date.now()) {
+                    const expiredResult = {
+                        status: 'EXPIRED',
+                        sessionId: cached.sessionId,
+                        requestId: input.requestId,
+                        message: 'Yêu cầu mở bàn đã hết hạn'
+                    };
+                    await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, expiredResult);
+                    return { ...expiredResult, isRetry: true };
+                }
+                return { ...cached, isRetry: true };
             }
 
-            // Check if request_id already exists in table_sessions (terminal or active)
+            // G4c: Check if request_id already exists in table_sessions (terminal or active)
             const existingReqRes = await client.query(`
                 SELECT id, status, close_reason, requester_guest_name, requested_at, expires_at, requester_device_hash, claimed_device_hash
                 FROM table_sessions
@@ -519,6 +569,19 @@ export class GuestService {
 
             if (existingReqRes.rows.length > 0) {
                 const ex = existingReqRes.rows[0];
+                if (ex.requester_device_hash && ex.requester_device_hash !== deviceHash) {
+                    throw { status: 409, code: 'IDEMPOTENCY_CONFLICT', message: 'Yêu cầu không thuộc về thiết bị này' };
+                }
+                if (ex.expires_at && new Date(ex.expires_at).getTime() <= Date.now()) {
+                    const expiredResult = {
+                        status: 'EXPIRED',
+                        sessionId: ex.id,
+                        requestId: input.requestId,
+                        message: 'Yêu cầu mở bàn đã hết hạn'
+                    };
+                    await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, expiredResult);
+                    return { ...expiredResult, isRetry: true };
+                }
                 return {
                     status: ex.status === 'CLOSED' ? (ex.close_reason || 'CLOSED') : ex.status,
                     sessionId: ex.id,
@@ -566,7 +629,18 @@ export class GuestService {
                                 SET requester_device_hash = NULL, requester_guest_name = NULL, request_id = NULL, requested_at = NULL, expires_at = NULL
                                 WHERE id = $1
                             `, [active.id]);
-                        } else if (active.request_id === input.requestId && active.requester_device_hash === deviceHash) {
+                            if (active.request_id) {
+                                await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, active.request_id, { guestName: active.requester_guest_name, deviceHash: active.requester_device_hash }, {
+                                    status: 'EXPIRED',
+                                    sessionId: active.id,
+                                    requestId: active.request_id,
+                                    message: 'Yêu cầu mở bàn đã hết hạn'
+                                });
+                            }
+                        } else if (active.request_id === input.requestId) {
+                            if (active.requester_device_hash !== deviceHash) {
+                                throw { status: 409, code: 'IDEMPOTENCY_CONFLICT', message: 'Yêu cầu không thuộc về thiết bị này' };
+                            }
                             // Idempotent retry
                             return {
                                 status: 'PENDING_APPROVAL',
@@ -604,7 +678,7 @@ export class GuestService {
                         expiresAt
                     };
 
-                    await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim() }, result);
+                    await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, result);
 
                     broadcastToStaff(table.tenant_id, 'table_session:requested', {
                         tableId: table.id,
@@ -631,7 +705,18 @@ export class GuestService {
                         SET status = 'CLOSED', close_reason = 'EXPIRED'
                         WHERE id = $1
                     `, [active.id]);
-                } else if (active.request_id === input.requestId && active.requester_device_hash === deviceHash) {
+                    if (active.request_id) {
+                        await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, active.request_id, { guestName: active.requester_guest_name, deviceHash: active.requester_device_hash }, {
+                            status: 'EXPIRED',
+                            sessionId: active.id,
+                            requestId: active.request_id,
+                            message: 'Yêu cầu mở bàn đã hết hạn'
+                        });
+                    }
+                } else if (active.request_id === input.requestId) {
+                    if (active.requester_device_hash !== deviceHash) {
+                        throw { status: 409, code: 'IDEMPOTENCY_CONFLICT', message: 'Yêu cầu không thuộc về thiết bị này' };
+                    }
                     // Idempotent retry
                     return {
                         status: 'PENDING_APPROVAL',
@@ -667,7 +752,7 @@ export class GuestService {
                 expiresAt: row.expires_at
             };
 
-            await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim() }, result);
+            await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, input.requestId, { guestName: input.guestName.trim(), deviceHash }, result);
 
             // Realtime notifications
             broadcastToStaff(table.tenant_id, 'table_session:requested', {
@@ -752,7 +837,7 @@ export class GuestService {
                 requestId
             };
 
-            await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, requestId, { guestName: session.requester_guest_name }, terminalResult);
+            await recordIdempotency(client, table.tenant_id, 'request_table_open', table.id, requestId, { guestName: session.requester_guest_name, deviceHash: session.requester_device_hash }, terminalResult);
 
             broadcastToStaff(table.tenant_id, 'table_session:withdrawn', {
                 tableId: table.id,

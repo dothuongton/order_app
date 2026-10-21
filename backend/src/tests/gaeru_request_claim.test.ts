@@ -897,5 +897,110 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
             `, [reqId]);
             expect(parseInt(countRes.rows[0].count, 10)).toBe(1);
         });
+
+        it('G4a: updates idempotency when expired in menu and returns terminal EXPIRED on replay', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA01Id]);
+
+            const dev = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // 1. Submit request
+            const reqRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Hết Hạn' })
+            });
+            expect(reqRes.status).toBe(201);
+
+            // 2. Set expires_at in the past
+            await query(`
+                UPDATE table_sessions
+                SET expires_at = NOW() - INTERVAL '1 second'
+                WHERE request_id = $1
+            `, [reqId]);
+
+            // 3. Trigger menu read -> auto-expires session
+            const menuRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/menu`, {
+                headers: { 'Cookie': `order_device=${dev}` }
+            });
+            expect(menuRes.status).toBe(200);
+
+            // 4. Replay request-open with same requestId -> MUST return terminal EXPIRED, never PENDING_APPROVAL
+            const replayRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách Hết Hạn' })
+            });
+            expect(replayRes.status).toBe(200);
+            const replayData = await replayRes.json() as any;
+            expect(replayData.status).toBe('EXPIRED');
+
+            // 5. Verify exactly 1 session row in DB
+            const countRes = await query(`
+                SELECT COUNT(*) as count FROM table_sessions WHERE request_id = $1
+            `, [reqId]);
+            expect(parseInt(countRes.rows[0].count, 10)).toBe(1);
+        });
+
+        it('G4b: returns HTTP 409 (not 500) when replaying same requestId with changed payload', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA01Id]);
+
+            const dev = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // 1. First request with name A
+            const firstRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Tên Ban Đầu' })
+            });
+            expect(firstRes.status).toBe(201);
+
+            // 2. Replay with changed name B -> MUST return HTTP 409
+            const changedRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${dev}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Tên Đã Đổi' })
+            });
+            expect(changedRes.status).toBe(409);
+            const errData = await changedRes.json() as any;
+            expect(['IDEMPOTENCY_KEY_REUSED', 'IDEMPOTENCY_CONFLICT']).toContain(errData.code);
+        });
+
+        it('G4c: rejects cross-device replay with HTTP 409 and protects device scope', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA01Id]);
+
+            const devA = createDeviceCookie();
+            const devB = createDeviceCookie();
+            const reqId = crypto.randomUUID();
+
+            // 1. Device A creates request
+            const resA = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devA}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách A' })
+            });
+            expect(resA.status).toBe(201);
+
+            // 2. Device B tries to replay with same requestId and name -> MUST return 409 (not 200 with Device A's result)
+            const resB = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devB}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách A' })
+            });
+            expect(resB.status).toBe(409);
+            const errDataB = await resB.json() as any;
+            expect(['IDEMPOTENCY_KEY_REUSED', 'IDEMPOTENCY_CONFLICT']).toContain(errDataB.code);
+
+            // 3. Device A can still replay and gets its own result
+            const replayA = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Cookie': `order_device=${devA}` },
+                body: JSON.stringify({ requestId: reqId, guestName: 'Khách A' })
+            });
+            expect(replayA.status).toBe(200);
+            const dataA = await replayA.json() as any;
+            expect(dataA.requestId).toBe(reqId);
+        });
     });
 });

@@ -35,7 +35,7 @@ guestRouter.post('/public/tables/:qrId/request-open', async (req: Request, res: 
         const result = await GuestService.requestTableOpen(qrId, req.body, deviceHash);
         return res.status((result as any).isRetry ? 200 : 201).json(result);
     } catch (err: any) {
-        const status = err.status || 500;
+        const status = err.status || err.statusCode || 500;
         return res.status(status).json({
             error: err.code || 'SERVER_ERROR',
             code: err.code || 'SERVER_ERROR',
@@ -52,7 +52,7 @@ guestRouter.post('/public/tables/:qrId/withdraw-request', async (req: Request, r
         const result = await GuestService.withdrawTableRequest(qrId, req.body?.requestId || req.body?.request_id, deviceHash);
         return res.json(result);
     } catch (err: any) {
-        const status = err.status || 500;
+        const status = err.status || err.statusCode || 500;
         return res.status(status).json({
             error: err.code || 'SERVER_ERROR',
             code: err.code || 'SERVER_ERROR',
