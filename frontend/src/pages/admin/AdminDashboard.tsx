@@ -18,6 +18,7 @@ import { DashboardStatsCards } from '../../components/admin/DashboardStatsCards.
 import { RecentActivityTimeline } from '../../components/admin/RecentActivityTimeline.js';
 import { ShopListTable } from '../../components/admin/ShopListTable.js';
 import { useAdminShopList } from '../../hooks/admin/useAdminShopList.js';
+import { useAdminNavigation } from '../../hooks/admin/useAdminNavigation.js';
 import { RolesView } from '../../components/admin/RolesView.js';
 import { AuditLogsView } from '../../components/admin/AuditLogsView.js';
 import { AdminRightDrawer, RightDrawerContent } from '../../components/admin/AdminRightDrawer.js';
@@ -197,8 +198,14 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
 ];
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
-    // Navigation & Query States
-    const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+    // Navigation & Deep-Link State (Issue #87)
+    const {
+        activeTab,
+        selectedShopId,
+        setActiveTab,
+        openShopDetail,
+        closeShopDetail
+    } = useAdminNavigation();
     const [auditPage, setAuditPage] = useState(1);
     const [auditAction, setAuditAction] = useState<string>('');
     const [auditStartDate, setAuditStartDate] = useState<string>('');
@@ -238,10 +245,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     const {
         isDrawerOpen,
         drawerContent,
-        openShopDetail,
+        openShopDetail: openShopDetailDrawer,
+        openShopDetailById,
+        openShopDetailDirectly,
         openRolePermissions,
         openAuditDetail,
-        closeDrawer
+        closeDrawer,
+        invalidateSelection,
+        cancelRequest,
+        getGeneration,
+        setDrawerContent,
+        setIsDrawerOpen
     } = useAdminShopDrawer();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingShop, setEditingShop] = useState<ShopDetail | ShopSummary | null>(null);
@@ -315,9 +329,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         // Read-only: no false success toast without backend persistence
     };
 
+    // Deep-link effect (Issue #87, PR #110 R1 & R2 review): load shop detail from URL parameter
+    // Coordinated across navigation, tab switching, drawer close, popstate, and unmount
+    useEffect(() => {
+        // 1. If no shop is selected in URL, close shop detail drawer if open
+        if (!selectedShopId) {
+            if (drawerContent?.type === 'shop-detail') {
+                closeDrawer();
+            }
+            return;
+        }
+
+        // 2. If tab is not 'shops', shop detail drawer should not open
+        if (activeTab !== 'shops') {
+            if (drawerContent?.type === 'shop-detail') {
+                closeDrawer();
+            }
+            return;
+        }
+
+        // 3. Early return if drawer already displays this shop (prevents parallel fetch with fix #105)
+        // CRITICAL R2 FIX: Do NOT invalidate selection here! The legitimate detail fetch from table click is active!
+        if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === selectedShopId) {
+            return;
+        }
+
+        // 4. Fetch detail by ID with strict generation and selection guards
+        let isCancelled = false;
+        openShopDetailById(selectedShopId, AdminApi.getShopDetail)
+            .catch(() => {
+                if (!isCancelled) {
+                    showToast('Không tìm thấy cơ sở quán theo liên kết hoặc đã bị xoá.');
+                    closeShopDetail();
+                }
+            });
+        const myGen = getGeneration();
+
+        return () => {
+            isCancelled = true;
+            // Only cancel the request THIS effect started, never cancel a subsequent user action
+            cancelRequest(myGen);
+        };
+    }, [selectedShopId, activeTab, closeDrawer, closeShopDetail, cancelRequest, getGeneration, openShopDetailById]);
+
     // Handler: Open Drawer for Shop Detail
     const handleOpenShopDetail = (shop: ShopSummary) => {
-        openShopDetail(shop, AdminApi.getShopDetail);
+        openShopDetailDrawer(shop, AdminApi.getShopDetail);
+        openShopDetail(shop.id);
     };
 
     // Handler: Open Drawer for Audit Log Diff
@@ -340,6 +398,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         showToast('Đã cập nhật thông tin quán thành công!');
         if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === id) {
             closeDrawer();
+            closeShopDetail();
         }
         reloadShops();
         loadAuditLogs();
@@ -362,6 +421,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 : `Đã chuyển trạng thái quán sang "${targetStatus}"!`
         );
         closeDrawer();
+        closeShopDetail();
         loadStats();
         reloadShops();
         loadAuditLogs();
@@ -655,10 +715,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             <AdminRightDrawer
                 isOpen={isDrawerOpen}
                 content={drawerContent}
-                onClose={closeDrawer}
+                onClose={() => {
+                    closeDrawer();
+                    closeShopDetail();
+                }}
                 onSavePermissions={handleSaveRolePermissions}
                 onEditShop={(shop) => {
                     closeDrawer();
+                    closeShopDetail();
                     setEditingShop(shop);
                 }}
                 onToggleShopStatus={handleRequestLifecycleChange}

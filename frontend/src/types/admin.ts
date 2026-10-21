@@ -1,4 +1,5 @@
 export type ShopStatus = 'draft' | 'active' | 'suspended' | 'archived';
+export type AdminTab = 'dashboard' | 'shops' | 'roles' | 'audit' | 'analytics';
 
 export interface PlatformStats {
     totalShops: number;
