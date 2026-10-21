@@ -198,4 +198,160 @@ describe('Admin CMS Shop Drawer Concurrency & Race Condition Guard (Issue #17 Re
         expect(coordinator.getState().content?.type).toBe('permissions');
         expect((coordinator.getState().content as any).role.id).toBe('role-1');
     });
+
+    it('Scenario 6 (Issue #87 & #110 review): Direct-link A -> tab switch -> late success A does NOT reopen drawer', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        let resolveA!: (detail: ShopDetail) => void;
+        const promiseA = new Promise<ShopDetail>((resolve) => {
+            resolveA = resolve;
+        });
+
+        // 1. Direct-link opens fetch for Shop Alpha
+        const opA = coordinator.openShopDetailById('shop-alpha', () => promiseA);
+        expect(coordinator.getState().isOpen).toBe(false);
+
+        // 2. User switches tab (e.g. to Roles or Audit), invalidating selection
+        coordinator.invalidateSelection();
+        expect(coordinator.getActiveShopId()).toBe(null);
+
+        // 3. Late response for Alpha arrives
+        resolveA(mockDetailA);
+        const resultA = await opA;
+
+        // Drawer MUST remain closed, result is null (dropped)
+        expect(resultA).toBe(null);
+        expect(coordinator.getState().isOpen).toBe(false);
+        expect(coordinator.getState().content).toBe(null);
+    });
+
+    it('Scenario 7 (Issue #87 & #110 review): Direct-link A -> tab switch -> late error A is silently dropped', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        let rejectA!: (err: Error) => void;
+        const promiseA = new Promise<ShopDetail>((_, reject) => {
+            rejectA = reject;
+        });
+
+        const opA = coordinator.openShopDetailById('shop-alpha', () => promiseA);
+
+        // User switches tab
+        coordinator.invalidateSelection();
+
+        // Late network error for Alpha
+        rejectA(new Error('Shop not found or network 500'));
+        const resultA = await opA;
+
+        // Error MUST NOT be rethrown to caller, drawer remains closed
+        expect(resultA).toBe(null);
+        expect(coordinator.getState().isOpen).toBe(false);
+        expect(coordinator.getState().content).toBe(null);
+    });
+
+    it('Scenario 8 (Issue #87 & #110 review): Direct-link A -> Back/Forward popstate -> late response A does NOT open drawer', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        let resolveA!: (detail: ShopDetail) => void;
+        const promiseA = new Promise<ShopDetail>((resolve) => {
+            resolveA = resolve;
+        });
+
+        const opA = coordinator.openShopDetailById('shop-alpha', () => promiseA);
+
+        // Browser Back button clicked (popstate to dashboard without shopId)
+        coordinator.invalidateSelection();
+        coordinator.closeDrawer();
+
+        resolveA(mockDetailA);
+        const resultA = await opA;
+
+        expect(resultA).toBe(null);
+        expect(coordinator.getState().isOpen).toBe(false);
+        expect(coordinator.getState().content).toBe(null);
+    });
+
+    it('Scenario 9 (Issue #87 & #110 review): Direct-link A -> explicit closeDrawer -> late response A does NOT reopen drawer', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        let resolveA!: (detail: ShopDetail) => void;
+        const promiseA = new Promise<ShopDetail>((resolve) => {
+            resolveA = resolve;
+        });
+
+        const opA = coordinator.openShopDetailById('shop-alpha', () => promiseA);
+
+        // User hits Escape or Close button
+        coordinator.closeDrawer();
+
+        resolveA(mockDetailA);
+        const resultA = await opA;
+
+        expect(resultA).toBe(null);
+        expect(coordinator.getState().isOpen).toBe(false);
+        expect(coordinator.getState().content).toBe(null);
+    });
+
+    it('Scenario 10 (Issue #87 & #110 review): Direct-link A -> User selects B from table -> late A does NOT overwrite B', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        let resolveA!: (detail: ShopDetail) => void;
+        const promiseA = new Promise<ShopDetail>((resolve) => {
+            resolveA = resolve;
+        });
+
+        let resolveB!: (detail: ShopDetail) => void;
+        const promiseB = new Promise<ShopDetail>((resolve) => {
+            resolveB = resolve;
+        });
+
+        // 1. Direct-link A started
+        const opA = coordinator.openShopDetailById('shop-alpha', () => promiseA);
+
+        // 2. User clicks Shop Beta in table before A finishes -> opens Beta summary immediately
+        const opB = coordinator.openShopDetail(mockSummaryB, () => promiseB);
+        expect(coordinator.getState().isOpen).toBe(true);
+        expect((coordinator.getState().content as any).shop.id).toBe('shop-beta');
+
+        // 3. Late A resolves
+        resolveA(mockDetailA);
+        const resultA = await opA;
+        expect(resultA).toBe(null);
+
+        // Drawer MUST STILL be Beta summary
+        expect(coordinator.getState().isOpen).toBe(true);
+        expect((coordinator.getState().content as any).shop.id).toBe('shop-beta');
+
+        // 4. Beta detail resolves
+        resolveB(mockDetailB);
+        await opB;
+
+        // Drawer MUST now have full Beta detail
+        expect((coordinator.getState().content as any).shop.id).toBe('shop-beta');
+        expect((coordinator.getState().content as any).shop.address).toBe('456 Đường Beta');
+    });
+
+    it('Scenario 11 (Issue #87 & #110 review): Direct-link A normal resolution while active opens drawer with detail', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        const opA = coordinator.openShopDetailById('shop-alpha', async () => mockDetailA);
+        const resultA = await opA;
+
+        expect(resultA).toEqual(mockDetailA);
+        expect(coordinator.getState().isOpen).toBe(true);
+        expect((coordinator.getState().content as any).shop.id).toBe('shop-alpha');
+        expect((coordinator.getState().content as any).shop.address).toBe('123 Đường Alpha');
+    });
+
+    it('Scenario 12 (Issue #87 & #110 review): Direct-link A failure while active rethrows error for caller handling', async () => {
+        const coordinator = new ShopDrawerCoordinator();
+
+        await expect(
+            coordinator.openShopDetailById('shop-alpha', async () => {
+                throw new Error('404 Shop Not Found');
+            })
+        ).rejects.toThrow('404 Shop Not Found');
+
+        expect(coordinator.getState().isOpen).toBe(false);
+        expect(coordinator.getState().content).toBe(null);
+    });
 });
