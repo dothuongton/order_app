@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Store, Lock, Eye, EyeOff } from 'lucide-react';
 import { CreateShopPayload } from '../../types/admin.js';
+import { useModalA11y } from '../../hooks/admin/useModalA11y.js';
 
 interface CreateShopModalProps {
     isOpen: boolean;
@@ -22,26 +23,23 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const nameInputRef = useRef<HTMLInputElement>(null);
+    const modalContainerRef = useRef<HTMLDivElement>(null);
 
-    // ESC key closes modal (Issue #88)
-    useEffect(() => {
-        if (!isOpen) return;
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !isSubmitting) {
-                handleClose();
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpen, isSubmitting]);
+        const handleClose = () => {
+        if (isSubmitting) return;
+        resetForm();
+        onClose();
+    };
 
-    // Auto-focus first input on open
-    useEffect(() => {
-        if (isOpen) {
-            const timer = setTimeout(() => nameInputRef.current?.focus(), 60);
-            return () => clearTimeout(timer);
-        }
-    }, [isOpen]);
+    // Standard accessible modal: focus trap, restore, topmost ESC, scroll lock (Issue #88)
+    useModalA11y({
+        isOpen,
+        onClose: handleClose,
+        isSubmitting,
+        initialFocusRef: nameInputRef,
+        containerRef: modalContainerRef,
+        modalId: 'create-shop-modal'
+    });
 
     if (!isOpen) return null;
 
@@ -83,11 +81,6 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
         setError(null);
     };
 
-    const handleClose = () => {
-        if (isSubmitting) return;
-        resetForm();
-        onClose();
-    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -147,6 +140,8 @@ export const CreateShopModal: React.FC<CreateShopModalProps> = ({ isOpen, onClos
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
             <div
+                ref={modalContainerRef}
+                tabIndex={-1}
                 className="bg-white rounded-3xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
                 role="dialog"
                 aria-modal="true"
