@@ -39,9 +39,9 @@ export const RolesView: React.FC<RolesViewProps> = ({ roles, onSelectRole }) => 
             <div className="pt-2">
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-                        Danh sách Vai trò Hệ thống
+                        Danh sách Vai trò Hệ thống (Read-only)
                     </h3>
-                    <span className="text-xs text-slate-400">Nhấp vào vai trò để tùy chỉnh quyền hạn</span>
+                    <span className="text-xs text-slate-400">Nhấp vào vai trò để xem ma trận quyền hạn</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -59,7 +59,7 @@ export const RolesView: React.FC<RolesViewProps> = ({ roles, onSelectRole }) => 
                                             <Icon className="w-6 h-6" />
                                         </div>
                                         <span className="text-xs font-bold text-slate-400 group-hover:text-blue-600 transition flex items-center gap-1">
-                                            Chỉnh sửa
+                                            Xem chi tiết
                                             <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                                         </span>
                                     </div>
@@ -73,7 +73,7 @@ export const RolesView: React.FC<RolesViewProps> = ({ roles, onSelectRole }) => 
                                 </div>
 
                                 <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-                                    <span className="font-semibold text-slate-600">{role.userCount} tài khoản</span>
+                                    <span className="font-medium text-slate-500">Mặc định hệ thống</span>
                                     <span className="font-mono text-[10px] uppercase bg-slate-100 px-2 py-0.5 rounded-md text-slate-500 font-semibold">
                                         {role.code}
                                     </span>

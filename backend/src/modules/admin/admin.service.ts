@@ -8,7 +8,8 @@ import {
     ListShopsQueryInput,
     ListAuditLogsQueryInput,
     createShopSchema,
-    updateShopSchema
+    updateShopSchema,
+    parseDateFilter
 } from './admin.validation.js';
 
 export class AdminService {
@@ -17,7 +18,7 @@ export class AdminService {
      */
     static async getPlatformStats() {
         const shopsRes = await query(`
-            SELECT 
+            SELECT
                 COUNT(*) as total_shops,
                 COUNT(*) FILTER (WHERE status = 'active') as active_shops,
                 COUNT(*) FILTER (WHERE status = 'suspended') as suspended_shops,
@@ -26,7 +27,7 @@ export class AdminService {
         `);
 
         const revenueRes = await query(`
-            SELECT 
+            SELECT
                 COALESCE(SUM(amount), 0) as total_confirmed_revenue,
                 COUNT(*) as total_settlements
             FROM manual_settlement_confirmations
@@ -109,7 +110,7 @@ export class AdminService {
         const offsetParamIndex = dataParams.length;
 
         const dataSql = `
-            SELECT 
+            SELECT
                 t.id, t.name, t.slug, t.status, t.phone, t.address,
                 t.active_template_id, t.active_published_version,
                 t.created_at, t.updated_at,
@@ -132,26 +133,36 @@ export class AdminService {
         `;
 
         const dataRes = await query(dataSql, dataParams);
-        const shops = dataRes.rows.map(row => ({
-            id: row.id,
-            name: row.name,
-            slug: row.slug,
-            status: row.status,
-            phone: row.phone,
-            address: row.address,
-            activeTemplateId: row.active_template_id,
-            activePublishedVersion: row.active_published_version,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
-            owner: row.owner_id ? {
-                id: row.owner_id,
-                email: row.owner_email,
-                fullName: row.owner_name
-            } : null,
-            tableCount: parseInt(row.table_count || '0', 10),
-            orderCount: parseInt(row.order_count || '0', 10),
-            totalRevenue: parseInt(row.total_revenue || '0', 10)
-        }));
+        const shops = dataRes.rows.map(row => {
+            const tableCount = parseInt(row.table_count || '0', 10);
+            const orderCount = parseInt(row.order_count || '0', 10);
+            const totalRevenue = parseInt(row.total_revenue || '0', 10);
+            return {
+                id: row.id,
+                name: row.name,
+                slug: row.slug,
+                status: row.status,
+                phone: row.phone,
+                address: row.address,
+                activeTemplateId: row.active_template_id,
+                activePublishedVersion: row.active_published_version,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                owner: row.owner_id ? {
+                    id: row.owner_id,
+                    email: row.owner_email,
+                    fullName: row.owner_name
+                } : null,
+                tableCount,
+                orderCount,
+                totalRevenue,
+                metrics: {
+                    tableCount,
+                    orderCount,
+                    totalRevenue
+                }
+            };
+        });
 
         return {
             shops,
@@ -169,7 +180,7 @@ export class AdminService {
      */
     static async getShopDetail(tenantId: string) {
         const sql = `
-            SELECT 
+            SELECT
                 t.id, t.name, t.slug, t.status, t.phone, t.address, t.description,
                 t.active_template_id, t.active_published_version,
                 t.created_at, t.updated_at,
@@ -195,6 +206,10 @@ export class AdminService {
         }
 
         const row = res.rows[0];
+        const tableCount = parseInt(row.table_count || '0', 10);
+        const orderCount = parseInt(row.order_count || '0', 10);
+        const totalRevenue = parseInt(row.total_revenue || '0', 10);
+
         return {
             id: row.id,
             name: row.name,
@@ -213,10 +228,13 @@ export class AdminService {
                 fullName: row.owner_name,
                 phone: row.owner_phone
             } : null,
+            tableCount,
+            orderCount,
+            totalRevenue,
             metrics: {
-                tableCount: parseInt(row.table_count || '0', 10),
-                orderCount: parseInt(row.order_count || '0', 10),
-                totalRevenue: parseInt(row.total_revenue || '0', 10)
+                tableCount,
+                orderCount,
+                totalRevenue
             }
         };
     }
@@ -228,7 +246,8 @@ export class AdminService {
         input = validate(createShopSchema, input);
 
         return await withTransaction(async (client) => {
-            // Check slug uniqueness
+            try {
+                // Check slug uniqueness
             const slugCheck = await client.query('SELECT id FROM tenants WHERE slug = $1', [input.slug]);
             if (slugCheck.rows.length > 0) {
                 throw new AdminApiError(400, 'BAD_REQUEST', `Đường dẫn slug "${input.slug}" đã được sử dụng bởi quán khác`);
@@ -244,16 +263,43 @@ export class AdminService {
             const tenant = tenantRes.rows[0];
             const tenantId = tenant.id;
 
-            // 2. Create or find Owner User (preserve existing user's password if already registered)
-            const passwordHash = await bcrypt.hash(input.ownerPassword, 10);
-            const userRes = await client.query(`
-                INSERT INTO users (email, password_hash, full_name, phone)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (email) DO UPDATE SET email = users.email
-                RETURNING id, email, full_name
-            `, [input.ownerEmail, passwordHash, input.ownerFullName, input.phone || null]);
+            // Check existing owner account (Issue #82: explicit onboarding vs linking)
+            const normalizedEmail = input.ownerEmail.trim().toLowerCase();
+            const existingUserRes = await client.query(
+                'SELECT id, email, full_name, password_hash FROM users WHERE LOWER(email) = LOWER($1)',
+                [normalizedEmail]
+            );
 
-            const ownerUser = userRes.rows[0];
+            const userExists = existingUserRes.rows.length > 0;
+            if (userExists && !input.linkExistingOwner) {
+                throw new AdminApiError(409, 'OWNER_EMAIL_EXISTS', `Tài khoản với email "${input.ownerEmail}" đã tồn tại trên hệ thống. Vui lòng xác nhận liên kết tài khoản hoặc sử dụng email khác.`);
+            }
+
+            if (!userExists && input.linkExistingOwner) {
+                throw new AdminApiError(404, 'NOT_FOUND', `Không tìm thấy tài khoản với email "${input.ownerEmail}" để liên kết.`);
+            }
+
+            // 2. Create or link Owner User
+            let ownerUser: { id: string; email: string; full_name: string };
+            let ownerMode: 'created_new' | 'linked_existing';
+
+            if (userExists) {
+                ownerUser = {
+                    id: existingUserRes.rows[0].id,
+                    email: existingUserRes.rows[0].email,
+                    full_name: existingUserRes.rows[0].full_name
+                };
+                ownerMode = 'linked_existing';
+            } else {
+                const passwordHash = await bcrypt.hash(input.ownerPassword!, 10);
+                const userRes = await client.query(`
+                    INSERT INTO users (email, password_hash, full_name, phone)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id, email, full_name
+                `, [normalizedEmail, passwordHash, input.ownerFullName, input.phone || null]);
+                ownerUser = userRes.rows[0];
+                ownerMode = 'created_new';
+            }
 
             // 3. Create Membership as owner
             await client.query(`
@@ -298,7 +344,7 @@ export class AdminService {
             // 6. Create default categories
             await client.query(`
                 INSERT INTO menu_categories (tenant_id, name, sort_order)
-                VALUES 
+                VALUES
                     ($1, 'Món Ăn Nổi Bật', 1),
                     ($1, 'Đồ Uống & Tráng Miệng', 2)
             `, [tenantId]);
@@ -311,7 +357,8 @@ export class AdminService {
                 name: input.name,
                 slug: input.slug,
                 ownerEmail: input.ownerEmail,
-                ownerFullName: input.ownerFullName
+                ownerFullName: input.ownerFullName,
+                ownerMode
             })]);
 
             return {
@@ -321,6 +368,21 @@ export class AdminService {
                 status: tenant.status,
                 owner: ownerUser
             };
+            } catch (err: any) {
+                if (err instanceof AdminApiError) {
+                    throw err;
+                }
+                // Handle concurrent race unique constraint violations cleanly (Issue #82)
+                if (err?.code === '23505') {
+                    if (err?.constraint === 'users_email_key' || err?.table === 'users') {
+                        throw new AdminApiError(409, 'OWNER_EMAIL_EXISTS', `Tài khoản với email "${input.ownerEmail}" đã tồn tại trên hệ thống. Vui lòng xác nhận liên kết tài khoản hoặc sử dụng email khác.`);
+                    }
+                    if (err?.constraint === 'tenants_slug_key' || err?.table === 'tenants') {
+                        throw new AdminApiError(400, 'BAD_REQUEST', `Đường dẫn slug "${input.slug}" đã được sử dụng bởi quán khác`);
+                    }
+                }
+                throw err;
+            }
         });
     }
 
@@ -445,9 +507,28 @@ export class AdminService {
             whereClauses.push(`al.tenant_id = $${params.length}`);
         }
 
+        if (input.userId) {
+            params.push(input.userId);
+            whereClauses.push(`al.user_id = $${params.length}`);
+        }
+
         if (input.action && input.action.trim()) {
             params.push(input.action.trim());
             whereClauses.push(`al.action = $${params.length}`);
+        }
+
+        const fromDateStr = input.startDate || input.from;
+        if (fromDateStr) {
+            const fromIso = parseDateFilter(fromDateStr, false);
+            params.push(fromIso);
+            whereClauses.push(`al.created_at >= $${params.length}`);
+        }
+
+        const toDateStr = input.endDate || input.to;
+        if (toDateStr) {
+            const toIso = parseDateFilter(toDateStr, true);
+            params.push(toIso);
+            whereClauses.push(`al.created_at <= $${params.length}`);
         }
 
         const whereSql = whereClauses.join(' AND ');
@@ -464,8 +545,8 @@ export class AdminService {
         const offsetParamIndex = dataParams.length;
 
         const dataSql = `
-            SELECT 
-                al.id, al.tenant_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
+            SELECT
+                al.id, al.tenant_id, al.user_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
                 u.email as user_email, u.full_name as user_name,
                 t.name as tenant_name
             FROM audit_logs al
@@ -480,10 +561,10 @@ export class AdminService {
         const logs = dataRes.rows.map(row => ({
             id: row.id,
             tenantId: row.tenant_id,
-            tenantName: row.tenant_name,
-            userId: row.user_id,
-            userName: row.user_name,
-            userEmail: row.user_email,
+            tenantName: row.tenant_name || null,
+            userId: row.user_id || null,
+            userName: row.user_name || null,
+            userEmail: row.user_email || null,
             action: row.action,
             resourceType: row.resource_type,
             resourceId: row.resource_id,

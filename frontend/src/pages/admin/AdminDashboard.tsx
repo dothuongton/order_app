@@ -17,9 +17,11 @@ import { DashboardHeroBanner } from '../../components/admin/DashboardHeroBanner.
 import { DashboardStatsCards } from '../../components/admin/DashboardStatsCards.js';
 import { RecentActivityTimeline } from '../../components/admin/RecentActivityTimeline.js';
 import { ShopListTable } from '../../components/admin/ShopListTable.js';
+import { useAdminShopList } from '../../hooks/admin/useAdminShopList.js';
 import { RolesView } from '../../components/admin/RolesView.js';
 import { AuditLogsView } from '../../components/admin/AuditLogsView.js';
 import { AdminRightDrawer, RightDrawerContent } from '../../components/admin/AdminRightDrawer.js';
+import { useAdminShopDrawer } from '../../hooks/admin/useAdminShopDrawer.js';
 import { CreateShopModal } from '../../components/admin/CreateShopModal.js';
 import { EditShopModal } from '../../components/admin/EditShopModal.js';
 import { LifecycleConfirmModal } from '../../components/admin/LifecycleConfirmModal.js';
@@ -37,18 +39,18 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Quản trị viên',
         code: 'superadmin',
         description: 'Toàn quyền truy cập quản trị hệ thống, người dùng và toàn bộ dữ liệu nền tảng.',
-        userCount: 1,
+        userCount: 0,
         color: 'blue',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem danh sách quán', enabled: true },
                     { id: 'create_shop', label: 'Thêm/Sửa quán', enabled: true },
                     { id: 'archive_shop', label: 'Xóa/Lưu trữ quán', enabled: true },
-                    { id: 'manage_menu', label: 'Quản lý học liệu / thực đơn', enabled: true }
+                    { id: 'manage_menu', label: 'Quản lý thực đơn & danh mục món', enabled: true }
                 ]
             },
             {
@@ -77,12 +79,12 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Quản lý quán',
         code: 'admin',
         description: 'Quản lý thực đơn, bàn ăn, chương trình ưu đãi và xem báo cáo trong phạm vi quán.',
-        userCount: 3,
+        userCount: 0,
         color: 'indigo',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem thông tin cơ sở quán', enabled: true },
@@ -117,12 +119,12 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Thu ngân',
         code: 'cashier',
         description: 'Tiếp nhận gọi món, in hóa đơn tạm tính và thực hiện tất toán bàn ăn.',
-        userCount: 4,
+        userCount: 0,
         color: 'emerald',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem bàn ăn & sơ đồ phục vụ', enabled: true },
@@ -157,12 +159,12 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
         name: 'Nhân viên phục vụ',
         code: 'waiter',
         description: 'Mở bàn ăn, quét mã QR hỗ trợ khách và cập nhật tiến trình chế biến món ăn.',
-        userCount: 8,
+        userCount: 0,
         color: 'amber',
         permissionGroups: [
             {
                 id: 'shops',
-                title: 'Quản lý Khóa học & Quán ăn',
+                title: 'Quản lý Nhà hàng & Bàn ăn',
                 icon: 'store',
                 permissions: [
                     { id: 'view_shops', label: 'Xem bàn ăn & sơ đồ phục vụ', enabled: true },
@@ -197,28 +199,50 @@ const INITIAL_SYSTEM_ROLES: SystemRole[] = [
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
     // Navigation & Query States
     const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [shopStatus, setShopStatus] = useState('all');
-    const [page, setPage] = useState(1);
     const [auditPage, setAuditPage] = useState(1);
+    const [auditAction, setAuditAction] = useState<string>('');
+    const [auditStartDate, setAuditStartDate] = useState<string>('');
+    const [auditEndDate, setAuditEndDate] = useState<string>('');
+
+    // Centralized Stable Shops List State (Issue #86)
+    const {
+        shops,
+        pagination,
+        isLoading: loadingShops,
+        error: shopsError,
+        page,
+        searchQuery,
+        status: shopStatus,
+        sortBy: shopSortBy,
+        sortOrder: shopSortOrder,
+        setPage,
+        setSearchQuery,
+        setStatus: setShopStatus,
+        setSort: setShopSort,
+        clearSearch: clearShopSearch,
+        reload: reloadShops
+    } = useAdminShopList({ initialLimit: 10 });
 
     // Data States
     const [stats, setStats] = useState<PlatformStats | null>(null);
-    const [shops, setShops] = useState<ShopSummary[]>([]);
-    const [pagination, setPagination] = useState<PaginationMeta | null>(null);
     const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
     const [auditPagination, setAuditPagination] = useState<PaginationMeta | null>(null);
     const [roles, setRoles] = useState<SystemRole[]>(INITIAL_SYSTEM_ROLES);
 
     // UI Loading & Toast States
     const [loadingStats, setLoadingStats] = useState(true);
-    const [loadingShops, setLoadingShops] = useState(true);
     const [loadingLogs, setLoadingLogs] = useState(true);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-    // Drawer & Modals States
-    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [drawerContent, setDrawerContent] = useState<RightDrawerContent>(null);
+    // Drawer & Modals States (guarantees race-condition resilience & generation isolation)
+    const {
+        isDrawerOpen,
+        drawerContent,
+        openShopDetail,
+        openRolePermissions,
+        openAuditDetail,
+        closeDrawer
+    } = useAdminShopDrawer();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingShop, setEditingShop] = useState<ShopDetail | ShopSummary | null>(null);
     const [lifecycleTarget, setLifecycleTarget] = useState<{
@@ -237,31 +261,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             setLoadingStats(true);
             const data = await AdminApi.getStats();
             setStats(data);
-        } catch (err: any) {
-            console.error('Failed to load platform stats', err);
+        } catch {
+            setStats(null);
         } finally {
             setLoadingStats(false);
         }
     }, []);
-
-    // 2. Fetch Shops
-    const loadShops = useCallback(async () => {
-        try {
-            setLoadingShops(true);
-            const data = await AdminApi.getShops({
-                page,
-                limit: 10,
-                search: searchQuery,
-                status: shopStatus
-            });
-            setShops(data.shops || []);
-            setPagination(data.pagination || null);
-        } catch (err: any) {
-            console.error('Failed to load shops', err);
-        } finally {
-            setLoadingShops(false);
-        }
-    }, [page, searchQuery, shopStatus]);
 
     // 3. Fetch Audit Logs
     const loadAuditLogs = useCallback(async () => {
@@ -269,16 +274,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             setLoadingLogs(true);
             const data = await AdminApi.getAuditLogs({
                 page: auditPage,
-                limit: 15
+                limit: 15,
+                action: auditAction || undefined,
+                startDate: auditStartDate || undefined,
+                endDate: auditEndDate || undefined
             });
             setAuditLogs(data.logs || []);
             setAuditPagination(data.pagination || null);
-        } catch (err: any) {
-            console.error('Failed to load audit logs', err);
+        } catch {
+            setAuditLogs([]);
         } finally {
             setLoadingLogs(false);
         }
-    }, [auditPage]);
+    }, [auditPage, auditAction, auditStartDate, auditEndDate]);
 
     // Initial Load
     useEffect(() => {
@@ -286,10 +294,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         loadAuditLogs();
     }, [loadStats, loadAuditLogs]);
 
-    // Re-fetch shops on page, query, status changes
-    useEffect(() => {
-        loadShops();
-    }, [loadShops]);
+
 
     // Handler: Search Submission from Header
     const handleSearchSubmit = () => {
@@ -297,39 +302,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         if (activeTab !== 'shops') {
             setActiveTab('shops');
         }
-        loadShops();
+        reloadShops();
     };
 
     // Handler: Open Drawer for Role Permissions (Image 1)
     const handleOpenRolePermissions = (role: SystemRole) => {
-        setDrawerContent({ type: 'permissions', role });
-        setIsDrawerOpen(true);
+        openRolePermissions(role);
     };
 
-    // Handler: Save Role Permissions
-    const handleSaveRolePermissions = (roleId: string, updatedGroups: any[]) => {
-        setRoles((prev) =>
-            prev.map((r) => (r.id === roleId ? { ...r, permissionGroups: updatedGroups } : r))
-        );
-        showToast('Đã lưu thay đổi phân quyền thành công!');
+    // Handler: Save Role Permissions (Issue #81: No-op / Read-only until backend RBAC #38/#48)
+    const handleSaveRolePermissions = (_roleId: string, _updatedGroups: any[]) => {
+        // Read-only: no false success toast without backend persistence
     };
 
     // Handler: Open Drawer for Shop Detail
-    const handleOpenShopDetail = async (shop: ShopSummary) => {
-        try {
-            // Fetch single shop full details
-            const detail = await AdminApi.getShopDetail(shop.id);
-            setDrawerContent({ type: 'shop-detail', shop: detail });
-        } catch {
-            setDrawerContent({ type: 'shop-detail', shop });
-        }
-        setIsDrawerOpen(true);
+    const handleOpenShopDetail = (shop: ShopSummary) => {
+        openShopDetail(shop, AdminApi.getShopDetail);
     };
 
     // Handler: Open Drawer for Audit Log Diff
     const handleOpenAuditDetail = (log: AuditLogItem) => {
-        setDrawerContent({ type: 'audit-detail', log });
-        setIsDrawerOpen(true);
+        openAuditDetail(log);
     };
 
     // Handler: Create Shop
@@ -337,7 +330,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         await AdminApi.createShop(payload);
         showToast(`Đã tạo thành công quán "${payload.name}"!`);
         loadStats();
-        loadShops();
+        reloadShops();
         loadAuditLogs();
     };
 
@@ -346,9 +339,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         await AdminApi.updateShop(id, payload);
         showToast('Đã cập nhật thông tin quán thành công!');
         if (drawerContent?.type === 'shop-detail' && drawerContent.shop.id === id) {
-            setIsDrawerOpen(false);
+            closeDrawer();
         }
-        loadShops();
+        reloadShops();
         loadAuditLogs();
     };
 
@@ -368,9 +361,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                 ? 'Đã lưu trữ quán thành công (Bảo toàn lịch sử hóa đơn)!'
                 : `Đã chuyển trạng thái quán sang "${targetStatus}"!`
         );
-        setIsDrawerOpen(false);
+        closeDrawer();
         loadStats();
-        loadShops();
+        reloadShops();
         loadAuditLogs();
     };
 
@@ -546,14 +539,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                                 shops={shops}
                                 pagination={pagination}
                                 currentStatus={shopStatus}
-                                onStatusChange={(st) => {
-                                    setShopStatus(st);
-                                    setPage(1);
-                                }}
-                                onPageChange={(p) => setPage(p)}
+                                onStatusChange={setShopStatus}
+                                onPageChange={setPage}
                                 onSelectShop={handleOpenShopDetail}
                                 onCreateShopClick={() => setIsCreateModalOpen(true)}
                                 isLoading={loadingShops}
+                                error={shopsError}
+                                onRetry={reloadShops}
+                                sortBy={shopSortBy}
+                                sortOrder={shopSortOrder}
+                                onSortChange={setShopSort}
+                                searchQuery={searchQuery}
+                                onClearSearch={clearShopSearch}
                             />
                         </div>
                     )}
@@ -575,6 +572,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                             onPageChange={(p) => setAuditPage(p)}
                             onSelectLog={handleOpenAuditDetail}
                             isLoading={loadingLogs}
+                            selectedAction={auditAction}
+                            onActionChange={(act) => {
+                                setAuditAction(act);
+                                setAuditPage(1);
+                            }}
+                            startDate={auditStartDate}
+                            onStartDateChange={(d) => {
+                                setAuditStartDate(d);
+                                setAuditPage(1);
+                            }}
+                            endDate={auditEndDate}
+                            onEndDateChange={(d) => {
+                                setAuditEndDate(d);
+                                setAuditPage(1);
+                            }}
+                            onResetFilters={() => {
+                                setAuditAction('');
+                                setAuditStartDate('');
+                                setAuditEndDate('');
+                                setAuditPage(1);
+                            }}
                         />
                     )}
 
@@ -637,13 +655,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
             <AdminRightDrawer
                 isOpen={isDrawerOpen}
                 content={drawerContent}
-                onClose={() => {
-                    setIsDrawerOpen(false);
-                    setDrawerContent(null);
-                }}
+                onClose={closeDrawer}
                 onSavePermissions={handleSaveRolePermissions}
                 onEditShop={(shop) => {
-                    setIsDrawerOpen(false);
+                    closeDrawer();
                     setEditingShop(shop);
                 }}
                 onToggleShopStatus={handleRequestLifecycleChange}

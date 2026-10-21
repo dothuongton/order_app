@@ -37,21 +37,20 @@ export const AdminTopHeader: React.FC<AdminTopHeaderProps> = ({
 
             {/* Right Tools & User Profile */}
             <div className="flex items-center gap-4">
-                {/* Notifications with red indicator */}
+                {/* Notifications (truthful read-only / no fake alert) */}
                 <button
-                    onClick={() => alert('Chưa có thông báo hệ thống mới.')}
-                    className="relative p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
-                    title="Thông báo"
+                    disabled
+                    className="relative p-2 rounded-xl text-slate-400 opacity-60 cursor-not-allowed"
+                    title="Thông báo hệ thống (Sẽ hỗ trợ trong giai đoạn sau)"
                 >
                     <Bell className="w-5 h-5" />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white" />
                 </button>
 
-                {/* Settings Gear */}
+                {/* Settings Gear (truthful static info / no fake alert) */}
                 <button
-                    onClick={() => alert('Cài đặt hệ thống: Phiên bản Platform v1.2')}
-                    className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
-                    title="Cài đặt"
+                    disabled
+                    className="p-2 rounded-xl text-slate-400 opacity-60 cursor-not-allowed"
+                    title="Cài đặt nền tảng (Platform v1.2)"
                 >
                     <Settings className="w-5 h-5" />
                 </button>

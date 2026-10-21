@@ -17,6 +17,12 @@ export interface ShopOwner {
     phone?: string | null;
 }
 
+export interface ShopMetrics {
+    tableCount: number;
+    orderCount: number;
+    totalRevenue: number;
+}
+
 export interface ShopSummary {
     id: string;
     name: string;
@@ -32,15 +38,12 @@ export interface ShopSummary {
     tableCount: number;
     orderCount: number;
     totalRevenue: number;
+    metrics?: ShopMetrics;
 }
 
 export interface ShopDetail extends ShopSummary {
     description?: string | null;
-    metrics?: {
-        tableCount: number;
-        orderCount: number;
-        totalRevenue: number;
-    };
+    metrics: ShopMetrics;
 }
 
 export interface PaginationMeta {
@@ -93,6 +96,7 @@ export interface CreateShopPayload {
     ownerFullName: string;
     ownerEmail: string;
     ownerPassword?: string;
+    linkExistingOwner?: boolean;
 }
 
 export interface UpdateShopPayload {
@@ -128,3 +132,9 @@ export interface SystemRole {
     color: string;
     permissionGroups: PermissionGroup[];
 }
+
+export type AdminDrawerContent =
+    | { type: 'permissions'; role: SystemRole }
+    | { type: 'shop-detail'; shop: ShopDetail | ShopSummary }
+    | { type: 'audit-detail'; log: AuditLogItem }
+    | null;
