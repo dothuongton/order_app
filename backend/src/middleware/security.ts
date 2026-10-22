@@ -6,11 +6,18 @@ export const allowedOrigins = new Set([
     new URL(config.frontendUrl).origin,
     ...(process.env.RENDER_EXTERNAL_URL ? [new URL(process.env.RENDER_EXTERNAL_URL).origin] : []),
     ...config.corsOrigins.split(',').map(s => s.trim()).filter(Boolean),
-    ...(config.nodeEnv === 'production' ? [] : ['http://localhost:5173', 'http://localhost:3000'])
+    ...(config.nodeEnv === 'production' ? [] : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'])
 ]);
 
 export function isAllowedOrigin(origin?: string): boolean {
-    return !origin || allowedOrigins.has(origin);
+    if (!origin) return true;
+    if (allowedOrigins.has(origin)) return true;
+    if (config.nodeEnv !== 'production') {
+        if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 export function securityHeaders(_req: Request, res: Response, next: NextFunction) {
