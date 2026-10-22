@@ -14,7 +14,8 @@ import {
     getShopMenuQuerySchema,
     getShopOrdersQuerySchema,
     getShopStaffQuerySchema,
-    getShopDailyStatsQuerySchema
+    getShopDailyStatsQuerySchema,
+    getAnalyticsQuerySchema
 } from './admin.validation.js';
 
 export const adminRouter = Router();
@@ -74,6 +75,20 @@ adminRouter.get('/stats', async (req: Request, res: Response) => {
     try {
         const stats = await AdminService.getPlatformStats();
         res.json(stats);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/analytics
+ * Real-data analytics query with date range and optional tenant scope (Issue #91, Contract #45)
+ */
+adminRouter.get('/analytics', async (req: Request, res: Response) => {
+    try {
+        const queryInput = getAnalyticsQuerySchema.parse(req.query);
+        const result = await AdminService.getAnalytics(queryInput);
+        res.json(result);
     } catch (err: any) {
         handleAdminError(err, res);
     }

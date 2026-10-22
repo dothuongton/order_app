@@ -21,6 +21,7 @@ import { useAdminShopList } from '../../hooks/admin/useAdminShopList.js';
 import { useAdminNavigation } from '../../hooks/admin/useAdminNavigation.js';
 import { RolesView } from '../../components/admin/RolesView.js';
 import { AuditLogsView } from '../../components/admin/AuditLogsView.js';
+import { AnalyticsView } from '../../components/admin/AnalyticsView.js';
 import { AdminRightDrawer, RightDrawerContent } from '../../components/admin/AdminRightDrawer.js';
 import { useAdminShopDrawer } from '../../hooks/admin/useAdminShopDrawer.js';
 import { CreateShopModal } from '../../components/admin/CreateShopModal.js';
@@ -660,53 +661,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                         TAB 5: ANALYTICS / BÁO CÁO
                        ========================================================================= */}
                     {activeTab === 'analytics' && (
-                        <div className="max-w-6xl space-y-6">
-                            <div>
-                                <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                                    THỐNG KÊ KINH DOANH
-                                </span>
-                                <h2 className="text-3xl font-extrabold text-slate-900 mt-1">Báo cáo & Phân tích</h2>
-                                <p className="text-slate-500 text-sm mt-1">
-                                    Số liệu doanh thu, số lượt thanh toán và hiệu suất tăng trưởng toàn nền tảng.
-                                </p>
-                            </div>
-
-                            <DashboardStatsCards stats={stats} isLoading={loadingStats} />
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="p-6 bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                                            <TrendingUp className="w-5 h-5" />
-                                        </div>
-                                        <h4 className="text-base font-bold text-slate-900">Hiệu suất Đặt món</h4>
-                                    </div>
-                                    <div className="text-3xl font-black text-slate-900 mt-2">
-                                        {stats?.totalOrders || 0}{' '}
-                                        <span className="text-xs font-normal text-slate-400">lượt gọi món</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500">
-                                        Tổng số phiên bàn và lượt gọi món tích lũy được ghi nhận an toàn trên cơ sở dữ liệu.
-                                    </p>
-                                </div>
-
-                                <div className="p-6 bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                                            <Layers className="w-5 h-5" />
-                                        </div>
-                                        <h4 className="text-base font-bold text-slate-900">Phiên Tất toán</h4>
-                                    </div>
-                                    <div className="text-3xl font-black text-slate-900 mt-2">
-                                        {stats?.totalSettlements || 0}{' '}
-                                        <span className="text-xs font-normal text-slate-400">hóa đơn hoàn tất</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500">
-                                        Số lượng hóa đơn đã đóng phiên và thanh toán thành công, hoàn toàn đối soát được với sổ cái.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                        <AnalyticsView shops={shops} />
                     )}
                 </main>
             </div>

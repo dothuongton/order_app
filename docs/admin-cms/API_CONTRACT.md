@@ -499,3 +499,53 @@ Tất cả các API đọc sâu dưới đây yêu cầu quyền Super Admin (`a
   ]
 }
 ```
+
+---
+
+### 3.10. Báo Cáo & Phân Tích Doanh Thu Toàn Nền Tảng (Analytics API - Issue #91, Contract #45)
+
+- **Endpoint**: `GET /api/v1/admin/analytics`
+- **Quyền hạn**: Bắt buộc Super Admin (`authenticateSuperAdmin`). Khách và nhân viên không có quyền platform admin bị chặn (401/403). Bỏ qua rate limit mutation (`skip` cho method GET).
+- **Mục đích**: Cung cấp số liệu kinh doanh thật đối soát từ read-model `daily_shop_stats` (Core Contract #45). Không tính toán lại tài chính hay chiết khấu ở tầng máy khách; không trả về số liệu giả (fake data) khi chưa có phát sinh giao dịch.
+- **Query Parameters**:
+  - `tenantId` *(tùy chọn, UUID v4)*: Lọc phân tích theo một nhà hàng cụ thể. Nếu bỏ trống, phân tích tính trên toàn bộ hệ thống.
+  - `from` *(tùy chọn, định dạng YYYY-MM-DD)*: Ngày bắt đầu khoảng thời gian.
+  - `to` *(tùy chọn, định dạng YYYY-MM-DD)*: Ngày kết thúc khoảng thời gian.
+- **Quy tắc Kiểm tra Tính Hợp lệ Ngày**:
+  - Phải là ngày lịch thực tế (`isValidCalendarDate`).
+  - Thứ tự thời gian: Bắt buộc `from <= to`. Nếu `from > to`, trả về lỗi `400 Bad Request` kèm thông báo lỗi rõ ràng.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "from": "2026-10-15",
+  "to": "2026-10-22",
+  "tenantId": null,
+  "summary": {
+    "totalConfirmedSessions": 45,
+    "totalGrossAmount": 6500000,
+    "totalNetAmount": 6200000,
+    "totalDiscountAmount": 300000,
+    "totalOrderItems": 180
+  },
+  "dailyBreakdown": [
+    {
+      "date": "2026-10-15",
+      "confirmedSessionsCount": 7,
+      "grossAmount": 1000000,
+      "netAmount": 950000,
+      "discountAmount": 50000,
+      "orderItemsCount": 28
+    }
+  ],
+  "topShops": [
+    {
+      "tenantId": "11111111-1111-1111-1111-111111111111",
+      "shopName": "Quán Phố Cổ",
+      "shopSlug": "pho-co",
+      "netRevenue": 4500000,
+      "confirmedSessions": 32
+    }
+  ]
+}
+```
+- **Xử lý Zero-Data**: Khi khoảng ngày được chọn chưa có giao dịch nào được chốt, `summary` trả về các giá trị 0 và `dailyBreakdown` là mảng rỗng `[]`. Giao diện hiển thị trạng thái "Chưa có dữ liệu kinh doanh" rõ ràng, tuyệt đối không chèn số liệu giả lập.
