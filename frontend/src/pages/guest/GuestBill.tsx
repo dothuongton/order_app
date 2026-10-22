@@ -11,6 +11,8 @@ export const GuestBill: React.FC = () => {
     activeServiceRequests,
     isSessionClosed,
     receipt,
+    tableStatus,
+    deviceState,
     requestAssistance,
     requestCheckout,
     refreshOrdersAndBill
@@ -22,7 +24,8 @@ export const GuestBill: React.FC = () => {
   const [showAssistanceModal, setShowAssistanceModal] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const isUnopened = !session && !isSessionClosed;
+  const isViewerOccupied = !session && !isSessionClosed && tableStatus === 'OCCUPIED' && deviceState === 'VIEWER';
+  const isUnopened = !session && !isSessionClosed && !isViewerOccupied;
   const isClosed = Boolean(isSessionClosed || session?.status === 'CLOSED' || billSummary?.sessionStatus === 'CLOSED');
   const isOpen = Boolean(session && session.status === 'OPEN' && !isSessionClosed);
   const checkoutRequest = isOpen ? activeServiceRequests.find(r => r.type === 'CHECKOUT') : null;
@@ -73,6 +76,11 @@ export const GuestBill: React.FC = () => {
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
               <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
               Đã kết thúc
+            </span>
+          ) : isViewerOccupied ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+              Đang phục vụ (Chế độ xem)
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">

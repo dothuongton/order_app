@@ -387,6 +387,8 @@ export class GuestService {
                 is_enabled: table.is_enabled,
                 orderingMode: config.orderingMode,
                 ordering_mode: config.orderingMode,
+                sessionStatus: activeSession ? activeSession.status : null,
+                session_status: activeSession ? activeSession.status : null,
                 tableStatus,
                 table_status: tableStatus,
                 deviceState,
