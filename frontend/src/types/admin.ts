@@ -139,3 +139,120 @@ export type AdminDrawerContent =
     | { type: 'shop-detail'; shop: ShopDetail | ShopSummary }
     | { type: 'audit-detail'; log: AuditLogItem }
     | null;
+
+// =========================================================================
+// DEEP READ TYPES (Issue #46 [ADMINREAD])
+// =========================================================================
+
+export interface AdminTableItem {
+    id: string;
+    tenant_id: string;
+    table_number: string;
+    public_qr_id: string;
+    capacity: number;
+    readiness: string;
+    is_enabled: boolean;
+    created_at: string;
+    updated_at?: string;
+}
+
+export interface AdminTablesResponse {
+    tables: AdminTableItem[];
+    pagination: PaginationMeta;
+}
+
+export interface AdminMenuItem {
+    id: string;
+    tenant_id: string;
+    category_id: string;
+    category_name?: string | null;
+    name: string;
+    description?: string | null;
+    price: number;
+    is_available: boolean;
+    image_url?: string | null;
+    created_at: string;
+    updated_at?: string;
+}
+
+export interface AdminCategoryItem {
+    id: string;
+    tenant_id: string;
+    name: string;
+    sort_order: number;
+    created_at: string;
+}
+
+export interface AdminMenuResponse {
+    categories: AdminCategoryItem[];
+    items: AdminMenuItem[];
+    pagination: PaginationMeta;
+}
+
+export interface AdminOrderItem {
+    id: string;
+    tenant_id: string;
+    table_id?: string | null;
+    table_number?: string | null;
+    session_id?: string | null;
+    status: string;
+    total_amount: number;
+    created_at: string;
+    updated_at?: string;
+    item_count: number;
+}
+
+export interface AdminOrdersResponse {
+    orders: AdminOrderItem[];
+    pagination: PaginationMeta;
+}
+
+export interface AdminStaffItem {
+    membership_id: string;
+    tenant_id: string;
+    role: string;
+    joined_at: string;
+    user_id: string;
+    email: string;
+    full_name: string;
+    phone?: string | null;
+}
+
+export interface AdminStaffResponse {
+    staff: AdminStaffItem[];
+    pagination: PaginationMeta;
+}
+
+export interface AdminCmsResponse {
+    draft: {
+        id: string;
+        tenant_id: string;
+        template_id: string;
+        theme_config: any;
+        updated_at: string;
+    } | null;
+    publishedVersions: Array<{
+        id: string;
+        tenant_id: string;
+        version: number;
+        template_id: string;
+        theme_config: any;
+        change_note?: string | null;
+        created_at: string;
+    }>;
+}
+
+export interface AdminDailyStatsResponse {
+    dailyStats: Array<{
+        id: string;
+        tenantId: string;
+        statDate: string;
+        confirmedSessionsCount: number;
+        grossAmount: number;
+        netAmount: number;
+        discountAmount: number;
+        orderItemsCount: number;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+}

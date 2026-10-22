@@ -164,3 +164,43 @@ export const exportAuditLogsQuerySchema = z.object({
 });
 
 export type ExportAuditLogsQueryInput = z.infer<typeof exportAuditLogsQuerySchema>;
+
+// =========================================================================
+// DEEP READ QUERY SCHEMAS (Issue #46)
+// =========================================================================
+
+export const getShopTablesQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    readiness: z.enum(['READY', 'NEEDS_CLEANING', 'DISABLED']).optional(),
+    isEnabled: z.coerce.boolean().optional()
+});
+export type GetShopTablesQueryInput = z.infer<typeof getShopTablesQuerySchema>;
+
+export const getShopMenuQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    categoryId: z.string().uuid('Mã danh mục không đúng định dạng UUID').optional(),
+    isAvailable: z.coerce.boolean().optional()
+});
+export type GetShopMenuQueryInput = z.infer<typeof getShopMenuQuerySchema>;
+
+export const getShopOrdersQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    sessionStatus: z.enum(['OPEN', 'CLOSED']).optional()
+});
+export type GetShopOrdersQueryInput = z.infer<typeof getShopOrdersQuerySchema>;
+
+export const getShopStaffQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    role: z.enum(['owner', 'manager', 'waiter', 'cashier']).optional()
+});
+export type GetShopStaffQueryInput = z.infer<typeof getShopStaffQuerySchema>;
+
+export const getShopDailyStatsQuerySchema = z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày bắt đầu YYYY-MM-DD không hợp lệ').optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày kết thúc YYYY-MM-DD không hợp lệ').optional()
+});
+export type GetShopDailyStatsQueryInput = z.infer<typeof getShopDailyStatsQuerySchema>;

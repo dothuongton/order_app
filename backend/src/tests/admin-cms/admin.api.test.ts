@@ -1814,4 +1814,243 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(JSON.stringify(badData)).not.toContain('SELECT');
         });
     });
+
+    // =========================================================================
+    // 13. SUPER ADMIN DEEP READ APIS (Issue #46 [ADMINREAD])
+    // =========================================================================
+    describe('Super Admin Deep Read APIs (Issue #46 [ADMINREAD])', () => {
+        const nonExistentShopId = 'e0000000-0000-0000-0000-000000000099';
+
+        it('denies unauthenticated requests with 401 across all deep read endpoints', async () => {
+            const endpoints = [
+                `/api/v1/admin/shops/${seedTenantId}/tables`,
+                `/api/v1/admin/shops/${seedTenantId}/menu`,
+                `/api/v1/admin/shops/${seedTenantId}/orders`,
+                `/api/v1/admin/shops/${seedTenantId}/staff`,
+                `/api/v1/admin/shops/${seedTenantId}/cms`,
+                `/api/v1/admin/shops/${seedTenantId}/daily-stats`
+            ];
+
+            for (const ep of endpoints) {
+                const res = await fetch(`${baseUrl}${ep}`);
+                expect(res.status).toBe(401);
+                const data: any = await res.json();
+                expect(data.error).toBe('UNAUTHORIZED');
+            }
+        });
+
+        it('denies non-superadmin staff requests with 403 across all deep read endpoints', async () => {
+            const endpoints = [
+                `/api/v1/admin/shops/${seedTenantId}/tables`,
+                `/api/v1/admin/shops/${seedTenantId}/menu`,
+                `/api/v1/admin/shops/${seedTenantId}/orders`,
+                `/api/v1/admin/shops/${seedTenantId}/staff`,
+                `/api/v1/admin/shops/${seedTenantId}/cms`,
+                `/api/v1/admin/shops/${seedTenantId}/daily-stats`
+            ];
+
+            for (const ep of endpoints) {
+                const res = await fetch(`${baseUrl}${ep}`, {
+                    headers: { 'Authorization': `Bearer ${staffToken}` }
+                });
+                expect(res.status).toBe(403);
+                const data: any = await res.json();
+                expect(data.error).toBe('FORBIDDEN');
+            }
+        });
+
+        it('rejects invalid non-UUID shop id with 400 INVALID_ID', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/not-a-valid-uuid/tables`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(400);
+            const data: any = await res.json();
+            expect(data.error).toBe('INVALID_ID');
+        });
+
+        it('returns 404 SHOP_NOT_FOUND when accessing non-existent shop', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${nonExistentShopId}/tables`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(404);
+            const data: any = await res.json();
+            expect(data.error).toBe('SHOP_NOT_FOUND');
+        });
+
+        it('deep reads shop tables with bounded pagination and status filtering', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables?page=1&limit=10`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(Array.isArray(data.tables)).toBe(true);
+            expect(data.tables.length).toBeGreaterThanOrEqual(1);
+            expect(data.pagination).toBeDefined();
+            expect(data.pagination.page).toBe(1);
+            expect(data.pagination.limit).toBe(10);
+            expect(data.pagination.total).toBeGreaterThanOrEqual(1);
+
+            const table = data.tables[0];
+            expect(table.id).toBeDefined();
+            expect(table.tenant_id).toBe(seedTenantId);
+            expect(table.table_number).toBeDefined();
+            expect(table.public_qr_id).toBeDefined();
+            expect(table.readiness).toBeDefined();
+            expect(table.is_enabled).toBeDefined();
+        });
+
+        it('deep reads shop menu items and categories with availability filtering', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/menu?page=1&limit=50`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(Array.isArray(data.categories)).toBe(true);
+            expect(Array.isArray(data.items)).toBe(true);
+            expect(data.pagination).toBeDefined();
+            expect(data.categories.length).toBeGreaterThanOrEqual(1);
+            expect(data.items.length).toBeGreaterThanOrEqual(1);
+
+            const item = data.items[0];
+            expect(item.id).toBeDefined();
+            expect(item.tenant_id).toBe(seedTenantId);
+            expect(item.name).toBeDefined();
+            expect(item.price).toBeDefined();
+            expect(item.is_available).toBeDefined();
+        });
+
+        it('deep reads shop orders with bounded pagination and item counts', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/orders?page=1&limit=20`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(Array.isArray(data.orders)).toBe(true);
+            expect(data.pagination).toBeDefined();
+            expect(data.pagination.page).toBe(1);
+
+            if (data.orders.length > 0) {
+                const order = data.orders[0];
+                expect(order.id).toBeDefined();
+                expect(order.tenant_id).toBe(seedTenantId);
+                expect(order.session_status).toBeDefined();
+                expect(order.total_amount).toBeDefined();
+            }
+        });
+
+        it('deep reads shop staff and memberships strictly redacting password_hash', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/staff?page=1&limit=20`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(Array.isArray(data.staff)).toBe(true);
+            expect(data.staff.length).toBeGreaterThanOrEqual(1);
+            expect(data.pagination).toBeDefined();
+
+            // Strict security verification: NEVER leak password_hash
+            const rawJson = JSON.stringify(data);
+            expect(rawJson).not.toContain('password_hash');
+            expect(rawJson).not.toContain('password');
+
+            for (const member of data.staff) {
+                expect(member.membership_id).toBeDefined();
+                expect(member.tenant_id).toBe(seedTenantId);
+                expect(member.user_id).toBeDefined();
+                expect(member.email).toBeDefined();
+                expect(member.full_name).toBeDefined();
+                expect(member.role).toBeDefined();
+                expect((member as any).password_hash).toBeUndefined();
+            }
+        });
+
+        it('deep reads shop CMS configuration including draft and published versions', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/cms`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(data).toHaveProperty('draft');
+            expect(data).toHaveProperty('publishedVersions');
+            expect(Array.isArray(data.publishedVersions)).toBe(true);
+
+            if (data.draft) {
+                expect(data.draft.tenant_id).toBe(seedTenantId);
+                expect(data.draft.template_id).toBeDefined();
+            }
+        });
+
+        it('deep reads shop daily business stats from read-model (Contract #45)', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/daily-stats`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(Array.isArray(data.dailyStats)).toBe(true);
+        });
+
+        it('guarantees tenant isolation: shop A deep read never leaks shop B tables or data', async () => {
+            // Create a second probe shop
+            const probeRes = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    name: 'Quán Cô Lập Dữ Liệu',
+                    slug: `probe-iso-${Date.now()}`,
+                    ownerFullName: 'Chủ Quán B',
+                    ownerEmail: `iso.${Date.now()}@test.vn`,
+                    ownerPassword: 'Password123!'
+                })
+            });
+            expect(probeRes.status).toBe(201);
+            const probeData: any = await probeRes.json();
+            const shopBId = probeData.shop.id;
+
+            try {
+                // Read tables of shop B
+                const tablesBRes = await fetch(`${baseUrl}/api/v1/admin/shops/${shopBId}/tables`, {
+                    headers: { 'Authorization': `Bearer ${superAdminToken}` }
+                });
+                expect(tablesBRes.status).toBe(200);
+                const tablesB: any = await tablesBRes.json();
+
+                // Every table in shop B MUST have tenant_id == shopBId, never seedTenantId
+                for (const tbl of tablesB.tables) {
+                    expect(tbl.tenant_id).toBe(shopBId);
+                    expect(tbl.tenant_id).not.toBe(seedTenantId);
+                }
+
+                // Read staff of shop B
+                const staffBRes = await fetch(`${baseUrl}/api/v1/admin/shops/${shopBId}/staff`, {
+                    headers: { 'Authorization': `Bearer ${superAdminToken}` }
+                });
+                expect(staffBRes.status).toBe(200);
+                const staffB: any = await staffBRes.json();
+
+                // Every staff in shop B MUST have tenant_id == shopBId
+                for (const st of staffB.staff) {
+                    expect(st.tenant_id).toBe(shopBId);
+                    expect(st.tenant_id).not.toBe(seedTenantId);
+                }
+            } finally {
+                // Clean up probe shop B
+                await query('DELETE FROM tables WHERE tenant_id = $1', [shopBId]);
+                await query('DELETE FROM menu_categories WHERE tenant_id = $1', [shopBId]);
+                await query('DELETE FROM cms_drafts WHERE tenant_id = $1', [shopBId]);
+                await query('DELETE FROM cms_published_versions WHERE tenant_id = $1', [shopBId]);
+                await query('DELETE FROM audit_logs WHERE tenant_id = $1', [shopBId]);
+                await query('DELETE FROM memberships WHERE tenant_id = $1', [shopBId]);
+                await query('DELETE FROM tenants WHERE id = $1', [shopBId]);
+            }
+        });
+    });
 });

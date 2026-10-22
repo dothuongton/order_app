@@ -7,7 +7,13 @@ import {
     AdminTemplate,
     AuditLogsResponse,
     CreateShopPayload,
-    UpdateShopPayload
+    UpdateShopPayload,
+    AdminTablesResponse,
+    AdminMenuResponse,
+    AdminOrdersResponse,
+    AdminStaffResponse,
+    AdminCmsResponse,
+    AdminDailyStatsResponse
 } from '../types/admin.js';
 
 function getAdminHeaders(): HeadersInit {
@@ -162,5 +168,84 @@ export const AdminApi = {
         }
 
         return await response.blob();
+    },
+
+    /**
+     * Deep read of shop tables (Issue #46)
+     */
+    async getShopTables(shopId: string, params: { page?: number; limit?: number; status?: string } = {}): Promise<AdminTablesResponse> {
+        const queryParams = new URLSearchParams();
+        if (params.page) queryParams.set('page', params.page.toString());
+        if (params.limit) queryParams.set('limit', params.limit.toString());
+        if (params.status) queryParams.set('status', params.status);
+        const query = queryParams.toString();
+        return request<AdminTablesResponse>(`/admin/shops/${shopId}/tables${query ? `?${query}` : ''}`, {
+            headers: getAdminHeaders()
+        });
+    },
+
+    /**
+     * Deep read of shop menu (Issue #46)
+     */
+    async getShopMenu(shopId: string, params: { page?: number; limit?: number; categoryId?: string; isAvailable?: boolean } = {}): Promise<AdminMenuResponse> {
+        const queryParams = new URLSearchParams();
+        if (params.page) queryParams.set('page', params.page.toString());
+        if (params.limit) queryParams.set('limit', params.limit.toString());
+        if (params.categoryId) queryParams.set('categoryId', params.categoryId);
+        if (params.isAvailable !== undefined) queryParams.set('isAvailable', params.isAvailable.toString());
+        const query = queryParams.toString();
+        return request<AdminMenuResponse>(`/admin/shops/${shopId}/menu${query ? `?${query}` : ''}`, {
+            headers: getAdminHeaders()
+        });
+    },
+
+    /**
+     * Deep read of shop orders (Issue #46)
+     */
+    async getShopOrders(shopId: string, params: { page?: number; limit?: number; status?: string } = {}): Promise<AdminOrdersResponse> {
+        const queryParams = new URLSearchParams();
+        if (params.page) queryParams.set('page', params.page.toString());
+        if (params.limit) queryParams.set('limit', params.limit.toString());
+        if (params.status) queryParams.set('status', params.status);
+        const query = queryParams.toString();
+        return request<AdminOrdersResponse>(`/admin/shops/${shopId}/orders${query ? `?${query}` : ''}`, {
+            headers: getAdminHeaders()
+        });
+    },
+
+    /**
+     * Deep read of shop staff (Issue #46)
+     */
+    async getShopStaff(shopId: string, params: { page?: number; limit?: number; role?: string } = {}): Promise<AdminStaffResponse> {
+        const queryParams = new URLSearchParams();
+        if (params.page) queryParams.set('page', params.page.toString());
+        if (params.limit) queryParams.set('limit', params.limit.toString());
+        if (params.role) queryParams.set('role', params.role);
+        const query = queryParams.toString();
+        return request<AdminStaffResponse>(`/admin/shops/${shopId}/staff${query ? `?${query}` : ''}`, {
+            headers: getAdminHeaders()
+        });
+    },
+
+    /**
+     * Deep read of shop CMS configuration (Issue #46)
+     */
+    async getShopCms(shopId: string): Promise<AdminCmsResponse> {
+        return request<AdminCmsResponse>(`/admin/shops/${shopId}/cms`, {
+            headers: getAdminHeaders()
+        });
+    },
+
+    /**
+     * Deep read of shop daily business stats (Issue #46, Contract #45)
+     */
+    async getShopDailyStats(shopId: string, params: { from?: string; to?: string } = {}): Promise<AdminDailyStatsResponse> {
+        const queryParams = new URLSearchParams();
+        if (params.from) queryParams.set('from', params.from);
+        if (params.to) queryParams.set('to', params.to);
+        const query = queryParams.toString();
+        return request<AdminDailyStatsResponse>(`/admin/shops/${shopId}/daily-stats${query ? `?${query}` : ''}`, {
+            headers: getAdminHeaders()
+        });
     }
 };
