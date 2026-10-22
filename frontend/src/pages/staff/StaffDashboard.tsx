@@ -420,7 +420,7 @@ export const StaffDashboard: React.FC = () => {
 
   return (
     <div
-      className={`staff-portal min-h-screen bg-slate-100 flex flex-col lg:flex-row w-full text-slate-800 transition-all ${
+      className={`staff-portal min-h-screen bg-[var(--brand-surface-soft)] flex flex-col lg:flex-row w-full text-[var(--brand-text)] transition-all ${
         staffDensity === 'compact' ? '' : 'density-comfortable'
       }`}
       style={staffThemeStyles}
@@ -429,7 +429,7 @@ export const StaffDashboard: React.FC = () => {
       <aside className="hidden lg:flex flex-col w-64 bg-white border-r border-slate-200/90 shrink-0 sticky top-0 h-screen z-30 select-none overflow-y-auto">
         {/* Brand Header */}
         <div className="p-4 border-b border-slate-100 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-orange-600 text-white font-black flex items-center justify-center shrink-0 overflow-hidden shadow-xs text-base">
+          <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent)] text-[var(--brand-on-accent)] font-black flex items-center justify-center shrink-0 overflow-hidden shadow-xs text-base">
             {currentTenant?.logoUrl ? (
               <img src={currentTenant.logoUrl} alt={currentTenant.name} className="w-full h-full object-cover" />
             ) : (
@@ -441,7 +441,7 @@ export const StaffDashboard: React.FC = () => {
               {currentTenant?.name || 'Nhà Hàng'}
             </h2>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="capitalize text-[10px] px-1.5 py-0.2 rounded-md bg-orange-50 text-orange-700 font-bold border border-orange-200/60">
+              <span className="capitalize text-[10px] px-1.5 py-0.2 rounded-md bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] font-bold border border-[var(--brand-line)]">
                 {currentTenant?.role}
               </span>
             </div>
@@ -456,8 +456,8 @@ export const StaffDashboard: React.FC = () => {
             onClick={() => setActiveTab('tables')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer ${
               activeTab === 'tables'
-                ? 'bg-orange-50 text-orange-600 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] font-extrabold shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
             <LayoutGrid className="w-5 h-5 shrink-0" />
@@ -473,14 +473,14 @@ export const StaffDashboard: React.FC = () => {
             onClick={() => setActiveTab('orders')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer relative ${
               activeTab === 'orders'
-                ? 'bg-orange-50 text-orange-600 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] font-extrabold shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
             <UtensilsCrossed className="w-5 h-5 shrink-0" />
             <span className="flex-1 text-left">Đơn món</span>
             {pendingOrdersCount > 0 && (
-              <span className="px-2 py-0.5 bg-orange-600 text-white rounded-full text-[10px] font-black animate-pulse">
+              <span className="px-2 py-0.5 bg-amber-600 text-white rounded-full text-[10px] font-black animate-pulse">
                 {pendingOrdersCount}
               </span>
             )}
@@ -492,8 +492,8 @@ export const StaffDashboard: React.FC = () => {
             onClick={() => setActiveTab('requests')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer relative ${
               activeTab === 'requests'
-                ? 'bg-orange-50 text-orange-600 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] font-extrabold shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
             <Bell className="w-5 h-5 shrink-0" />
@@ -509,8 +509,8 @@ export const StaffDashboard: React.FC = () => {
             onClick={() => setActiveTab('settings')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer ${
               ['settings', 'reports', 'menu', 'cms'].includes(activeTab)
-                ? 'bg-orange-50 text-orange-600 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] font-extrabold shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
             <Settings className="w-5 h-5 shrink-0" />
@@ -528,7 +528,7 @@ export const StaffDashboard: React.FC = () => {
               title="Chuyển chế độ âm thanh"
             >
               {soundMode === 'voice' && <Mic className="w-3.5 h-3.5 text-emerald-600" />}
-              {soundMode === 'chime' && <Volume2 className="w-3.5 h-3.5 text-orange-600" />}
+              {soundMode === 'chime' && <Volume2 className="w-3.5 h-3.5 text-[var(--brand-accent-text)]" />}
               {soundMode === 'off' && <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
               <span className="capitalize">{soundMode}</span>
             </button>
@@ -548,7 +548,7 @@ export const StaffDashboard: React.FC = () => {
         {/* Top Header */}
         <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200/90 text-slate-900 px-3 sm:px-5 py-2.5 shadow-xs flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-xl bg-orange-600 text-white font-black flex items-center justify-center shrink-0 overflow-hidden shadow-xs text-xs">
+            <div className="w-8 h-8 rounded-xl bg-[var(--brand-accent)] text-[var(--brand-on-accent)] font-black flex items-center justify-center shrink-0 overflow-hidden shadow-xs text-xs">
               {currentTenant?.logoUrl ? (
                 <img src={currentTenant.logoUrl} alt={currentTenant.name} className="w-full h-full object-cover" />
               ) : (
@@ -562,7 +562,7 @@ export const StaffDashboard: React.FC = () => {
               <div className="text-[10px] sm:text-[11px] text-slate-500 truncate flex items-center gap-1.5">
                 <span className="font-medium text-slate-700">{user?.fullName}</span>
                 <span>•</span>
-                <span className="capitalize font-bold text-orange-600">{currentTenant?.role}</span>
+                <span className="capitalize font-bold text-[var(--brand-accent-text)]">{currentTenant?.role}</span>
               </div>
             </div>
           </div>
@@ -575,13 +575,13 @@ export const StaffDashboard: React.FC = () => {
                 soundMode === 'voice'
                   ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
                   : soundMode === 'chime'
-                  ? 'text-orange-700 bg-orange-50 border-orange-200 hover:bg-orange-100'
+                  ? 'text-[var(--brand-accent-dark)] bg-[var(--brand-accent-tint)] border-[var(--brand-line)] hover:bg-[var(--brand-accent-strong)]'
                   : 'text-slate-400 bg-slate-100 border-slate-200 hover:bg-slate-200'
               }`}
               title={`Chế độ âm thanh: ${soundMode === 'voice' ? 'Giọng nói tiếng Việt' : soundMode === 'chime' ? 'Chỉ chuông báo' : 'Đã tắt âm'}. Nhấn để chuyển đổi.`}
             >
               {soundMode === 'voice' && <Mic className="w-4 h-4 text-emerald-600 animate-pulse" />}
-              {soundMode === 'chime' && <Volume2 className="w-4 h-4 text-orange-600" />}
+              {soundMode === 'chime' && <Volume2 className="w-4 h-4 text-[var(--brand-accent-text)]" />}
               {soundMode === 'off' && <VolumeX className="w-4 h-4 text-slate-400" />}
             </button>
 
@@ -590,16 +590,16 @@ export const StaffDashboard: React.FC = () => {
               onClick={() => setShowPushModal(true)}
               className={`w-9 h-9 rounded-xl transition flex items-center justify-center border text-xs font-bold relative shrink-0 cursor-pointer ${
                 pushState === 'granted' && isPushSubscribed
-                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                  ? 'text-[var(--brand-accent-dark)] bg-[var(--brand-accent-tint)] border-[var(--brand-line)] hover:bg-[var(--brand-accent-strong)]'
                   : pushState === 'key_mismatch' || pushState === 'ios_need_install'
                   ? 'text-amber-700 bg-amber-50 border-amber-300 hover:bg-amber-100 animate-pulse'
                   : pushState === 'http_insecure' || pushState === 'denied'
                   ? 'text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100'
-                  : 'text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  : 'text-[var(--brand-muted)] bg-[var(--brand-surface-soft)] border-[var(--brand-line)] hover:bg-[var(--brand-accent-tint)]'
               }`}
               title={`Thông báo đẩy: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'server_disabled' ? 'Chưa bật trên máy chủ' : pushState === 'key_mismatch' ? 'Cần cập nhật khóa' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
             >
-              <BellRing className="w-4 h-4" />
+              <BellRing className="w-4 h-4 text-[var(--brand-accent-text)]" />
               {pushState === 'granted' && isPushSubscribed && (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white"></span>
               )}
@@ -609,7 +609,7 @@ export const StaffDashboard: React.FC = () => {
             {soundEnabled && (
               <button
                 onClick={testSound}
-                className="w-9 h-9 text-orange-600 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl transition flex items-center justify-center shrink-0 cursor-pointer"
+                className="w-9 h-9 text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] hover:bg-[var(--brand-accent-strong)] border border-[var(--brand-line)] rounded-xl transition flex items-center justify-center shrink-0 cursor-pointer"
                 title="Nghe thử âm báo mẫu"
               >
                 <Bell className="w-4 h-4" />
@@ -687,13 +687,13 @@ export const StaffDashboard: React.FC = () => {
         {(!isPushSubscribed && pushState !== 'server_disabled' && pushState !== 'key_mismatch' && pushState !== 'sync_error' && (pushState === 'default' || pushState === 'granted')) && (
           <div
             onClick={() => setShowPushModal(true)}
-            className="bg-orange-50 border-b border-orange-200 text-orange-950 px-4 py-2.5 text-xs font-bold flex items-center justify-between cursor-pointer hover:bg-orange-100/70 transition shadow-xs"
+            className="bg-[var(--brand-accent)] text-[var(--brand-on-accent)] px-4 py-2.5 text-xs font-bold flex items-center justify-between cursor-pointer hover:opacity-95 transition shadow-xs"
           >
             <div className="flex items-center gap-2">
-              <BellRing className="w-4 h-4 animate-bounce shrink-0 text-orange-600" />
+              <BellRing className="w-4 h-4 animate-bounce shrink-0 text-white" />
               <span>Nhấn để Bật Web Push (nhận chuông thông báo khi điện thoại tắt/khóa màn hình)</span>
             </div>
-            <span className="bg-orange-600 text-white text-[10px] px-2.5 py-1 rounded-lg font-black uppercase tracking-wider shrink-0 shadow-xs">
+            <span className="bg-white text-[var(--brand-accent-text)] text-[10px] px-2.5 py-1 rounded-lg font-black uppercase tracking-wider shrink-0 shadow-xs">
               Bật ngay
             </span>
           </div>
@@ -714,7 +714,7 @@ export const StaffDashboard: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowAddTableModal(true)}
-                    className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1 min-h-[38px] cursor-pointer"
+                    className="px-3 py-1.5 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:scale-95 text-[var(--brand-on-accent)] font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1 min-h-[38px] cursor-pointer"
                     title="Tạo thêm bàn mới"
                   >
                     <Plus className="w-4 h-4" />
@@ -741,7 +741,7 @@ export const StaffDashboard: React.FC = () => {
                   placeholder="Tìm nhanh số bàn (vd: 12, A01)..."
                   value={tableSearch}
                   onChange={(e) => setTableSearch(e.target.value)}
-                  className="w-full bg-white border border-slate-200/90 rounded-2xl pl-10 pr-9 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 shadow-xs"
+                  className="w-full bg-white border border-slate-200/90 rounded-2xl pl-10 pr-9 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--brand-accent)]/30 focus:border-[var(--brand-accent)] shadow-xs"
                 />
                 {tableSearch && (
                   <button
@@ -760,8 +760,8 @@ export const StaffDashboard: React.FC = () => {
                   onClick={() => setTableStatusFilter('all')}
                   className={`p-3 sm:p-4 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
                     tableStatusFilter === 'all'
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-slate-900/20'
-                      : 'bg-white text-slate-800 border-slate-200/90 hover:bg-slate-50 shadow-xs'
+                      ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] border-[var(--brand-accent)] shadow-md ring-2 ring-[var(--brand-accent)]/20'
+                      : 'bg-white text-[var(--brand-text)] border-[var(--brand-line)] hover:bg-[var(--brand-surface-soft)] shadow-xs'
                   }`}
                   title="Hiển thị tất cả bàn"
                 >
@@ -769,7 +769,7 @@ export const StaffDashboard: React.FC = () => {
                     {tables.length}
                   </span>
                   <span className={`text-[11px] sm:text-xs font-bold mt-1 ${
-                    tableStatusFilter === 'all' ? 'text-slate-300' : 'text-slate-500'
+                    tableStatusFilter === 'all' ? 'text-[var(--brand-on-accent)]/80' : 'text-slate-500'
                   }`}>
                     Tất cả bàn
                   </span>
@@ -780,18 +780,18 @@ export const StaffDashboard: React.FC = () => {
                   onClick={() => setTableStatusFilter(tableStatusFilter === 'serving' ? 'all' : 'serving')}
                   className={`p-3 sm:p-4 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
                     tableStatusFilter === 'serving'
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/20'
-                      : 'bg-white text-slate-800 border-slate-200/90 hover:bg-slate-50 shadow-xs'
+                      ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] border-[var(--brand-accent)] shadow-md ring-2 ring-[var(--brand-accent)]/20'
+                      : 'bg-white text-[var(--brand-text)] border-[var(--brand-line)] hover:bg-[var(--brand-surface-soft)] shadow-xs'
                   }`}
                   title="Lọc các bàn đang có khách gọi món"
                 >
                   <span className={`text-xl sm:text-2xl font-black leading-tight ${
-                    tableStatusFilter === 'serving' ? 'text-white' : 'text-blue-600'
+                    tableStatusFilter === 'serving' ? 'text-[var(--brand-on-accent)]' : 'text-[var(--brand-text)]'
                   }`}>
                     {countServing}
                   </span>
                   <span className={`text-[11px] sm:text-xs font-bold mt-1 ${
-                    tableStatusFilter === 'serving' ? 'text-blue-100' : 'text-slate-500'
+                    tableStatusFilter === 'serving' ? 'text-[var(--brand-on-accent)]/80' : 'text-slate-500'
                   }`}>
                     Đang dùng
                   </span>
@@ -802,18 +802,18 @@ export const StaffDashboard: React.FC = () => {
                   onClick={() => setTableStatusFilter(tableStatusFilter === 'empty' ? 'all' : 'empty')}
                   className={`p-3 sm:p-4 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
                     tableStatusFilter === 'empty'
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/20'
-                      : 'bg-white text-slate-800 border-slate-200/90 hover:bg-slate-50 shadow-xs'
+                      ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] border-[var(--brand-accent)] shadow-md ring-2 ring-[var(--brand-accent)]/20'
+                      : 'bg-white text-[var(--brand-text)] border-[var(--brand-line)] hover:bg-[var(--brand-surface-soft)] shadow-xs'
                   }`}
                   title="Lọc các bàn trống sẵn sàng đón khách"
                 >
                   <span className={`text-xl sm:text-2xl font-black leading-tight ${
-                    tableStatusFilter === 'empty' ? 'text-white' : 'text-emerald-600'
+                    tableStatusFilter === 'empty' ? 'text-[var(--brand-on-accent)]' : 'text-[var(--brand-text)]'
                   }`}>
                     {countEmpty}
                   </span>
                   <span className={`text-[11px] sm:text-xs font-bold mt-1 ${
-                    tableStatusFilter === 'empty' ? 'text-emerald-100' : 'text-slate-500'
+                    tableStatusFilter === 'empty' ? 'text-[var(--brand-on-accent)]/80' : 'text-slate-500'
                   }`}>
                     Bàn trống
                   </span>
@@ -873,7 +873,7 @@ export const StaffDashboard: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => { setTableSearch(''); setTableStatusFilter('all'); }}
-                    className="mt-2 px-3 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold rounded-xl text-xs transition inline-flex items-center gap-1"
+                    className="mt-2 px-3 py-1.5 bg-[var(--brand-accent-tint)] hover:bg-[var(--brand-accent-strong)] text-[var(--brand-accent-dark)] font-bold rounded-xl text-xs transition inline-flex items-center gap-1"
                   >
                     Xem lại tất cả bàn
                   </button>
@@ -915,7 +915,7 @@ export const StaffDashboard: React.FC = () => {
                               : isZeroOrder
                               ? 'bg-rose-50 text-rose-700 border border-rose-200'
                               : isServing
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              ? 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] border border-[var(--brand-line)]'
                               : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           }`}>
                             {hasCheckout
@@ -958,7 +958,7 @@ export const StaffDashboard: React.FC = () => {
                           <button
                             onClick={() => handleQuickOpenSession(table.table_id)}
                             disabled={!hasPermission('session.open')}
-                            className="flex-1 py-1.5 px-2 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white font-bold text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
+                            className="flex-1 py-1.5 px-2 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:scale-95 text-[var(--brand-on-accent)] font-bold text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
                             title="Mở phiên bàn"
                           >
                             <Plus className="w-3.5 h-3.5 shrink-0" />
@@ -968,7 +968,7 @@ export const StaffDashboard: React.FC = () => {
                           <button
                             onClick={() => handleQuickCloseWithoutCharge(table.active_session_id!)}
                             disabled={!hasPermission('session.close_without_charge')}
-                            className="flex-1 py-1.5 px-2 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl border border-rose-300 transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
+                            className="flex-1 py-1.5 px-2 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl border border-rose-300 transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
                             title="Tắt bàn mở nhầm"
                           >
                             <XCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
@@ -977,7 +977,7 @@ export const StaffDashboard: React.FC = () => {
                         ) : hasCheckout ? (
                           <button
                             onClick={() => setSelectedTable(table)}
-                            className="flex-1 py-1.5 px-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap animate-pulse"
+                            className="flex-1 py-1.5 px-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap animate-pulse cursor-pointer"
                             title="Khách yêu cầu thanh toán"
                           >
                             <CreditCard className="w-3.5 h-3.5 shrink-0" />
@@ -986,7 +986,7 @@ export const StaffDashboard: React.FC = () => {
                         ) : (
                           <button
                             onClick={() => setSelectedTable(table)}
-                            className="flex-1 py-1.5 px-2 bg-slate-900 hover:bg-black active:bg-slate-800 text-white font-bold text-xs rounded-xl transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap"
+                            className="flex-1 py-1.5 px-2 bg-[var(--brand-accent-strong)] hover:opacity-90 active:scale-95 text-[var(--brand-accent-dark)] font-bold text-xs rounded-xl transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
                             title="Xem chi tiết đơn"
                           >
                             <Receipt className="w-3.5 h-3.5 shrink-0" />
@@ -996,7 +996,7 @@ export const StaffDashboard: React.FC = () => {
 
                         <button
                           onClick={() => setSelectedQrTableId(table.table_id)}
-                          className="p-1.5 text-slate-500 hover:text-slate-900 rounded-xl hover:bg-slate-100 min-h-[38px] min-w-[38px] shrink-0 flex items-center justify-center border border-slate-200 transition"
+                          className="p-1.5 text-slate-500 hover:text-slate-900 rounded-xl hover:bg-[var(--brand-surface-soft)] min-h-[38px] min-w-[38px] shrink-0 flex items-center justify-center border border-slate-200 transition cursor-pointer"
                           title="Xem mã QR"
                         >
                           <QrCode className="w-3.5 h-3.5" />
@@ -1224,7 +1224,7 @@ export const StaffDashboard: React.FC = () => {
                                   <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">{item.quantity}x</span>
                                   <span className="font-extrabold text-slate-900 text-sm sm:text-base break-words line-clamp-2 leading-tight">{item.name}</span>
                                   {item.variantName && (
-                                    <span className="text-[11px] font-bold px-2 py-0.5 bg-orange-100 text-orange-700 rounded-md shrink-0">
+                                    <span className="text-[11px] font-bold px-2 py-0.5 bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] rounded-md shrink-0">
                                       {item.variantName}
                                     </span>
                                   )}
@@ -1305,7 +1305,7 @@ export const StaffDashboard: React.FC = () => {
                         </span>
                         <button
                           onClick={() => setSelectedTable(table)}
-                          className="font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1"
+                          className="font-bold text-[var(--brand-accent-text)] hover:underline flex items-center gap-1"
                         >
                           <span>Xem hóa đơn & Chốt bill &rarr;</span>
                         </button>
@@ -1380,7 +1380,7 @@ export const StaffDashboard: React.FC = () => {
                         {tableObj && (
                           <button
                             onClick={() => setSelectedTable(tableObj)}
-                            className="text-xs font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 min-h-[36px]"
+                            className="text-xs font-bold text-[var(--brand-accent-text)] hover:underline flex items-center gap-1 min-h-[36px]"
                           >
                             <span>Xem bàn &rarr;</span>
                           </button>
@@ -1419,7 +1419,7 @@ export const StaffDashboard: React.FC = () => {
                             onClick={() => {
                               if (tableObj) setSelectedTable(tableObj);
                             }}
-                            className="w-full py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs min-h-[44px] flex items-center justify-center gap-1.5"
+                            className="w-full py-2.5 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-[var(--brand-on-accent)] font-bold text-xs rounded-xl shadow-xs min-h-[44px] flex items-center justify-center gap-1.5"
                           >
                             <CreditCard className="w-4 h-4" />
                             <span>Mở tổng bill bàn {group.tableNumber} để chốt tiền</span>
@@ -1516,7 +1516,7 @@ export const StaffDashboard: React.FC = () => {
                   className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                    <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
                       <BarChart2 className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
@@ -1538,7 +1538,7 @@ export const StaffDashboard: React.FC = () => {
                   className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                    <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
                       <UtensilsCrossed className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
@@ -1560,7 +1560,7 @@ export const StaffDashboard: React.FC = () => {
                   className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                    <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
                       <Settings className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
@@ -1581,7 +1581,7 @@ export const StaffDashboard: React.FC = () => {
                 className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
               >
                 <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                  <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
                     <BellRing className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
@@ -1610,7 +1610,7 @@ export const StaffDashboard: React.FC = () => {
                 className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
               >
                 <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                  <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
                     {soundMode === 'voice' && <Mic className="w-5 h-5" />}
                     {soundMode === 'chime' && <Volume2 className="w-5 h-5" />}
                     {soundMode === 'off' && <VolumeX className="w-5 h-5" />}
@@ -1622,7 +1622,7 @@ export const StaffDashboard: React.FC = () => {
                         soundMode === 'voice'
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           : soundMode === 'chime'
-                          ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                          ? 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] border border-[var(--brand-line)]'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
                         {soundMode === 'voice' ? 'Giọng nói' : soundMode === 'chime' ? 'Chuông' : 'Tắt'}
@@ -1714,7 +1714,7 @@ export const StaffDashboard: React.FC = () => {
           type="button"
           onClick={() => setActiveTab('tables')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition cursor-pointer ${
-            activeTab === 'tables' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'tables' ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs' : 'text-slate-500 font-medium'
           }`}
         >
           <LayoutGrid className="w-5 h-5" />
@@ -1726,13 +1726,13 @@ export const StaffDashboard: React.FC = () => {
           type="button"
           onClick={() => setActiveTab('orders')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative cursor-pointer ${
-            activeTab === 'orders' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'orders' ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs' : 'text-slate-500 font-medium'
           }`}
         >
           <UtensilsCrossed className="w-5 h-5" />
           <span className="text-[10px] mt-1">Đơn món</span>
           {pendingOrdersCount > 0 && (
-            <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-orange-600 text-white rounded-full text-[9px] font-black animate-pulse">
+            <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-amber-600 text-white rounded-full text-[9px] font-black animate-pulse">
               {pendingOrdersCount}
             </span>
           )}
@@ -1743,7 +1743,7 @@ export const StaffDashboard: React.FC = () => {
           type="button"
           onClick={() => setActiveTab('requests')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative cursor-pointer ${
-            activeTab === 'requests' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'requests' ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs' : 'text-slate-500 font-medium'
           }`}
         >
           <Bell className="w-5 h-5" />
@@ -1759,7 +1759,7 @@ export const StaffDashboard: React.FC = () => {
           onClick={() => setActiveTab('settings')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition cursor-pointer ${
             ['settings', 'reports', 'menu', 'cms'].includes(activeTab)
-              ? 'text-orange-600 bg-orange-50 font-bold'
+              ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs'
               : 'text-slate-500 font-medium'
           }`}
         >
@@ -1840,7 +1840,7 @@ export const StaffDashboard: React.FC = () => {
                 type="checkbox"
                 checked={markItemOutOfStock}
                 onChange={(e) => setMarkItemOutOfStock(e.target.checked)}
-                className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500 mt-0.5"
+                className="w-4 h-4 rounded text-[var(--brand-accent)] focus:ring-[var(--brand-accent)] mt-0.5"
               />
               <div>
                 <span className="font-bold text-amber-900 block">Đánh dấu hết hàng trên thực đơn</span>
@@ -1872,7 +1872,7 @@ export const StaffDashboard: React.FC = () => {
           <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-slide-up">
             <div className="flex justify-between items-center pb-2 border-b border-slate-100">
               <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                <Store className="w-5 h-5 text-orange-600" />
+                <Store className="w-5 h-5 text-[var(--brand-accent-text)]" />
                 <span>Thêm Bàn Phục Vụ Mới</span>
               </h3>
               <button
@@ -1893,7 +1893,7 @@ export const StaffDashboard: React.FC = () => {
                   placeholder="Ví dụ: Bàn 06, A03, VIP 1..."
                   value={newTableNumber}
                   onChange={(e) => setNewTableNumber(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-[var(--brand-accent)] text-sm"
                   autoFocus
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">Mỗi bàn sẽ tự động được cấp mã QR riêng để khách quét gọi món.</span>
@@ -1907,7 +1907,7 @@ export const StaffDashboard: React.FC = () => {
                   max={100}
                   value={newTableCapacity}
                   onChange={(e) => setNewTableCapacity(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-[var(--brand-accent)] text-sm"
                 />
               </div>
 
@@ -1922,7 +1922,7 @@ export const StaffDashboard: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isAddingTable || !newTableNumber.trim()}
-                  className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+                  className="flex-1 py-2.5 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:scale-95 text-[var(--brand-on-accent)] font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
                 >
                   {isAddingTable ? 'Đang tạo...' : 'Tạo Bàn'}
                 </button>

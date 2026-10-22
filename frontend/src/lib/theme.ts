@@ -6,13 +6,13 @@ export type StaffTheme = {
 export type StaffDensity = 'compact' | 'comfortable';
 
 export const DEFAULT_STAFF_THEME: Readonly<StaffTheme> = {
-  accentColor: '#ea580c',
-  textColor: '#2f2a26',
+  accentColor: '#244f3c',
+  textColor: '#27382e',
 };
 
 export const THEME_PRESETS: ReadonlyArray<{ name: string; settings: StaffTheme }> = [
+  { name: 'Xanh lá GAERU', settings: { accentColor: '#244f3c', textColor: '#27382e' } },
   { name: 'Cam GAERU', settings: { accentColor: '#ea580c', textColor: '#2f2a26' } },
-  { name: 'Xanh lá', settings: { accentColor: '#244f3c', textColor: '#27382e' } },
   { name: 'Xanh dương', settings: { accentColor: '#1f4f93', textColor: '#263449' } },
   { name: 'Nâu đất', settings: { accentColor: '#995035', textColor: '#3f3028' } },
   { name: 'Tím', settings: { accentColor: '#65428f', textColor: '#352d43' } },
@@ -92,6 +92,12 @@ export function getStaffThemeCssVars(
     '--brand-text': theme.textColor,
     '--brand-on-accent': onAccent,
     '--brand-accent-text': accentText,
+    '--brand-accent-dark': `color-mix(in srgb, ${theme.accentColor} 82%, #000)`,
+    '--brand-surface-soft': `color-mix(in srgb, ${theme.accentColor} 5%, #fff)`,
+    '--brand-accent-tint': `color-mix(in srgb, ${theme.accentColor} 10%, #fff)`,
+    '--brand-accent-strong': `color-mix(in srgb, ${theme.accentColor} 18%, #fff)`,
+    '--brand-line': `color-mix(in srgb, ${theme.textColor} 16%, #fff)`,
+    '--brand-muted': `color-mix(in srgb, ${theme.textColor} 76%, #fff)`,
     '--staff-font-scale': isCompact ? '0.9375' : '1',
     '--staff-radius': isCompact ? '12px' : '24px',
     '--staff-card-pad': isCompact ? '12px' : '16px',

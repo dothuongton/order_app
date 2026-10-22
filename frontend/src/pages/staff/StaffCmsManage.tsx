@@ -797,7 +797,7 @@ export const StaffCmsManage: React.FC = () => {
                                                     }}
                                                     className={`p-2.5 rounded-xl border flex items-center gap-2.5 transition text-left cursor-pointer ${
                                                         isSelected
-                                                            ? 'border-orange-500 bg-orange-50 shadow-xs ring-1 ring-orange-500'
+                                                            ? 'border-[var(--brand-accent)] bg-[var(--brand-accent-tint)] shadow-xs ring-1 ring-[var(--brand-accent)]'
                                                             : 'border-slate-200 bg-slate-50 hover:bg-slate-100/70 hover:border-slate-300'
                                                     }`}
                                                 >

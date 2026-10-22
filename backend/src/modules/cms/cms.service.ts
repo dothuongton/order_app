@@ -60,8 +60,8 @@ export function normalizeThemeConfig(config: any) {
             accentColor: String(raw.staffTheme.accentColor).toLowerCase(),
             textColor: String(raw.staffTheme.textColor).toLowerCase()
         } : {
-            accentColor: '#ea580c',
-            textColor: '#2f2a26'
+            accentColor: '#244f3c',
+            textColor: '#27382e'
         },
         staffDensity: raw.staffDensity === 'compact' ? 'compact' : 'comfortable'
     };

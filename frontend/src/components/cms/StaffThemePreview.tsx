@@ -34,27 +34,27 @@ export const StaffThemePreview: React.FC<StaffThemePreviewProps> = ({
 
       {/* Mock Phone / POS Screen Container */}
       <div
-        className={`staff-portal bg-slate-100 rounded-2xl border border-slate-300 overflow-hidden shadow-inner flex flex-col ${
+        className={`staff-portal bg-[var(--brand-surface-soft)] text-[var(--brand-text)] rounded-2xl border border-slate-300 overflow-hidden shadow-inner flex flex-col ${
           density === 'compact' ? '' : 'density-comfortable'
         }`}
         style={cssVars as React.CSSProperties}
       >
         {/* Mock Top Header */}
-        <div className="bg-slate-900 text-white px-3 py-2 flex items-center justify-between gap-2 border-b border-slate-800">
+        <div className="bg-[var(--brand-accent-dark)] text-white px-3 py-2 flex items-center justify-between gap-2 border-b border-[var(--brand-line)]">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-orange-600 flex items-center justify-center font-black shrink-0 text-white">
+            <div className="w-7 h-7 rounded-lg bg-[var(--brand-accent)] flex items-center justify-center font-black shrink-0 text-[var(--brand-on-accent)]">
               <Store className="w-3.5 h-3.5" />
             </div>
             <div className="min-w-0">
               <div className="font-bold text-xs truncate leading-tight">{storeName}</div>
-              <div className="text-[9px] text-slate-400">
+              <div className="text-[9px] text-slate-300">
                 <span>Thu ngân</span>
                 <span className="mx-1">•</span>
-                <span className="text-orange-400 font-bold">Quản lý</span>
+                <span className="text-[var(--brand-on-accent)] font-bold">Quản lý</span>
               </div>
             </div>
           </div>
-          <div className="text-[10px] font-bold px-2 py-1 bg-slate-800 rounded-lg text-slate-300">
+          <div className="text-[10px] font-bold px-2 py-1 bg-[var(--brand-accent)] rounded-lg text-[var(--brand-on-accent)]">
             19:30
           </div>
         </div>
@@ -66,7 +66,7 @@ export const StaffThemePreview: React.FC<StaffThemePreviewProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-black text-slate-900 text-xs sm:text-sm">Bàn A02</span>
-                <span className="text-[10px] font-bold bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full border border-orange-200">
+                <span className="text-[10px] font-bold bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] px-2 py-0.5 rounded-full border border-[var(--brand-line)]">
                   2 món mới
                 </span>
               </div>
@@ -90,7 +90,7 @@ export const StaffThemePreview: React.FC<StaffThemePreviewProps> = ({
             <div className="flex items-center gap-2 pt-0.5">
               <button
                 type="button"
-                className="flex-1 py-1.5 px-3 bg-orange-600 hover:bg-orange-700 font-extrabold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="flex-1 py-1.5 px-3 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-[var(--brand-on-accent)] font-extrabold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <span>Nhận làm món</span>
               </button>
@@ -110,7 +110,7 @@ export const StaffThemePreview: React.FC<StaffThemePreviewProps> = ({
             <LayoutGrid className="w-4 h-4" />
             <span className="text-[9px] mt-0.5 font-medium">Bàn</span>
           </div>
-          <div className="flex flex-col items-center justify-center flex-1 py-1 text-orange-600 bg-orange-50 rounded-lg font-bold">
+          <div className="flex flex-col items-center justify-center flex-1 py-1 text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] rounded-lg font-bold">
             <UtensilsCrossed className="w-4 h-4" />
             <span className="text-[9px] mt-0.5">Đơn món</span>
           </div>

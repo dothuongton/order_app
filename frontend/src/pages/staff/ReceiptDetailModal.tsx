@@ -56,7 +56,7 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
         {/* Modal Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 print:hidden">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center">
               <Receipt className="w-5 h-5" />
             </div>
             <div>
@@ -134,7 +134,7 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                       <span className="flex-1 font-sans font-semibold text-[11px] pr-1">
                         {item.name}
                         {item.variantName && (
-                          <span className="ml-1 text-[10px] text-orange-700 font-bold">({item.variantName})</span>
+                          <span className="ml-1 text-[10px] text-[var(--brand-accent-dark)] font-bold">({item.variantName})</span>
                         )}
                       </span>
                       <span className="w-10 text-center font-bold">{item.quantity}</span>
@@ -162,7 +162,7 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
               <div className="pt-3 border-t border-dashed border-slate-300 space-y-1.5">
                 <div className="flex justify-between items-center text-sm font-sans font-extrabold text-slate-900">
                   <span>TỔNG CỘNG:</span>
-                  <span className="text-base text-orange-600 font-black">
+                  <span className="text-base text-[var(--brand-accent-text)] font-black">
                     {Number(session.confirmed_amount).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
@@ -184,7 +184,7 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
         <div className="p-4 border-t border-slate-100 flex items-center gap-2 bg-slate-50 print:hidden">
           <button
             onClick={handlePrint}
-            className="flex-1 py-2.5 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 min-h-[44px]"
+            className="flex-1 py-2.5 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-[var(--brand-on-accent)] font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 min-h-[44px]"
           >
             <Printer className="w-4 h-4" />
             <span>In hóa đơn</span>

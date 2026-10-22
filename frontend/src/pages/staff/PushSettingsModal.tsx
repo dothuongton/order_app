@@ -62,7 +62,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
         {/* Sticky Header */}
         <div className="p-4 sm:p-5 pb-3 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
+            <div className="w-9 h-9 rounded-xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center font-bold">
               <BellRing className="w-5 h-5" />
             </div>
             <div>
@@ -183,7 +183,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
             <button
               onClick={handleSubscribe}
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-2"
+              className="w-full py-3 px-4 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-50 text-[var(--brand-on-accent)] font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-2"
             >
               <RefreshCw className="w-4 h-4" />
               <span>{isLoading ? 'Đang cập nhật...' : 'Cập nhật và kết nối lại ngay'}</span>
@@ -201,7 +201,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
             </p>
             <div className="bg-white/80 p-2.5 rounded-xl border border-rose-200/80 space-y-1">
               <p className="font-bold text-slate-800 text-[11px]">💡 Cách tạo link HTTPS trên máy tính để thử iPhone:</p>
-              <p className="text-[11px] text-orange-600 font-mono bg-slate-100 p-1.5 rounded-lg select-all">
+              <p className="text-[11px] text-[var(--brand-accent-text)] font-mono bg-slate-100 p-1.5 rounded-lg select-all">
                 npm run tunnel
               </p>
               <p className="text-[10px] text-slate-500">
@@ -235,7 +235,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
             <button
               onClick={handleSubscribe}
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-3"
+              className="w-full py-3 px-4 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-50 text-[var(--brand-on-accent)] font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-3"
             >
               <Bell className="w-4 h-4" />
               <span>{isLoading ? 'Đang kích hoạt...' : '👉 Nhấn để Bật quyền thông báo ngay'}</span>
@@ -278,7 +278,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
             <button
               onClick={handleSubscribe}
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-2"
+              className="w-full py-3 px-4 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-50 text-[var(--brand-on-accent)] font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px] mt-2"
             >
               <RefreshCw className="w-4 h-4" />
               <span>{isLoading ? 'Đang kết nối lại...' : 'Kết nối lại thông báo ngay'}</span>
@@ -301,7 +301,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
               <button
                 onClick={handleSendTest}
                 disabled={isLoading}
-                className="w-full py-2.5 px-3 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 min-h-[42px]"
+                className="w-full py-2.5 px-3 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-50 text-[var(--brand-on-accent)] font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 min-h-[42px]"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>{isLoading ? 'Đang gửi...' : 'Gửi thử 1 thông báo tới máy này'}</span>
@@ -337,7 +337,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
             <button
               onClick={handleSubscribe}
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px]"
+              className="w-full py-3 px-4 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-50 text-[var(--brand-on-accent)] font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 min-h-[46px]"
             >
               <Bell className="w-4 h-4" />
               <span>{isLoading ? 'Đang đăng ký...' : 'Bật thông báo Web Push ngay'}</span>

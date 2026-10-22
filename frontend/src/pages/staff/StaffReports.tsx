@@ -80,7 +80,7 @@ export const StaffReports: React.FC = () => {
       </div>
 
       {/* Main Revenue Card */}
-      <div className="bg-gradient-to-br from-orange-600 to-amber-600 text-white p-5 rounded-3xl shadow-lg space-y-1.5">
+      <div className="bg-gradient-to-br from-[var(--brand-accent)] to-[var(--brand-accent-dark)] text-white p-5 rounded-3xl shadow-lg space-y-1.5">
         <span className="text-xs font-semibold opacity-90 uppercase tracking-wider">
           {metrics.label || 'Tổng bill đã được nhân viên xác nhận thanh toán'}
         </span>
@@ -107,10 +107,10 @@ export const StaffReports: React.FC = () => {
             <div
               key={idx}
               onClick={() => setSelectedSessionForReceipt(s)}
-              className="py-3 px-3 -mx-2 rounded-xl hover:bg-orange-50/60 active:bg-orange-100/60 cursor-pointer flex items-center justify-between text-xs transition border border-transparent hover:border-orange-200 group"
+              className="py-3 px-3 -mx-2 rounded-xl hover:bg-[var(--brand-accent-tint)] active:bg-[var(--brand-accent-strong)] cursor-pointer flex items-center justify-between text-xs transition border border-transparent hover:border-[var(--brand-line)] group"
             >
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-black group-hover:bg-orange-500 group-hover:text-white transition">
+                <div className="w-8 h-8 rounded-lg bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center font-black group-hover:bg-[var(--brand-accent)] group-hover:text-white transition">
                   <Receipt className="w-4 h-4" />
                 </div>
                 <div>
@@ -125,10 +125,10 @@ export const StaffReports: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm text-emerald-700 group-hover:text-orange-600 transition">
+                <span className="font-extrabold text-sm text-emerald-700 group-hover:text-[var(--brand-accent-text)] transition">
                   {Number(s.confirmed_amount).toLocaleString('vi-VN')}đ
                 </span>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-orange-500 transition" />
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-[var(--brand-accent-text)] transition" />
               </div>
             </div>
           ))}
@@ -142,7 +142,7 @@ export const StaffReports: React.FC = () => {
       {/* Top Served Dishes */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3">
         <div className="flex items-center gap-2">
-          <Utensils className="w-4 h-4 text-orange-600" />
+          <Utensils className="w-4 h-4 text-[var(--brand-accent-text)]" />
           <h4 className="font-bold text-sm text-slate-900">Món được phục vụ nhiều nhất</h4>
         </div>
 

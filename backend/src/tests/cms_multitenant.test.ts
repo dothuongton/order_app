@@ -243,8 +243,8 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
             const profileData: any = await profileRes.json();
             expect(profileData.profile.activeThemeConfig.staffTheme).toEqual({
-                accentColor: '#ea580c',
-                textColor: '#2f2a26'
+                accentColor: '#244f3c',
+                textColor: '#27382e'
             });
             expect(profileData.profile.activeThemeConfig.staffDensity).toBe('comfortable');
 
@@ -253,8 +253,8 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             });
             const draftData: any = await draftRes.json();
             expect(draftData.draft.themeConfig.staffTheme).toEqual({
-                accentColor: '#ea580c',
-                textColor: '#2f2a26'
+                accentColor: '#244f3c',
+                textColor: '#27382e'
             });
             expect(draftData.draft.themeConfig.staffDensity).toBe('comfortable');
         });

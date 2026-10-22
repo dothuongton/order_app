@@ -64,7 +64,7 @@ export const QRModal: React.FC<QRModalProps> = ({ tableId, onClose }) => {
                 href={data.qrUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="flex-1 py-2.5 px-3 bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition min-h-[44px]"
+                className="flex-1 py-2.5 px-3 bg-[var(--brand-accent-tint)] hover:bg-[var(--brand-accent-strong)] text-[var(--brand-accent-dark)] font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition min-h-[44px]"
               >
                 <ExternalLink className="w-4 h-4" />
                 <span>Mở thử trang khách</span>
@@ -72,7 +72,7 @@ export const QRModal: React.FC<QRModalProps> = ({ tableId, onClose }) => {
               <a
                 href={data.dataUrl}
                 download={`QR_Ban_${data.tableNumber}.png`}
-                className="py-2.5 px-4 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition min-h-[44px]"
+                className="py-2.5 px-4 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-[var(--brand-on-accent)] font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition min-h-[44px]"
               >
                 <Download className="w-4 h-4" />
                 <span>Tải ảnh</span>

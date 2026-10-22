@@ -22,7 +22,11 @@ describe('Staff Theme Contrast & Math Algorithm (WCAG Spec)', () => {
     expect(isHexColor(null)).toBe(false);
   });
 
-  it('normalizes theme settings with fallback to Cam GAERU defaults', () => {
+  it('normalizes theme settings with fallback to Xanh lá GAERU defaults', () => {
+    expect(DEFAULT_STAFF_THEME).toEqual({
+      accentColor: '#244f3c',
+      textColor: '#27382e'
+    });
     expect(normalizeStaffTheme(null)).toEqual(DEFAULT_STAFF_THEME);
     expect(normalizeStaffTheme({})).toEqual(DEFAULT_STAFF_THEME);
     expect(normalizeStaffTheme({ accentColor: '#1F4F93', textColor: '#263449' })).toEqual({

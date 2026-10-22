@@ -36,16 +36,16 @@ html, body {
 
 /* Staff & Admin portal theme tokens and utility remapping (Gaeru-style) */
 .staff-portal {
-  --brand-accent: #ea580c;
-  --brand-text: #2f2a26;
+  --brand-accent: #244f3c;
+  --brand-text: #27382e;
   --brand-on-accent: #ffffff;
-  --brand-accent-text: #ea580c;
-  --brand-accent-dark: color-mix(in srgb, var(--brand-accent) 78%, #000);
-  --brand-accent-soft: color-mix(in srgb, var(--brand-accent) 10%, #fff);
-  --brand-accent-tint: color-mix(in srgb, var(--brand-accent) 5%, #fff);
-  --brand-line: color-mix(in srgb, var(--brand-accent) 18%, #fff);
-  --brand-surface-soft: color-mix(in srgb, var(--brand-text) 4%, #fff);
-  --brand-muted: color-mix(in srgb, var(--brand-text) 60%, #fff);
+  --brand-accent-text: #244f3c;
+  --brand-accent-dark: color-mix(in srgb, var(--brand-accent) 82%, #000);
+  --brand-surface-soft: color-mix(in srgb, var(--brand-accent) 5%, #fff);
+  --brand-accent-tint: color-mix(in srgb, var(--brand-accent) 10%, #fff);
+  --brand-accent-strong: color-mix(in srgb, var(--brand-accent) 18%, #fff);
+  --brand-line: color-mix(in srgb, var(--brand-text) 16%, #fff);
+  --brand-muted: color-mix(in srgb, var(--brand-text) 76%, #fff);
 
   --staff-font-scale: 0.9375;
   --staff-radius: 12px;
@@ -75,12 +75,12 @@ html, body {
 }
 .staff-portal .bg-orange-50,
 .staff-portal .bg-orange-100 {
-  background-color: var(--brand-accent-soft);
+  background-color: var(--brand-accent-tint);
 }
 .staff-portal .hover\:bg-orange-50:hover,
 .staff-portal .hover\:bg-orange-100:hover,
 .staff-portal .active\:bg-orange-100:active {
-  background-color: color-mix(in srgb, var(--brand-accent) 16%, #fff);
+  background-color: var(--brand-accent-strong);
 }
 
 /* Text remapping */
@@ -137,6 +137,17 @@ html, body {
 .staff-portal button.bg-orange-500.text-white,
 .staff-portal a.bg-orange-500.text-white {
   color: var(--brand-on-accent);
+}
+
+/* Dark chrome surfaces in staff portal derive from accent-dark */
+.staff-portal button.bg-slate-900,
+.staff-portal a.bg-slate-900 {
+  background-color: var(--brand-accent-dark);
+  color: var(--brand-on-accent);
+}
+.staff-portal button.bg-slate-900:hover,
+.staff-portal a.bg-slate-900:hover {
+  background-color: color-mix(in srgb, var(--brand-accent-dark) 85%, #000);
 }
 
 /* Density token helpers */

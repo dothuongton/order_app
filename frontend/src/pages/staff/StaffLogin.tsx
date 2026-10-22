@@ -39,12 +39,12 @@ export const StaffLogin: React.FC = () => {
 
   return (
     <div
-      className="staff-portal min-h-screen bg-slate-100 flex items-center justify-center p-4 transition-colors"
+      className="staff-portal min-h-screen bg-[var(--brand-surface-soft)] text-[var(--brand-text)] flex items-center justify-center p-4 transition-colors"
       style={loginThemeStyles}
     >
       <div className="bg-white rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl space-y-6 border border-slate-200/80 staff-density-card">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-orange-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-orange-500/30">
+          <div className="w-14 h-14 rounded-2xl bg-[var(--brand-accent)] text-[var(--brand-on-accent)] flex items-center justify-center mx-auto shadow-lg shadow-[var(--brand-accent)]/30">
             <Store className="w-7 h-7" />
           </div>
           <h1 className="text-2xl font-black text-slate-900">QR Order Staff v1.2</h1>
@@ -69,7 +69,7 @@ export const StaffLogin: React.FC = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@phoco.vn"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-accent)]"
                 required
               />
             </div>
@@ -86,7 +86,7 @@ export const StaffLogin: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-accent)]"
                 required
               />
             </div>
@@ -95,7 +95,7 @@ export const StaffLogin: React.FC = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-bold rounded-xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
+            className="w-full min-h-[48px] bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-50 text-[var(--brand-on-accent)] font-bold rounded-xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
           >
             {isLoading ? <span>Đang xử lý...</span> : <span>Đăng nhập</span>}
           </button>
