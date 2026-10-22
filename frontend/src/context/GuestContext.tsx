@@ -801,6 +801,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Submit order with stable idempotency key and canonical payload projection
   const submitOrder = async () => {
+    if (!canOrder) throw new Error('Thiết bị này không có quyền đặt món');
     if (cart.length === 0) return;
     if (submittingOrder.current) return submittingOrder.current;
 
