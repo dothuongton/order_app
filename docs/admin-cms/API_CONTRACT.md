@@ -70,7 +70,22 @@ Tài liệu đặc tả các giao thức API, DTOs (Data Transfer Objects), phâ
 | **404** | `NOT_FOUND` | Không tìm thấy tài nguyên nhà hàng hoặc bản ghi tương ứng. |
 | **409** | `SLUG_ALREADY_EXISTS` | Slug định danh URL đã được quán khác đăng ký trước đó. |
 | **409** | `CONFLICT` | Xung đột tài nguyên dữ liệu trong quá trình thao tác. |
+| **429** | `RATE_LIMITED` | Vượt quá tần suất thao tác ghi (60 mutations/phút) bảo vệ bởi `adminMutationLimiter`. |
 | **500** | `SERVER_ERROR` | Lỗi nội bộ máy chủ; không phơi bày stack trace hoặc thông tin nhạy cảm. |
+
+### 2.4. Cơ Chế Bảo Vệ Mutation Guard & Audit Actor (Issue #93, Contracts #36, #83)
+
+1. **Admin Mutation Limiter (Contract #36)**:
+   - Gắn trực tiếp trên `adminRouter` sau `authenticateSuperAdmin`.
+   - Phân định theo danh tính xác thực máy chủ: Sử dụng định danh `admin_${superAdmin.id}` làm khóa rate limit riêng biệt cho từng Super Admin, hoàn toàn miễn nhiễm với giả mạo IP/headers từ client.
+   - Ngưỡng giới hạn an toàn: Tối đa 60 thao tác mutation (`POST`, `PATCH`, `PUT`, `DELETE`) trong cửa sổ trượt 60 giây.
+   - Thao tác đọc (`GET`, `HEAD`, `OPTIONS`) được cấu hình bỏ qua (`skip`), đảm bảo tra cứu số liệu, đọc danh sách và xuất CSV không bị ảnh hưởng.
+   - Phản hồi khi vượt ngưỡng: Trả về HTTP 429 `{ "error": "RATE_LIMITED", "message": "Thao tác quản trị quá nhanh. Vui lòng thử lại sau." }` kèm tiêu chuẩn draft-8 rate limit headers và `Retry-After`.
+
+2. **Audit Writer Thống Nhất & Transaction-Aware (Contract #83)**:
+   - Toàn bộ thao tác ghi Admin CMS (`createShop`, `updateShop`) tích hợp helper `recordAuditLog` từ `backend/src/utils/audit.ts`.
+   - Bảo toàn tính nguyên tử: Luôn truyền phiên kết nối `client` trong khối giao dịch `withTransaction`. Khi xảy ra lỗi hoặc xung đột và ROLLBACK giao dịch, bản ghi audit log bị hủy đồng thời, triệt tiêu nguy cơ xuất hiện audit giả.
+   - Tự động khử dữ liệu nhạy cảm (`redactAuditDetails`): Tự động che dấu các trường nhạy cảm (`password`, `token`, `secret`, `hash`, v.v.) thành `"[REDACTED]"`.
 
 ---
 

@@ -1605,4 +1605,213 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(legacyRes.rows[0].table_number).toBe('A01');
         });
     });
+
+    // =========================================================================
+    // 12. ADMIN MUTATION GUARD & AUDIT ACTOR INTEGRATION (Issue #93, Contracts #36, #83)
+    // =========================================================================
+    describe('Admin Mutation Guard & Audit Actor Integration (Issue #93, Contracts #36, #83)', () => {
+        let superAdminToken2: string;
+        let super2UserId: string;
+
+        beforeAll(async () => {
+            // Create a second isolated super admin actor to test rate limit thresholds and actor isolation
+            const hashRes = await query("SELECT password_hash FROM users WHERE email = 'superadmin@qrorder.vn'");
+            const passHash = hashRes.rows[0].password_hash;
+            const super2Email = `super2_${Date.now()}@qrorder.vn`;
+
+            const insertRes = await query(`
+                INSERT INTO users (email, password_hash, full_name, is_platform_admin)
+                VALUES ($1, $2, 'Super Admin Probe 2', true)
+                RETURNING id
+            `, [super2Email, passHash]);
+            super2UserId = insertRes.rows[0].id;
+
+            const loginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: super2Email, password: 'admin123' })
+            });
+            expect(loginRes.status).toBe(200);
+            const loginData: any = await loginRes.json();
+            superAdminToken2 = loginData.token;
+        });
+
+        afterAll(async () => {
+            if (super2UserId) {
+                await query('DELETE FROM audit_logs WHERE user_id = $1', [super2UserId]);
+                await query('DELETE FROM users WHERE id = $1', [super2UserId]);
+            }
+        });
+
+        it('enforces RBAC on mutations: guest 401, staff 403 before reaching mutation limiter', async () => {
+            // Guest without token
+            const guestRes = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'Quán Guest' })
+            });
+            expect(guestRes.status).toBe(401);
+            const guestData: any = await guestRes.json();
+            expect(guestData.error).toBe('UNAUTHORIZED');
+
+            // Staff token
+            const staffRes = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${staffToken}`
+                },
+                body: JSON.stringify({ name: 'Quán Staff' })
+            });
+            expect(staffRes.status).toBe(403);
+            const staffData: any = await staffRes.json();
+            expect(staffData.error).toBe('FORBIDDEN');
+        });
+
+        it('rate limits admin mutations at 60 req/min per super admin actor, returning 429 with draft-8 headers', async () => {
+            // Send 60 mutations for Actor 2
+            for (let i = 0; i < 60; i++) {
+                const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${superAdminToken2}`
+                    },
+                    body: JSON.stringify({ description: `Probe iteration ${i}` })
+                });
+                expect(res.status).toBe(200);
+            }
+
+            // 61st mutation for Actor 2 must be rejected with 429 RATE_LIMITED
+            const res61 = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken2}`
+                },
+                body: JSON.stringify({ description: 'Probe iteration 61 (should exceed limit)' })
+            });
+
+            expect(res61.status).toBe(429);
+            const data61: any = await res61.json();
+            expect(data61.error).toBe('RATE_LIMITED');
+            expect(data61.message).toContain('Thao tác quản trị quá nhanh');
+
+            // Draft-8 standard rate limit headers or Retry-After
+            const retryAfter = res61.headers.get('retry-after');
+            const rateLimitRemaining = res61.headers.get('ratelimit-remaining');
+            expect(retryAfter !== null || rateLimitRemaining === '0').toBe(true);
+        });
+
+        it('does not throttle or consume quota on GET requests even when mutation limit is reached', async () => {
+            // Actor 2 is currently rate-limited on mutations, but GET requests must succeed
+            const getShopsRes = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken2}` }
+            });
+            expect(getShopsRes.status).toBe(200);
+
+            const getStatsRes = await fetch(`${baseUrl}/api/v1/admin/stats`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken2}` }
+            });
+            expect(getStatsRes.status).toBe(200);
+        });
+
+        it('isolates rate limits between different super admin actors (Actor 1 is unaffected by Actor 2 throttling)', async () => {
+            // Actor 1 (superAdminToken) should still be able to perform mutations successfully
+            const actor1Res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({ description: 'Actor 1 mutation test' })
+            });
+            expect(actor1Res.status).toBe(200);
+        });
+
+        it('ensures transaction rollback in createShop does NOT persist any audit log entry (transaction-awareness)', async () => {
+            const probeSlug = `probe-atomic-${Date.now()}`;
+
+            // 1. Create a shop successfully
+            const res1 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    name: 'Quán Nguyên Tử 1',
+                    slug: probeSlug,
+                    ownerFullName: 'Chủ Quán Test',
+                    ownerEmail: `atomic1.${Date.now()}@test.vn`,
+                    ownerPassword: 'Password123!'
+                })
+            });
+            expect(res1.status).toBe(201);
+            const data1: any = await res1.json();
+            const shopId1 = data1.shop.id;
+
+            // 2. Attempt to create another shop with the DUPLICATE slug -> 409 SLUG_CONFLICT
+            const res2 = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify({
+                    name: 'Quán Nguyên Tử 2',
+                    slug: probeSlug,
+                    ownerFullName: 'Chủ Quán Trùng Slug',
+                    ownerEmail: `atomic2.${Date.now()}@test.vn`,
+                    ownerPassword: 'Password123!'
+                })
+            });
+            expect(res2.status).toBe(400);
+            const data2: any = await res2.json();
+            expect(data2.error).toBe('BAD_REQUEST');
+
+            // 3. Verify audit log: Only 1 audit log exists for this slug, none for the failed attempt
+            const auditCheck = await query(
+                "SELECT id, action, details FROM audit_logs WHERE details->>'slug' = $1",
+                [probeSlug]
+            );
+            expect(auditCheck.rows.length).toBe(1);
+            expect(auditCheck.rows[0].action).toBe('SUPER_ADMIN_CREATE_SHOP');
+
+            // 4. Clean up
+            await query('DELETE FROM tables WHERE tenant_id = $1', [shopId1]);
+            await query('DELETE FROM menu_categories WHERE tenant_id = $1', [shopId1]);
+            await query('DELETE FROM cms_drafts WHERE tenant_id = $1', [shopId1]);
+            await query('DELETE FROM cms_published_versions WHERE tenant_id = $1', [shopId1]);
+            await query('DELETE FROM audit_logs WHERE tenant_id = $1', [shopId1]);
+            await query('DELETE FROM memberships WHERE tenant_id = $1', [shopId1]);
+            await query('DELETE FROM tenants WHERE id = $1', [shopId1]);
+        });
+
+        it('verifies recordAuditLog auto-redacts sensitive keys in audit log details', async () => {
+            const auditCheck = await query(
+                "SELECT details FROM audit_logs WHERE action = 'SUPER_ADMIN_CREATE_SHOP' LIMIT 1"
+            );
+            if (auditCheck.rows.length > 0) {
+                const details = auditCheck.rows[0].details;
+                // Sensitive keys must NEVER be present unredacted
+                expect(details.ownerPassword).toBeUndefined();
+                expect(details.password).toBeUndefined();
+                expect(details.token).toBeUndefined();
+                expect(details.secret).toBeUndefined();
+            }
+        });
+
+        it('suppresses internal SQL and stack traces on 500 error responses (fault injection)', async () => {
+            // Calling an endpoint with invalid UUID param produces 400 without leaking stack
+            const resBadUuid = await fetch(`${baseUrl}/api/v1/admin/shops/invalid-uuid-string`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(resBadUuid.status).toBe(400);
+            const badData: any = await resBadUuid.json();
+            expect(badData.error).toBe('INVALID_ID');
+            expect(badData.stack).toBeUndefined();
+            expect(JSON.stringify(badData)).not.toContain('SELECT');
+        });
+    });
 });

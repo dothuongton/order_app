@@ -3,6 +3,7 @@ import { query, withTransaction } from '../../db/pool.js';
 import { validate } from '../../utils/validation.js';
 import { AdminApiError } from './admin.errors.js';
 import { generatePublicQrId } from '../../utils/crypto.js';
+import { recordAuditLog } from '../../utils/audit.js';
 import {
     CreateShopInput,
     UpdateShopInput,
@@ -439,17 +440,21 @@ export class AdminService {
                     ($1, 'Đồ Uống & Tráng Miệng', 2)
             `, [tenantId]);
 
-            // 7. Record Super Admin Audit Log (sanitized, NO passwords or hashes)
-            await client.query(`
-                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
-                VALUES ($1, $2, 'SUPER_ADMIN_CREATE_SHOP', 'tenant', $3, $4)
-            `, [tenantId, createdBySuperAdminId, tenantId, JSON.stringify({
-                name: input.name,
-                slug: input.slug,
-                ownerEmail: input.ownerEmail,
-                ownerFullName: input.ownerFullName,
-                ownerMode
-            })]);
+            // 7. Record Super Admin Audit Log (Issue #93, Contract #83: unified, transaction-aware, auto-redacted)
+            await recordAuditLog({
+                tenantId,
+                userId: createdBySuperAdminId,
+                action: 'SUPER_ADMIN_CREATE_SHOP',
+                resourceType: 'tenant',
+                resourceId: tenantId,
+                details: {
+                    name: input.name,
+                    slug: input.slug,
+                    ownerEmail: input.ownerEmail,
+                    ownerFullName: input.ownerFullName,
+                    ownerMode
+                }
+            }, client);
 
             return {
                 id: tenant.id,
@@ -533,28 +538,32 @@ export class AdminService {
                 ? 'SUPER_ADMIN_STATUS_CHANGE'
                 : 'SUPER_ADMIN_UPDATE_SHOP';
 
-            // Audit log with structured diff (sanitized)
-            await client.query(`
-                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details)
-                VALUES ($1, $2, $3, 'tenant', $4, $5)
-            `, [tenantId, adminUserId, action, tenantId.toString(), JSON.stringify({
-                previous: {
-                    name: current.name,
-                    slug: current.slug,
-                    status: current.status,
-                    phone: current.phone,
-                    address: current.address,
-                    description: current.description
-                },
-                updated: {
-                    name: updatedName,
-                    slug: updatedSlug,
-                    status: updatedStatus,
-                    phone: updatedPhone,
-                    address: updatedAddress,
-                    description: updatedDesc
+            // Audit log with structured diff (Issue #93, Contract #83: unified, transaction-aware, auto-redacted)
+            await recordAuditLog({
+                tenantId,
+                userId: adminUserId,
+                action,
+                resourceType: 'tenant',
+                resourceId: tenantId.toString(),
+                details: {
+                    previous: {
+                        name: current.name,
+                        slug: current.slug,
+                        status: current.status,
+                        phone: current.phone,
+                        address: current.address,
+                        description: current.description
+                    },
+                    updated: {
+                        name: updatedName,
+                        slug: updatedSlug,
+                        status: updatedStatus,
+                        phone: updatedPhone,
+                        address: updatedAddress,
+                        description: updatedDesc
+                    }
                 }
-            })]);
+            }, client);
 
             return updateRes.rows[0];
         });
