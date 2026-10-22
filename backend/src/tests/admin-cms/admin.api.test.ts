@@ -1523,4 +1523,86 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             expect(res.headers.get('expires')).toBe('0');
         });
     });
+
+    // =========================================================================
+    // 11. CREATESHOP CSPRNG QR GENERATOR ADAPTER (Issue #89, Contract #41)
+    // =========================================================================
+    describe('CreateShop CSPRNG Public QR Generator Adapter (Issue #89, Contract #41)', () => {
+        it('generates opaque CSPRNG public QR IDs with >= 128-bit entropy for all 5 default tables', async () => {
+            const testSlug = `qr-probe-${Date.now()}`;
+            const payload = {
+                name: 'Quán Kiểm Tra QR Ngẫu Nhiên',
+                slug: testSlug,
+                ownerFullName: 'Trần Văn An',
+                ownerEmail: `an.${Date.now()}@qrtest.vn`,
+                ownerPassword: 'SecurePassword123!'
+            };
+
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${superAdminToken}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            expect(res.status).toBe(201);
+            const data: any = await res.json();
+            const shopId = data.shop.id;
+
+            // Fetch created tables
+            const tablesRes = await query(
+                'SELECT table_number, public_qr_id FROM tables WHERE tenant_id = $1 ORDER BY table_number ASC',
+                [shopId]
+            );
+
+            expect(tablesRes.rows.length).toBe(5);
+
+            const qrIds: string[] = [];
+
+            for (let i = 0; i < 5; i++) {
+                const row = tablesRes.rows[i];
+                const qrId = row.public_qr_id;
+                qrIds.push(qrId);
+
+                // 1. Length constraint: tables.public_qr_id is VARCHAR(64)
+                expect(qrId.length).toBeLessThanOrEqual(64);
+                expect(qrId.length).toBeGreaterThanOrEqual(35);
+
+                // 2. Format: qr_<slug_prefix>_b<N>_<32 hex chars>
+                expect(qrId).toMatch(/^qr_[a-zA-Z0-9_-]+_[0-9a-f]{32}$/);
+
+                // 3. Security: Not predictable sequential slug-bN
+                expect(qrId).not.toBe(`qr-${testSlug}-b${i + 1}`);
+
+                // 4. Entropy: The trailing 32 characters are cryptographically random hex
+                const randomPart = qrId.slice(-32);
+                expect(randomPart).toMatch(/^[0-9a-f]{32}$/);
+            }
+
+            // 5. Uniqueness: All 5 QR IDs must be mutually distinct
+            const uniqueQrIds = new Set(qrIds);
+            expect(uniqueQrIds.size).toBe(5);
+
+            // Clean up test shop
+            await query('DELETE FROM tables WHERE tenant_id = $1', [shopId]);
+            await query('DELETE FROM menu_categories WHERE tenant_id = $1', [shopId]);
+            await query('DELETE FROM cms_drafts WHERE tenant_id = $1', [shopId]);
+            await query('DELETE FROM cms_published_versions WHERE tenant_id = $1', [shopId]);
+            await query('DELETE FROM audit_logs WHERE tenant_id = $1', [shopId]);
+            await query('DELETE FROM memberships WHERE tenant_id = $1', [shopId]);
+            await query('DELETE FROM tenants WHERE id = $1', [shopId]);
+        });
+
+        it('preserves backward compatibility with legacy QR format without regression', async () => {
+            // Verify existing seed table with legacy format 'qr-phoco-a01'
+            const legacyRes = await query(
+                "SELECT id, tenant_id, table_number, public_qr_id FROM tables WHERE public_qr_id = 'qr-phoco-a01'"
+            );
+            expect(legacyRes.rows.length).toBe(1);
+            expect(legacyRes.rows[0].public_qr_id).toBe('qr-phoco-a01');
+            expect(legacyRes.rows[0].table_number).toBe('A01');
+        });
+    });
 });

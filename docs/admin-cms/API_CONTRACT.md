@@ -208,7 +208,7 @@ Tài liệu đặc tả các giao thức API, DTOs (Data Transfer Objects), phâ
      - Nếu email đã tồn tại: tái sử dụng tài khoản hiện có, **tuyệt đối không ghi đè mật khẩu của tài khoản cũ** và không cấp thêm quyền hệ thống trái phép.
   4. Gán quyền chủ quán trong bảng `memberships`: `role = 'owner'` cho quán vừa tạo.
   5. Khởi tạo theme mặc định trong bảng `cms_drafts` và bản phát hành phiên bản 1 trong `cms_published_versions`.
-  6. Tạo 5 bàn ăn mẫu mặc định (`Bàn 01` $\rightarrow$ `Bàn 05`) kèm mã QR công khai.
+  6. Tạo 5 bàn ăn mẫu mặc định (`Bàn 01` $\rightarrow$ `Bàn 05`) với mã `public_qr_id` ngẫu nhiên bảo mật sinh từ CSPRNG (`generatePublicQrId` từ Core #41, 128-bit entropy, định dạng `qr_<slug>_b<N>_<hex32>`, độ dài $\le 64$ ký tự), có cơ chế thử lại nếu trùng lặp và bảo toàn tính nguyên tử giao dịch (Issue #89).
   7. Tạo 2 danh mục món ăn mẫu (`Món Ăn Nổi Bật`, `Đồ Uống & Tráng Miệng`).
   8. Ghi nhật ký vào bảng `audit_logs` với action `SUPER_ADMIN_CREATE_SHOP`.
   9. Nếu có bất kỳ lỗi nào trong các bước trên $\rightarrow$ ROLLBACK toàn bộ giao dịch.
