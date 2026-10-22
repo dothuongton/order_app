@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Router, Request, Response } from 'express';
 import { authenticateSuperAdmin } from '../../middleware/auth.js';
+import { adminMutationLimiter } from '../../middleware/security.js';
 import { AdminService } from './admin.service.js';
 import { AdminApiError } from './admin.errors.js';
 import {
@@ -57,6 +58,8 @@ adminRouter.param('id', (req, res, next, id) => {
 
 // Protect all admin routes with Super Admin authentication
 adminRouter.use(authenticateSuperAdmin);
+// Guard admin mutations with actor-keyed rate limiter (Issue #93, Contract #36)
+adminRouter.use(adminMutationLimiter);
 
 /**
  * GET /api/v1/admin/stats
