@@ -236,6 +236,131 @@ describe('Multi-Tenant CMS & Security Test Suite', () => {
             expect(profileData.profile.activePublishedVersion).toBe(1);
             expect(profileData.profile.activeTemplateId).toBe('classic');
         });
+
+        it('normalizes staffTheme and staffDensity defaults on existing profile and draft', async () => {
+            const profileRes = await fetch(`${baseUrl}/api/v1/cms/profile`, {
+                headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
+            });
+            const profileData: any = await profileRes.json();
+            expect(profileData.profile.activeThemeConfig.staffTheme).toEqual({
+                accentColor: '#ea580c',
+                textColor: '#2f2a26'
+            });
+            expect(profileData.profile.activeThemeConfig.staffDensity).toBe('comfortable');
+
+            const draftRes = await fetch(`${baseUrl}/api/v1/cms/draft`, {
+                headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
+            });
+            const draftData: any = await draftRes.json();
+            expect(draftData.draft.themeConfig.staffTheme).toEqual({
+                accentColor: '#ea580c',
+                textColor: '#2f2a26'
+            });
+            expect(draftData.draft.themeConfig.staffDensity).toBe('comfortable');
+        });
+
+        it('saves and publishes staffTheme with uppercase hex and verifies normalization to lowercase', async () => {
+            const saveRes = await fetch(`${baseUrl}/api/v1/cms/draft`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({
+                    templateId: 'classic',
+                    themeConfig: {
+                        primaryColor: '#059669',
+                        fontFamily: 'Inter',
+                        layout: 'classic',
+                        showBanner: true,
+                        showPromotions: true,
+                        blockOrder: ['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer'],
+                        staffTheme: {
+                            accentColor: '#244F3C',
+                            textColor: '#27382E'
+                        },
+                        staffDensity: 'compact'
+                    },
+                    contentConfig: { bannerIds: [] }
+                })
+            });
+            expect(saveRes.status).toBe(200);
+
+            const publishRes = await fetch(`${baseUrl}/api/v1/cms/publish`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({ changelog: 'Cập nhật theme xanh lá và mật độ gọn' })
+            });
+            expect(publishRes.status).toBe(200);
+            const publishData: any = await publishRes.json();
+            expect(publishData.themeConfig.staffTheme).toEqual({
+                accentColor: '#244f3c',
+                textColor: '#27382e'
+            });
+            expect(publishData.themeConfig.staffDensity).toBe('compact');
+
+            // Verify /auth/me returns activeThemeConfig with staffTheme and staffDensity
+            const meRes = await fetch(`${baseUrl}/api/v1/auth/me`, {
+                headers: { 'Authorization': `Bearer ${shopAAdminToken}` }
+            });
+            expect(meRes.status).toBe(200);
+            const meData: any = await meRes.json();
+            expect(meData.user.activeThemeConfig.staffTheme).toEqual({
+                accentColor: '#244f3c',
+                textColor: '#27382e'
+            });
+            expect(meData.user.activeThemeConfig.staffDensity).toBe('compact');
+        });
+
+        it('rejects invalid staffTheme and invalid staffDensity', async () => {
+            const invalidColorRes = await fetch(`${baseUrl}/api/v1/cms/draft`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({
+                    templateId: 'classic',
+                    themeConfig: {
+                        primaryColor: '#059669',
+                        fontFamily: 'Inter',
+                        layout: 'classic',
+                        showBanner: true,
+                        showPromotions: true,
+                        blockOrder: ['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer'],
+                        staffTheme: {
+                            accentColor: 'not-a-hex',
+                            textColor: '#27382e'
+                        }
+                    }
+                })
+            });
+            expect(invalidColorRes.status).toBe(400);
+
+            const invalidDensityRes = await fetch(`${baseUrl}/api/v1/cms/draft`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${shopAAdminToken}`
+                },
+                body: JSON.stringify({
+                    templateId: 'classic',
+                    themeConfig: {
+                        primaryColor: '#059669',
+                        fontFamily: 'Inter',
+                        layout: 'classic',
+                        showBanner: true,
+                        showPromotions: true,
+                        blockOrder: ['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer'],
+                        staffDensity: 'ultra-compact'
+                    }
+                })
+            });
+            expect(invalidDensityRes.status).toBe(400);
+        });
     });
 
     // ==========================================

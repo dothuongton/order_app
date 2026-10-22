@@ -16,6 +16,11 @@ export interface CmsThemeConfig {
     showPromotions: boolean;
     bannerDisplayMode?: 'slide' | 'stack';
     blockOrder: string[];
+    staffTheme?: {
+        accentColor: string;
+        textColor: string;
+    };
+    staffDensity?: 'compact' | 'comfortable';
 }
 
 export interface CmsDraft {

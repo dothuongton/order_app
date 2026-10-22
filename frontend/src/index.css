@@ -33,3 +33,114 @@ html, body {
 .guest-storefront .text-orange-600 { color: var(--brand-color); }
 .guest-storefront .bg-orange-50 { background-color: color-mix(in srgb, var(--brand-color) 8%, white); }
 .guest-storefront .border-orange-100 { border-color: color-mix(in srgb, var(--brand-color) 22%, white); }
+
+/* Staff & Admin portal theme tokens and utility remapping (Gaeru-style) */
+.staff-portal {
+  --brand-accent: #ea580c;
+  --brand-text: #2f2a26;
+  --brand-on-accent: #ffffff;
+  --brand-accent-text: #ea580c;
+  --brand-accent-dark: color-mix(in srgb, var(--brand-accent) 78%, #000);
+  --brand-accent-soft: color-mix(in srgb, var(--brand-accent) 10%, #fff);
+  --brand-accent-tint: color-mix(in srgb, var(--brand-accent) 5%, #fff);
+  --brand-line: color-mix(in srgb, var(--brand-accent) 18%, #fff);
+  --brand-surface-soft: color-mix(in srgb, var(--brand-text) 4%, #fff);
+  --brand-muted: color-mix(in srgb, var(--brand-text) 60%, #fff);
+
+  --staff-font-scale: 0.9375;
+  --staff-radius: 12px;
+  --staff-card-pad: 12px;
+  --staff-row-gap: 8px;
+}
+
+.staff-portal.density-comfortable,
+.density-comfortable .staff-portal {
+  --staff-font-scale: 1;
+  --staff-radius: 24px;
+  --staff-card-pad: 16px;
+  --staff-row-gap: 12px;
+}
+
+/* Background remapping */
+.staff-portal .bg-orange-600,
+.staff-portal .bg-orange-500 {
+  background-color: var(--brand-accent);
+}
+.staff-portal .hover\:bg-orange-700:hover,
+.staff-portal .hover\:bg-orange-500:hover {
+  background-color: var(--brand-accent-dark);
+}
+.staff-portal .active\:bg-orange-800:active {
+  background-color: color-mix(in srgb, var(--brand-accent) 70%, #000);
+}
+.staff-portal .bg-orange-50,
+.staff-portal .bg-orange-100 {
+  background-color: var(--brand-accent-soft);
+}
+.staff-portal .hover\:bg-orange-50:hover,
+.staff-portal .hover\:bg-orange-100:hover,
+.staff-portal .active\:bg-orange-100:active {
+  background-color: color-mix(in srgb, var(--brand-accent) 16%, #fff);
+}
+
+/* Text remapping */
+.staff-portal .text-orange-600,
+.staff-portal .text-orange-700,
+.staff-portal .text-orange-800,
+.staff-portal .text-orange-900,
+.staff-portal .text-orange-950,
+.staff-portal .hover\:text-orange-700:hover,
+.staff-portal .hover\:text-orange-900:hover,
+.staff-portal .group:hover .group-hover\:text-orange-600,
+.staff-portal .group:hover .group-hover\:text-orange-500 {
+  color: var(--brand-accent-text);
+}
+.staff-portal .text-orange-400 {
+  color: color-mix(in srgb, var(--brand-accent) 75%, #fff);
+}
+
+/* Border remapping */
+.staff-portal .border-orange-100,
+.staff-portal .border-orange-200,
+.staff-portal .border-orange-300,
+.staff-portal .border-orange-500,
+.staff-portal .hover\:border-orange-200:hover {
+  border-color: var(--brand-line);
+}
+.staff-portal .focus\:border-orange-500:focus {
+  border-color: var(--brand-accent);
+}
+.staff-portal .focus\:ring-orange-500:focus {
+  --tw-ring-color: var(--brand-accent);
+}
+
+/* Other controls */
+.staff-portal .accent-orange-600 {
+  accent-color: var(--brand-accent);
+}
+.staff-portal .from-orange-600 {
+  --tw-gradient-from: var(--brand-accent) var(--tw-gradient-from-position);
+  --tw-gradient-to: color-mix(in srgb, var(--brand-accent) 0%, transparent) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.staff-portal .to-orange-500 {
+  --tw-gradient-to: color-mix(in srgb, var(--brand-accent) 90%, #fff) var(--tw-gradient-to-position);
+}
+
+/* Primary buttons in staff portal guarantee WCAG readable text */
+.staff-portal button.bg-orange-600,
+.staff-portal a.bg-orange-600,
+.staff-portal button.bg-orange-600.text-white,
+.staff-portal a.bg-orange-600.text-white {
+  color: var(--brand-on-accent);
+}
+
+/* Density token helpers */
+.staff-portal .staff-density-card {
+  border-radius: var(--staff-radius);
+  padding: var(--staff-card-pad);
+}
+.staff-portal .staff-density-modal {
+  border-radius: var(--staff-radius);
+}
+

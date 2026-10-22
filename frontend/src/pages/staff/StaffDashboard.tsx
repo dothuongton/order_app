@@ -10,6 +10,7 @@ import { StaffMenuManage } from './StaffMenuManage.js';
 import { StaffCmsManage } from './StaffCmsManage.js';
 import { usePush } from '../../context/PushContext.js';
 import { PushSettingsModal } from './PushSettingsModal.js';
+import { getStaffThemeCssVars } from '../../lib/theme.js';
 import {
   Store, Volume2, VolumeX, LogOut, LayoutGrid, UtensilsCrossed,
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
@@ -407,8 +408,22 @@ export const StaffDashboard: React.FC = () => {
     });
   }, [tables, tableSearch, tableStatusFilter]);
 
+  const staffThemeStyles = useMemo(() => {
+    return getStaffThemeCssVars(
+      currentTenant?.activeThemeConfig?.staffTheme,
+      currentTenant?.activeThemeConfig?.staffDensity
+    );
+  }, [currentTenant?.activeThemeConfig?.staffTheme, currentTenant?.activeThemeConfig?.staffDensity]);
+
+  const staffDensity = currentTenant?.activeThemeConfig?.staffDensity || 'comfortable';
+
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col max-w-lg mx-auto shadow-2xl pb-[calc(6rem+env(safe-area-inset-bottom))]">
+    <div
+      className={`staff-portal min-h-screen bg-slate-100 flex flex-col w-full max-w-lg lg:max-w-[1200px] mx-auto shadow-2xl pb-[calc(6rem+env(safe-area-inset-bottom))] px-0 md:px-6 transition-all ${
+        staffDensity === 'compact' ? '' : 'density-comfortable'
+      }`}
+      style={staffThemeStyles}
+    >
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-slate-900 text-white px-3 py-2.5 shadow-md flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -730,7 +745,7 @@ export const StaffDashboard: React.FC = () => {
             </div>
 
             {/* Tables Grid */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {filteredTables.length === 0 ? (
                 <div className="col-span-2 text-center py-12 bg-white rounded-3xl border border-slate-200/90 p-6 space-y-2">
                   <Store className="w-10 h-10 text-slate-300 mx-auto" />
@@ -1016,7 +1031,8 @@ export const StaffDashboard: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                tablesWithFilteredItems.map(({ table, items }) => {
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {tablesWithFilteredItems.map(({ table, items }) => {
                   const pendingCount = items.filter(i => i.status === 'PENDING').length;
                   const acceptedCount = items.filter(i => i.status === 'ACCEPTED').length;
                   const servedCount = items.filter(i => i.status === 'SERVED').length;
@@ -1179,10 +1195,11 @@ export const StaffDashboard: React.FC = () => {
                       </div>
                     </div>
                   );
-                })
-              )}
-            </div>
-          );
+                })}
+              </div>
+            )}
+          </div>
+        );
         })()}
 
         {/* TAB 3: Service Requests Feed - Grouped by Table */}
@@ -1358,11 +1375,11 @@ export const StaffDashboard: React.FC = () => {
       </main>
 
       {/* Staff Bottom Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-2 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-w-lg mx-auto flex items-center justify-around shadow-lg">
+      <nav className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-2 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] w-full max-w-lg lg:max-w-[1200px] mx-auto flex items-center justify-around shadow-lg">
         <button
           onClick={() => setActiveTab('tables')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-            activeTab === 'tables' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'tables' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
           <LayoutGrid className="w-5 h-5" />
@@ -1372,7 +1389,7 @@ export const StaffDashboard: React.FC = () => {
         <button
           onClick={() => setActiveTab('orders')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative ${
-            activeTab === 'orders' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'orders' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
           <UtensilsCrossed className="w-5 h-5" />
@@ -1387,7 +1404,7 @@ export const StaffDashboard: React.FC = () => {
         <button
           onClick={() => setActiveTab('requests')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative ${
-            activeTab === 'requests' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'requests' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
           <Bell className="w-5 h-5" />
@@ -1401,7 +1418,7 @@ export const StaffDashboard: React.FC = () => {
           <button
             onClick={() => setActiveTab('reports')}
             className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-              activeTab === 'reports' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+              activeTab === 'reports' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
             }`}
           >
             <BarChart2 className="w-5 h-5" />
@@ -1413,7 +1430,7 @@ export const StaffDashboard: React.FC = () => {
           <button
             onClick={() => setActiveTab('menu')}
             className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-              activeTab === 'menu' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+              activeTab === 'menu' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
             }`}
           >
             <Store className="w-5 h-5" />
@@ -1425,7 +1442,7 @@ export const StaffDashboard: React.FC = () => {
           <button
             onClick={() => setActiveTab('cms')}
             className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-              activeTab === 'cms' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+              activeTab === 'cms' ? 'text-orange-600 bg-orange-50 font-bold' : 'text-slate-500 font-medium'
             }`}
           >
             <Settings className="w-5 h-5" />

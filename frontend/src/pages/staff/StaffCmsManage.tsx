@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { request } from '../../api/client.js';
 import { CmsThemeConfig, Banner, Promotion, CmsPublishedVersion } from '../../types/cms.js';
 import { MobilePreviewModal } from '../../components/cms/MobilePreviewModal.js';
+import { StaffThemePreview } from '../../components/cms/StaffThemePreview.js';
 import { ImageUploadField } from '../../components/ImageUploadField.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { isHexColor, THEME_PRESETS, DEFAULT_STAFF_THEME } from '../../lib/theme.js';
 import {
     Palette, Image as ImageIcon, Tag, History, Smartphone,
     Save, Send, RotateCcw, Plus, Trash2, Edit3, Check,
@@ -24,7 +26,9 @@ export const StaffCmsManage: React.FC = () => {
         layout: 'classic',
         showBanner: true,
         showPromotions: true,
-        blockOrder: ['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer']
+        blockOrder: ['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer'],
+        staffTheme: { ...DEFAULT_STAFF_THEME },
+        staffDensity: 'comfortable'
     });
     const [draftTemplateId, setDraftTemplateId] = useState<string>('classic');
 
@@ -80,10 +84,19 @@ export const StaffCmsManage: React.FC = () => {
             ]);
 
             setShopProfile(profileRes.profile);
+            if (profileRes.profile?.activeThemeConfig) {
+                updateCurrentTenant({
+                    activeThemeConfig: profileRes.profile.activeThemeConfig
+                });
+            }
             if (draftRes.draft) {
                 setDraftTemplateId(draftRes.draft.templateId || 'classic');
                 if (draftRes.draft.themeConfig) {
-                    setDraftTheme(draftRes.draft.themeConfig);
+                    setDraftTheme({
+                        ...draftRes.draft.themeConfig,
+                        staffTheme: draftRes.draft.themeConfig.staffTheme || { ...DEFAULT_STAFF_THEME },
+                        staffDensity: draftRes.draft.themeConfig.staffDensity || 'comfortable'
+                    });
                 }
             }
             setBanners(bannersRes.banners || []);
@@ -148,6 +161,20 @@ export const StaffCmsManage: React.FC = () => {
     const handleSaveDraft = async () => {
         setIsSaving(true);
         setActionMsg(null);
+
+        // Validation for staffTheme hex format
+        if (
+            draftTheme.staffTheme &&
+            (!isHexColor(draftTheme.staffTheme.accentColor) || !isHexColor(draftTheme.staffTheme.textColor))
+        ) {
+            setActionMsg({
+                type: 'error',
+                text: 'Mã màu theme nhân viên không hợp lệ. Vui lòng nhập đúng định dạng hex 6 ký tự dạng #rrggbb (ví dụ: #ea580c)'
+            });
+            setIsSaving(false);
+            return false;
+        }
+
         try {
             await request('/cms/draft', {
                 method: 'PUT',
@@ -209,6 +236,12 @@ export const StaffCmsManage: React.FC = () => {
                 body: JSON.stringify({ changelog: publishChangelog })
             });
 
+            if (res.themeConfig) {
+                updateCurrentTenant({
+                    activeThemeConfig: res.themeConfig
+                });
+            }
+
             setShowPublishModal(false);
             setActionMsg({ type: 'success', text: res.message || 'Xuất bản giao diện thành công!' });
             loadCmsData();
@@ -228,6 +261,11 @@ export const StaffCmsManage: React.FC = () => {
                 method: 'POST',
                 body: JSON.stringify({ version: ver })
             });
+            if (res.themeConfig) {
+                updateCurrentTenant({
+                    activeThemeConfig: res.themeConfig
+                });
+            }
             setActionMsg({ type: 'success', text: res.message || `Đã khôi phục về phiên bản v${ver}` });
             loadCmsData();
         } catch (err: any) {
@@ -714,6 +752,225 @@ export const StaffCmsManage: React.FC = () => {
                                         className="w-4 h-4 accent-orange-600 rounded-sm"
                                     />
                                 </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Staff & Admin Theme & Density Settings (Gaeru Model) */}
+                    <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                            <div>
+                                <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                                    <Palette className="w-4 h-4 text-orange-600" />
+                                    <span>Màu Giao Diện Nhân Viên & Mật Độ Hiển Thị</span>
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Thiết lập theme màu sắc và mật độ hiển thị riêng cho màn hình nhân viên phục vụ, thu ngân và quản trị (mô hình Gaeru).
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                            {/* Controls: Presets, Custom Hex, Density (7 cols on lg) */}
+                            <div className="lg:col-span-7 space-y-5">
+                                {/* 5 Presets */}
+                                <div>
+                                    <label className="block text-slate-700 font-semibold text-xs mb-2">
+                                        5 Bộ Màu Định Sẵn (Presets Chuẩn Gaeru)
+                                    </label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {THEME_PRESETS.map((p) => {
+                                            const currentAccent = (draftTheme.staffTheme?.accentColor || '').toLowerCase();
+                                            const currentText = (draftTheme.staffTheme?.textColor || '').toLowerCase();
+                                            const isSelected =
+                                                currentAccent === p.settings.accentColor.toLowerCase() &&
+                                                currentText === p.settings.textColor.toLowerCase();
+                                            return (
+                                                <button
+                                                    key={p.name}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setDraftTheme({
+                                                            ...draftTheme,
+                                                            staffTheme: { ...p.settings }
+                                                        });
+                                                    }}
+                                                    className={`p-2.5 rounded-xl border flex items-center gap-2.5 transition text-left cursor-pointer ${
+                                                        isSelected
+                                                            ? 'border-orange-500 bg-orange-50 shadow-xs ring-1 ring-orange-500'
+                                                            : 'border-slate-200 bg-slate-50 hover:bg-slate-100/70 hover:border-slate-300'
+                                                    }`}
+                                                >
+                                                    <div className="flex -space-x-1 shrink-0">
+                                                        <span
+                                                            className="w-5 h-5 rounded-full border-2 border-white shadow-xs"
+                                                            style={{ backgroundColor: p.settings.accentColor }}
+                                                            title={`Accent: ${p.settings.accentColor}`}
+                                                        />
+                                                        <span
+                                                            className="w-5 h-5 rounded-full border-2 border-white shadow-xs"
+                                                            style={{ backgroundColor: p.settings.textColor }}
+                                                            title={`Text: ${p.settings.textColor}`}
+                                                        />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="text-xs font-bold text-slate-800 truncate">{p.name}</div>
+                                                        <div className="text-[10px] text-slate-500 font-mono truncate">{p.settings.accentColor}</div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Custom Hex Inputs */}
+                                <div className="space-y-3 pt-3 border-t border-slate-100">
+                                    <label className="block text-slate-700 font-semibold text-xs">
+                                        Tuỳ Chỉnh Màu Hex (#rrggbb)
+                                    </label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        {/* Accent Color Input */}
+                                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                                            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                                                <span>Màu Điểm Nhấn (Accent)</span>
+                                                <span className="font-mono text-[11px] text-slate-500">{draftTheme.staffTheme?.accentColor}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="color"
+                                                    value={isHexColor(draftTheme.staffTheme?.accentColor) ? draftTheme.staffTheme!.accentColor : '#ea580c'}
+                                                    onChange={(e) => {
+                                                        setDraftTheme({
+                                                            ...draftTheme,
+                                                            staffTheme: {
+                                                                accentColor: e.target.value,
+                                                                textColor: draftTheme.staffTheme?.textColor || '#2f2a26'
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-9 h-9 rounded-lg border border-slate-300 p-0.5 cursor-pointer shrink-0 bg-white"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={draftTheme.staffTheme?.accentColor || ''}
+                                                    onChange={(e) => {
+                                                        setDraftTheme({
+                                                            ...draftTheme,
+                                                            staffTheme: {
+                                                                accentColor: e.target.value,
+                                                                textColor: draftTheme.staffTheme?.textColor || '#2f2a26'
+                                                            }
+                                                        });
+                                                    }}
+                                                    placeholder="#ea580c"
+                                                    maxLength={7}
+                                                    className={`w-full px-3 py-1.5 bg-white border rounded-lg text-xs font-mono uppercase focus:outline-none focus:ring-1 ${
+                                                        isHexColor(draftTheme.staffTheme?.accentColor)
+                                                            ? 'border-slate-300 focus:border-orange-500'
+                                                            : 'border-rose-400 bg-rose-50 text-rose-800'
+                                                    }`}
+                                                />
+                                            </div>
+                                            {!isHexColor(draftTheme.staffTheme?.accentColor) && (
+                                                <p className="text-[10px] text-rose-600 font-semibold">Mã hex không hợp lệ (phải là #rrggbb)</p>
+                                            )}
+                                        </div>
+
+                                        {/* Text Color Input */}
+                                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                                            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                                                <span>Màu Chữ Chính (Text)</span>
+                                                <span className="font-mono text-[11px] text-slate-500">{draftTheme.staffTheme?.textColor}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="color"
+                                                    value={isHexColor(draftTheme.staffTheme?.textColor) ? draftTheme.staffTheme!.textColor : '#2f2a26'}
+                                                    onChange={(e) => {
+                                                        setDraftTheme({
+                                                            ...draftTheme,
+                                                            staffTheme: {
+                                                                accentColor: draftTheme.staffTheme?.accentColor || '#ea580c',
+                                                                textColor: e.target.value
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-9 h-9 rounded-lg border border-slate-300 p-0.5 cursor-pointer shrink-0 bg-white"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={draftTheme.staffTheme?.textColor || ''}
+                                                    onChange={(e) => {
+                                                        setDraftTheme({
+                                                            ...draftTheme,
+                                                            staffTheme: {
+                                                                accentColor: draftTheme.staffTheme?.accentColor || '#ea580c',
+                                                                textColor: e.target.value
+                                                            }
+                                                        });
+                                                    }}
+                                                    placeholder="#2f2a26"
+                                                    maxLength={7}
+                                                    className={`w-full px-3 py-1.5 bg-white border rounded-lg text-xs font-mono uppercase focus:outline-none focus:ring-1 ${
+                                                        isHexColor(draftTheme.staffTheme?.textColor)
+                                                            ? 'border-slate-300 focus:border-orange-500'
+                                                            : 'border-rose-400 bg-rose-50 text-rose-800'
+                                                    }`}
+                                                />
+                                            </div>
+                                            {!isHexColor(draftTheme.staffTheme?.textColor) && (
+                                                <p className="text-[10px] text-rose-600 font-semibold">Mã hex không hợp lệ (phải là #rrggbb)</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Density Selection */}
+                                <div className="space-y-2 pt-3 border-t border-slate-100">
+                                    <label className="block text-slate-700 font-semibold text-xs mb-1">
+                                        Mật Độ Hiển Thị Giao Diện Nhân Viên (Staff Density)
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setDraftTheme({ ...draftTheme, staffDensity: 'compact' })}
+                                            className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                                                draftTheme.staffDensity === 'compact'
+                                                    ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-xs ring-1 ring-orange-500'
+                                                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100/70 hover:border-slate-300 text-slate-700'
+                                            }`}
+                                        >
+                                            <div className="font-extrabold text-xs">⚡ Siêu gọn nhẹ (Compact)</div>
+                                            <div className="text-[11px] text-slate-500 mt-1">
+                                                Cỡ chữ 15px, bo góc 12px, giảm đệm thẻ. Tối ưu cho màn hình POS và điện thoại hẹp.
+                                            </div>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setDraftTheme({ ...draftTheme, staffDensity: 'comfortable' })}
+                                            className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                                                draftTheme.staffDensity === 'comfortable' || !draftTheme.staffDensity
+                                                    ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-xs ring-1 ring-orange-500'
+                                                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100/70 hover:border-slate-300 text-slate-700'
+                                            }`}
+                                        >
+                                            <div className="font-extrabold text-xs">🛋️ Thoải mái (Comfortable)</div>
+                                            <div className="text-[11px] text-slate-500 mt-1">
+                                                Cỡ chữ chuẩn 16px, bo góc 24px thoáng đãng như hiện tại. Phù hợp máy tính bảng to.
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Live Preview Column (5 cols on lg) */}
+                            <div className="lg:col-span-5 bg-slate-50 rounded-2xl p-3 border border-slate-200 flex flex-col justify-center">
+                                <StaffThemePreview
+                                    theme={draftTheme.staffTheme || DEFAULT_STAFF_THEME}
+                                    density={draftTheme.staffDensity || 'comfortable'}
+                                    storeName={shopProfile?.name}
+                                />
                             </div>
                         </div>
                     </div>

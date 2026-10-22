@@ -18,6 +18,7 @@ export interface StaffUser {
     phone?: string | null;
     address?: string | null;
     openingHours?: string | null;
+    activeThemeConfig?: any;
     role: string;
     permissions: string[];
     isPlatformAdmin?: boolean;
@@ -74,7 +75,8 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
                 t.name as tenant_name, t.slug as tenant_slug, t.status as tenant_status,
                 t.logo_url as tenant_logo_url, t.cover_url as tenant_cover_url,
                 t.description as tenant_description, t.phone as tenant_phone,
-                t.address as tenant_address, t.opening_hours as tenant_opening_hours
+                t.address as tenant_address, t.opening_hours as tenant_opening_hours,
+                t.active_theme_config as tenant_theme_config
             FROM users u
             JOIN memberships m ON m.user_id = u.id
             LEFT JOIN tenants t ON t.id = m.tenant_id
@@ -171,6 +173,7 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             phone: row.tenant_phone || null,
             address: row.tenant_address || null,
             openingHours: row.tenant_opening_hours || null,
+            activeThemeConfig: row.tenant_theme_config || null,
             role: row.role,
             permissions: row.permissions || []
         };
