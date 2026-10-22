@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticateStaff, requirePermission } from '../../middleware/auth.js';
 import { query } from '../../db/pool.js';
+import { ReportingService } from './reporting.service.js';
 
 export const reportsRouter = Router();
 
@@ -111,6 +112,23 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             topServedItems: servedItemsRes.rows,
             recentSettledSessions: recentSettledRes.rows
         });
+    } catch (err: any) {
+        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+    }
+});
+
+/**
+ * GET /api/v1/staff/reports/daily-stats
+ * Query daily reporting read model (Issue #45)
+ */
+reportsRouter.get('/daily-stats', async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const fromDate = typeof req.query.from === 'string' ? req.query.from : undefined;
+        const toDate = typeof req.query.to === 'string' ? req.query.to : undefined;
+
+        const stats = await ReportingService.getDailyShopStats(staff.tenantId, fromDate, toDate);
+        return res.json({ stats });
     } catch (err: any) {
         return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
     }
