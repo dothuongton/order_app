@@ -7,6 +7,7 @@ import { authenticateStaff, requirePermission } from '../../middleware/auth.js';
 import { staffMutationLimiter } from '../../middleware/security.js';
 import { config } from '../../config/index.js';
 import { query, withTransaction } from '../../db/pool.js';
+import { generatePublicQrId } from '../../utils/crypto.js';
 
 export const staffRouter = Router();
 staffRouter.param('id', (req, res, next, id) => {
@@ -1307,11 +1308,11 @@ staffRouter.post('/tables', requirePermission('table.manage'), async (req: Reque
             return res.status(400).json({ error: 'DUPLICATE_TABLE', message: `Bàn "${table_number}" đã tồn tại` });
         }
 
-        // Generate public_qr_id
+        // Generate cryptographically secure public_qr_id (>=128-bit entropy)
         const cleanNum = table_number.toLowerCase().replace(/[^a-z0-9]/g, '') || 't';
-        const randomSuffix = crypto.randomBytes(3).toString('hex');
-        const slug = (staff.tenantSlug || 'shop').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const publicQrId = `qr-${slug}-${cleanNum}-${randomSuffix}`;
+        const slug = (staff.tenantSlug || 'shop').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+        const prefix = `qr_${slug}_${cleanNum}`.slice(0, 30);
+        const publicQrId = generatePublicQrId(prefix);
 
         const insertRes = await query(`
             INSERT INTO tables (tenant_id, table_number, public_qr_id, capacity, readiness, is_enabled)
