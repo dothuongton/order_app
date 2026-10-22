@@ -9,7 +9,12 @@ import {
     createShopSchema,
     updateShopSchema,
     listAuditLogsQuerySchema,
-    exportAuditLogsQuerySchema
+    exportAuditLogsQuerySchema,
+    getShopTablesQuerySchema,
+    getShopMenuQuerySchema,
+    getShopOrdersQuerySchema,
+    getShopStaffQuerySchema,
+    getShopDailyStatsQuerySchema
 } from './admin.validation.js';
 
 export const adminRouter = Router();
@@ -96,6 +101,89 @@ adminRouter.get('/shops/:id', async (req: Request, res: Response) => {
     try {
         const shop = await AdminService.getShopDetail(req.params.id);
         res.json({ shop });
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/shops/:id/tables
+ * Deep read of shop tables with public QR IDs and status (Issue #46)
+ */
+adminRouter.get('/shops/:id/tables', async (req: Request, res: Response) => {
+    try {
+        const queryInput = getShopTablesQuerySchema.parse(req.query);
+        const result = await AdminService.getShopTables(req.params.id, queryInput);
+        res.json(result);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/shops/:id/menu
+ * Deep read of shop menu items and categories (Issue #46)
+ */
+adminRouter.get('/shops/:id/menu', async (req: Request, res: Response) => {
+    try {
+        const queryInput = getShopMenuQuerySchema.parse(req.query);
+        const result = await AdminService.getShopMenu(req.params.id, queryInput);
+        res.json(result);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/shops/:id/orders
+ * Deep read of shop orders with item counts and amounts (Issue #46)
+ */
+adminRouter.get('/shops/:id/orders', async (req: Request, res: Response) => {
+    try {
+        const queryInput = getShopOrdersQuerySchema.parse(req.query);
+        const result = await AdminService.getShopOrders(req.params.id, queryInput);
+        res.json(result);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/shops/:id/staff
+ * Deep read of shop staff and memberships (password_hash strictly excluded) (Issue #46)
+ */
+adminRouter.get('/shops/:id/staff', async (req: Request, res: Response) => {
+    try {
+        const queryInput = getShopStaffQuerySchema.parse(req.query);
+        const result = await AdminService.getShopStaff(req.params.id, queryInput);
+        res.json(result);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/shops/:id/cms
+ * Deep read of shop CMS configuration (draft and published versions) (Issue #46)
+ */
+adminRouter.get('/shops/:id/cms', async (req: Request, res: Response) => {
+    try {
+        const result = await AdminService.getShopCms(req.params.id);
+        res.json(result);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/shops/:id/daily-stats
+ * Deep read of shop daily business stats from read-model (Issue #46, Contract #45)
+ */
+adminRouter.get('/shops/:id/daily-stats', async (req: Request, res: Response) => {
+    try {
+        const queryInput = getShopDailyStatsQuerySchema.parse(req.query);
+        const result = await AdminService.getShopDailyStats(req.params.id, queryInput);
+        res.json(result);
     } catch (err: any) {
         handleAdminError(err, res);
     }

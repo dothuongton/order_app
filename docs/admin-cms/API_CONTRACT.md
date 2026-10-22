@@ -366,3 +366,136 @@ Tài liệu đặc tả các giao thức API, DTOs (Data Transfer Objects), phâ
   - Header: `Content-Disposition: attachment; filename="audit-logs-YYYYMMDD.csv"`
   - Header: `X-Total-Count: <total>`
   - Body: Nội dung file CSV kèm BOM.
+
+---
+
+### 3.9. Các API Đọc Sâu Dữ Liệu Theo Quán (Deep Read APIs - Issue #46 [ADMINREAD])
+
+Tất cả các API đọc sâu dưới đây yêu cầu quyền Super Admin (`authenticateSuperAdmin`), tự động kiểm tra định dạng UUID v4 qua middleware param (`400 INVALID_ID`) và xác minh sự tồn tại của quán trong cơ sở dữ liệu (`404 SHOP_NOT_FOUND`). Bỏ qua rate limit mutation (`skip` cho các method GET).
+
+#### 3.9.1. Đọc Danh Sách Bàn Của Quán
+- **Endpoint**: `GET /api/v1/admin/shops/:id/tables`
+- **Query Parameters**:
+  - `page` *(tùy chọn, mặc định 1)*: Số trang.
+  - `limit` *(tùy chọn, tối đa 100, mặc định 20)*: Số lượng bản ghi mỗi trang.
+  - `status` *(tùy chọn, enum: READY, OCCUPIED, RESERVED, INACTIVE)*: Lọc theo trạng thái bàn.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "tables": [
+    {
+      "id": "10000000-0000-0000-0000-000000000001",
+      "tenant_id": "11111111-1111-1111-1111-111111111111",
+      "table_number": "A01",
+      "public_qr_id": "qr-phoco-a01",
+      "capacity": 4,
+      "status": "READY",
+      "created_at": "2026-03-01T00:00:00.000Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+#### 3.9.2. Đọc Thực Đơn & Phân Loại Của Quán
+- **Endpoint**: `GET /api/v1/admin/shops/:id/menu`
+- **Query Parameters**:
+  - `page` / `limit`: Phân trang danh sách món ăn (tối đa 100).
+  - `categoryId` *(tùy chọn, UUID)*: Lọc theo danh mục.
+  - `isAvailable` *(tùy chọn, boolean)*: Lọc theo trạng thái còn món/hết món.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "categories": [
+    { "id": "uuid", "tenant_id": "uuid", "name": "Món Nổi Bật", "sort_order": 1 }
+  ],
+  "items": [
+    {
+      "id": "uuid",
+      "tenant_id": "uuid",
+      "category_id": "uuid",
+      "category_name": "Món Nổi Bật",
+      "name": "Phở Bò Tái",
+      "price": 45000,
+      "is_available": true
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+#### 3.9.3. Đọc Danh Sách Đơn Hàng Của Quán
+- **Endpoint**: `GET /api/v1/admin/shops/:id/orders`
+- **Query Parameters**:
+  - `page` / `limit`: Phân trang đơn hàng.
+  - `status` *(tùy chọn, enum: PENDING, ACCEPTED, SERVED, CANCELLED, PAID)*: Lọc theo trạng thái đơn.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "orders": [
+    {
+      "id": "uuid",
+      "tenant_id": "uuid",
+      "table_id": "uuid",
+      "table_number": "A01",
+      "status": "PAID",
+      "total_amount": 120000,
+      "item_count": 3,
+      "created_at": "2026-03-01T12:00:00.000Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+#### 3.9.4. Đọc Danh Sách Nhân Sự & Thành Viên Quán
+- **Endpoint**: `GET /api/v1/admin/shops/:id/staff`
+- **Query Parameters**:
+  - `page` / `limit`: Phân trang nhân sự.
+  - `role` *(tùy chọn, enum: owner, manager, waiter, cashier)*: Lọc theo vai trò.
+- **Bảo mật**: Tuyệt đối không chọn lọc hoặc trả về trường mật khẩu (`password_hash`), token hay secret.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "staff": [
+    {
+      "membership_id": "uuid",
+      "tenant_id": "uuid",
+      "role": "owner",
+      "joined_at": "2026-03-01T00:00:00.000Z",
+      "user_id": "uuid",
+      "email": "owner@phoco.vn",
+      "full_name": "Nguyễn Văn Chủ",
+      "phone": "0987654321"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+#### 3.9.5. Đọc Cấu Hình CMS Quán (Bản Nháp & Lịch Sử Bản Phát Hành)
+- **Endpoint**: `GET /api/v1/admin/shops/:id/cms`
+- **Phản Hồi (200 OK)**: Trả về bản nháp hiện tại (`draft`) và danh sách tối đa 20 bản phát hành gần nhất (`publishedVersions`).
+
+#### 3.9.6. Đọc Thống Kê Doanh Thu Theo Ngày (Read-Model Contract #45)
+- **Endpoint**: `GET /api/v1/admin/shops/:id/daily-stats`
+- **Query Parameters**:
+  - `from` *(tùy chọn, YYYY-MM-DD)*: Từ ngày.
+  - `to` *(tùy chọn, YYYY-MM-DD)*: Đến ngày.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "dailyStats": [
+    {
+      "id": "uuid",
+      "tenantId": "uuid",
+      "statDate": "2026-03-01",
+      "confirmedSessionsCount": 15,
+      "grossAmount": 1500000,
+      "netAmount": 1450000,
+      "discountAmount": 50000,
+      "orderItemsCount": 42
+    }
+  ]
+}
+```

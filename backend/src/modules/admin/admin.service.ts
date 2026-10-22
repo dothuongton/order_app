@@ -4,6 +4,14 @@ import { validate } from '../../utils/validation.js';
 import { AdminApiError } from './admin.errors.js';
 import { generatePublicQrId } from '../../utils/crypto.js';
 import { recordAuditLog } from '../../utils/audit.js';
+import { ReportingService } from '../reports/reporting.service.js';
+import {
+    GetShopTablesQueryInput,
+    GetShopMenuQueryInput,
+    GetShopOrdersQueryInput,
+    GetShopStaffQueryInput,
+    GetShopDailyStatsQueryInput
+} from './admin.validation.js';
 import {
     CreateShopInput,
     UpdateShopInput,
@@ -800,5 +808,253 @@ export class AdminService {
             csv,
             total
         };
+    }
+
+    // =========================================================================
+    // DEEP READ METHODS (Issue #46 [ADMINREAD])
+    // =========================================================================
+
+    /**
+     * Verify that a shop exists, throwing 404 SHOP_NOT_FOUND otherwise
+     */
+    static async ensureShopExists(tenantId: string): Promise<void> {
+        const res = await query('SELECT id FROM tenants WHERE id = $1', [tenantId]);
+        if (res.rows.length === 0) {
+            throw new AdminApiError(404, 'SHOP_NOT_FOUND', 'Không tìm thấy thông tin quán');
+        }
+    }
+
+    /**
+     * Bounded read of shop tables with public QR IDs, readiness, and is_enabled status
+     */
+    static async getShopTables(tenantId: string, input: GetShopTablesQueryInput) {
+        await this.ensureShopExists(tenantId);
+        const { page, limit, readiness, isEnabled } = input;
+        const offset = (page - 1) * limit;
+
+        const conditions: string[] = ['tenant_id = $1'];
+        const params: any[] = [tenantId];
+
+        if (readiness) {
+            params.push(readiness);
+            conditions.push(`readiness = $${params.length}`);
+        }
+
+        if (isEnabled !== undefined) {
+            params.push(isEnabled);
+            conditions.push(`is_enabled = $${params.length}`);
+        }
+
+        const whereSql = conditions.join(' AND ');
+        const countRes = await query(`SELECT COUNT(*) as total FROM tables WHERE ${whereSql}`, params);
+        const total = parseInt(countRes.rows[0].total, 10);
+
+        const dataParams = [...params, limit, offset];
+        const dataSql = `
+            SELECT id, tenant_id, table_number, public_qr_id, capacity, readiness, is_enabled, created_at, updated_at
+            FROM tables
+            WHERE ${whereSql}
+            ORDER BY table_number ASC
+            LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}
+        `;
+        const dataRes = await query(dataSql, dataParams);
+
+        return {
+            tables: dataRes.rows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
+    }
+
+    /**
+     * Bounded read of shop menu items and categories
+     */
+    static async getShopMenu(tenantId: string, input: GetShopMenuQueryInput) {
+        await this.ensureShopExists(tenantId);
+        const { page, limit, categoryId, isAvailable } = input;
+        const offset = (page - 1) * limit;
+
+        // Categories
+        const catRes = await query(
+            'SELECT id, tenant_id, name, sort_order, created_at FROM menu_categories WHERE tenant_id = $1 ORDER BY sort_order ASC, name ASC',
+            [tenantId]
+        );
+
+        const conditions: string[] = ['mi.tenant_id = $1'];
+        const params: any[] = [tenantId];
+
+        if (categoryId) {
+            params.push(categoryId);
+            conditions.push(`mi.category_id = $${params.length}`);
+        }
+
+        if (isAvailable !== undefined) {
+            params.push(isAvailable);
+            conditions.push(`mi.is_available = $${params.length}`);
+        }
+
+        const whereSql = conditions.join(' AND ');
+        const countRes = await query(
+            `SELECT COUNT(*) as total FROM menu_items mi WHERE ${whereSql}`,
+            params
+        );
+        const total = parseInt(countRes.rows[0].total, 10);
+
+        const dataParams = [...params, limit, offset];
+        const dataSql = `
+            SELECT 
+                mi.id, mi.tenant_id, mi.category_id, mc.name as category_name,
+                mi.name, mi.description, mi.price, mi.is_available, mi.image_url,
+                mi.created_at, mi.updated_at
+            FROM menu_items mi
+            LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+            WHERE ${whereSql}
+            ORDER BY mc.sort_order ASC NULLS LAST, mi.name ASC
+            LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}
+        `;
+        const dataRes = await query(dataSql, dataParams);
+
+        return {
+            categories: catRes.rows,
+            items: dataRes.rows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
+    }
+
+    /**
+     * Bounded read of shop orders with item counts and amounts
+     */
+    static async getShopOrders(tenantId: string, input: GetShopOrdersQueryInput) {
+        await this.ensureShopExists(tenantId);
+        const { page, limit, sessionStatus } = input;
+        const offset = (page - 1) * limit;
+
+        const conditions: string[] = ['o.tenant_id = $1'];
+        const params: any[] = [tenantId];
+
+        if (sessionStatus) {
+            params.push(sessionStatus);
+            conditions.push(`ts.status = $${params.length}`);
+        }
+
+        const whereSql = conditions.join(' AND ');
+        const countRes = await query(`
+            SELECT COUNT(*) as total 
+            FROM orders o
+            JOIN table_sessions ts ON ts.id = o.session_id
+            WHERE ${whereSql}
+        `, params);
+        const total = parseInt(countRes.rows[0].total, 10);
+
+        const dataParams = [...params, limit, offset];
+        const dataSql = `
+            SELECT 
+                o.id, o.tenant_id, o.session_id, o.order_number, o.source, o.created_at,
+                ts.table_id, tbl.table_number, ts.status as session_status,
+                (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id)::int as item_count,
+                (SELECT COALESCE(SUM(oi.snapshot_price * oi.quantity), 0) FROM order_items oi WHERE oi.order_id = o.id)::bigint as total_amount
+            FROM orders o
+            JOIN table_sessions ts ON ts.id = o.session_id
+            JOIN tables tbl ON tbl.id = ts.table_id
+            WHERE ${whereSql}
+            ORDER BY o.created_at DESC
+            LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}
+        `;
+        const dataRes = await query(dataSql, dataParams);
+
+        return {
+            orders: dataRes.rows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
+    }
+
+    /**
+     * Bounded read of shop staff and memberships (password_hash strictly excluded)
+     */
+    static async getShopStaff(tenantId: string, input: GetShopStaffQueryInput) {
+        await this.ensureShopExists(tenantId);
+        const { page, limit, role } = input;
+        const offset = (page - 1) * limit;
+
+        const conditions: string[] = ['m.tenant_id = $1'];
+        const params: any[] = [tenantId];
+
+        if (role) {
+            params.push(role);
+            conditions.push(`m.role = $${params.length}`);
+        }
+
+        const whereSql = conditions.join(' AND ');
+        const countRes = await query(`SELECT COUNT(*) as total FROM memberships m WHERE ${whereSql}`, params);
+        const total = parseInt(countRes.rows[0].total, 10);
+
+        const dataParams = [...params, limit, offset];
+        // Explicitly NEVER SELECT password_hash
+        const dataSql = `
+            SELECT 
+                m.id as membership_id, m.tenant_id, m.role, m.created_at as joined_at,
+                u.id as user_id, u.email, u.full_name, u.phone
+            FROM memberships m
+            JOIN users u ON u.id = m.user_id
+            WHERE ${whereSql}
+            ORDER BY m.created_at ASC
+            LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}
+        `;
+        const dataRes = await query(dataSql, dataParams);
+
+        return {
+            staff: dataRes.rows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            }
+        };
+    }
+
+    /**
+     * Deep read of shop CMS configuration (draft and published versions)
+     */
+    static async getShopCms(tenantId: string) {
+        await this.ensureShopExists(tenantId);
+
+        const draftRes = await query(
+            'SELECT id, tenant_id, template_id, theme_config, updated_at FROM cms_drafts WHERE tenant_id = $1',
+            [tenantId]
+        );
+
+        const versionsRes = await query(
+            'SELECT id, tenant_id, version, template_id, theme_config, content_config, changelog, published_at FROM cms_published_versions WHERE tenant_id = $1 ORDER BY version DESC LIMIT 20',
+            [tenantId]
+        );
+
+        return {
+            draft: draftRes.rows[0] || null,
+            publishedVersions: versionsRes.rows
+        };
+    }
+
+    /**
+     * Deep read of shop daily business stats from read-model (Contract #45)
+     */
+    static async getShopDailyStats(tenantId: string, input: GetShopDailyStatsQueryInput) {
+        await this.ensureShopExists(tenantId);
+        const dailyStats = await ReportingService.getDailyShopStats(tenantId, input.from, input.to);
+        return { dailyStats };
     }
 }
