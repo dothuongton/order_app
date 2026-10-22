@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { query, withTransaction } from '../../db/pool.js';
 import { validate } from '../../utils/validation.js';
 import { AdminApiError } from './admin.errors.js';
+import { generatePublicQrId } from '../../utils/crypto.js';
 import {
     CreateShopInput,
     UpdateShopInput,
@@ -404,14 +405,30 @@ export class AdminService {
                 VALUES ($1, 1, 'classic', $2, '{"bannerIds":[]}'::jsonb, 'Khởi tạo quán mới', $3)
             `, [tenantId, JSON.stringify(initialTheme), createdBySuperAdminId]);
 
-            // 5. Create default tables
+            // 5. Create default tables with CSPRNG unguessable public QR IDs (Issue #89, Contract #41)
             for (let i = 1; i <= 5; i++) {
                 const tableNum = `Bàn ${i < 10 ? '0' + i : i}`;
-                const publicQrId = `qr-${input.slug}-b${i}`;
-                await client.query(`
-                    INSERT INTO tables (tenant_id, table_number, public_qr_id, capacity)
-                    VALUES ($1, $2, $3, 4)
-                `, [tenantId, tableNum, publicQrId]);
+                const prefix = `qr_${input.slug.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 15)}_b${i}`;
+                let publicQrId = generatePublicQrId(prefix);
+                let inserted = false;
+                let attempts = 0;
+                while (!inserted && attempts < 3) {
+                    attempts++;
+                    try {
+                        await client.query(`
+                            INSERT INTO tables (tenant_id, table_number, public_qr_id, capacity)
+                            VALUES ($1, $2, $3, 4)
+                        `, [tenantId, tableNum, publicQrId]);
+                        inserted = true;
+                    } catch (tableErr: any) {
+                        // In the astronomically unlikely event of a collision on public_qr_id, regenerate and retry
+                        if (tableErr?.code === '23505' && attempts < 3) {
+                            publicQrId = generatePublicQrId(prefix);
+                        } else {
+                            throw tableErr;
+                        }
+                    }
+                }
             }
 
             // 6. Create default categories
