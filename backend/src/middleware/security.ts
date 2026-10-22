@@ -65,3 +65,18 @@ export const staffMutationLimiter = rateLimit({
     standardHeaders: 'draft-8', legacyHeaders: false,
     message: { error: 'RATE_LIMITED', message: 'Thao tác quá nhanh. Vui lòng thử lại sau.' }
 });
+
+export const adminMutationLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 60,
+    skip: req => ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+    keyGenerator: (req) => {
+        const superAdmin = (req as any).superAdmin;
+        if (superAdmin?.id) return `admin_${superAdmin.id}`;
+        return req.ip || 'unknown';
+    },
+    validate: { keyGeneratorIpFallback: false },
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { error: 'RATE_LIMITED', message: 'Thao tác quản trị quá nhanh. Vui lòng thử lại sau.' }
+});
