@@ -58,7 +58,7 @@ export const PushSettingsModal: React.FC<PushSettingsModalProps> = ({ isOpen, on
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl border border-slate-100 max-h-[88dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+      <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl border border-slate-100 max-h-[88dvh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-up staff-density-modal">
         {/* Sticky Header */}
         <div className="p-4 sm:p-5 pb-3 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
           <div className="flex items-center gap-2.5">

@@ -303,7 +303,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-fade-in">
-      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up">
+      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up staff-density-modal">
         {/* Top Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
           <div>

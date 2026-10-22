@@ -52,7 +52,7 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] staff-density-modal">
         {/* Modal Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 print:hidden">
           <div className="flex items-center gap-2.5">

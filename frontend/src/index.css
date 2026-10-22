@@ -131,7 +131,11 @@ html, body {
 .staff-portal button.bg-orange-600,
 .staff-portal a.bg-orange-600,
 .staff-portal button.bg-orange-600.text-white,
-.staff-portal a.bg-orange-600.text-white {
+.staff-portal a.bg-orange-600.text-white,
+.staff-portal button.bg-orange-500,
+.staff-portal a.bg-orange-500,
+.staff-portal button.bg-orange-500.text-white,
+.staff-portal a.bg-orange-500.text-white {
   color: var(--brand-on-accent);
 }
 
