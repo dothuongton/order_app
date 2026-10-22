@@ -7,7 +7,8 @@ import {
     listShopsQuerySchema,
     createShopSchema,
     updateShopSchema,
-    listAuditLogsQuerySchema
+    listAuditLogsQuerySchema,
+    exportAuditLogsQuerySchema
 } from './admin.validation.js';
 
 export const adminRouter = Router();
@@ -143,6 +144,34 @@ adminRouter.get('/templates', async (req: Request, res: Response) => {
     try {
         const templates = await AdminService.listTemplates();
         res.json({ templates });
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/audit-logs/export
+ * Export privileged Super Admin audit logs as CSV with bounded limit (<= 1,000 rows), formula injection defense, and sensitive data redaction
+ */
+adminRouter.get('/audit-logs/export', async (req: Request, res: Response) => {
+    try {
+        const queryInput = exportAuditLogsQuerySchema.parse(req.query);
+        const { csv, total } = await AdminService.exportAuditLogsCsv(queryInput);
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const filename = `audit-logs-${yyyy}${mm}${dd}.csv`;
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('X-Total-Count', total.toString());
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+
+        return res.status(200).send(csv);
     } catch (err: any) {
         handleAdminError(err, res);
     }

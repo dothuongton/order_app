@@ -7,10 +7,83 @@ import {
     UpdateShopInput,
     ListShopsQueryInput,
     ListAuditLogsQueryInput,
+    ExportAuditLogsQueryInput,
     createShopSchema,
     updateShopSchema,
     parseDateFilter
 } from './admin.validation.js';
+
+export function isSensitiveKey(key: string): boolean {
+    const normalized = key.toLowerCase().replace(/[-_]/g, '');
+
+    // 1. Password, tokens, secrets, hashes, cookies, credentials, auth, keys, agent
+    if (/(?:password|passwd|token|secret|hash|cookie|credential|authorization|privatekey|apikey|useragent)/i.test(normalized)) {
+        return true;
+    }
+
+    // 2. IP variations: clientIp, request_ip, remote_ip, ipAddress, userIp, callerIp, etc.
+    if (/(?:^|client|request|remote|user|caller|source|peer|device|host|server)ip(?:address|addr)?$/i.test(normalized)) {
+        return true;
+    }
+
+    // 3. Word-tokenized check: any token that is exactly 'ip', 'ipaddress', or 'ipaddr'
+    const tokens = key.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/);
+    if (tokens.includes('ip') || tokens.includes('ipaddress') || tokens.includes('ipaddr')) {
+        return true;
+    }
+
+    return false;
+}
+
+export function redactSensitiveDetails(obj: any): any {
+    if (!obj || typeof obj !== 'object') {
+        return obj;
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(redactSensitiveDetails);
+    }
+    const cleaned: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+        if (isSensitiveKey(k)) {
+            cleaned[k] = '[REDACTED]';
+        } else if (typeof v === 'object' && v !== null) {
+            cleaned[k] = redactSensitiveDetails(v);
+        } else {
+            cleaned[k] = v;
+        }
+    }
+    return cleaned;
+}
+
+export function formatVietnamDateTime(dateInput: string | Date): string {
+    if (!dateInput) return '';
+    const date = new Date(dateInput);
+    if (isNaN(date.getTime())) return '';
+    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+    const vnTime = new Date(utc + (7 * 3600000));
+    const yyyy = vnTime.getFullYear();
+    const mm = String(vnTime.getMonth() + 1).padStart(2, '0');
+    const dd = String(vnTime.getDate()).padStart(2, '0');
+    const hh = String(vnTime.getHours()).padStart(2, '0');
+    const min = String(vnTime.getMinutes()).padStart(2, '0');
+    const ss = String(vnTime.getSeconds()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+}
+
+export function sanitizeCsvCell(value: any): string {
+    if (value === null || value === undefined) {
+        return '""';
+    }
+    let str = typeof value === 'string' ? value : String(value);
+
+    const trimmed = str.trimStart();
+    if (/^[=+\-@\t\r\0]/.test(trimmed)) {
+        str = `'${str}`;
+    }
+
+    const escaped = str.replace(/"/g, '""');
+    return `"${escaped}"`;
+}
 
 export class AdminService {
     /**
@@ -580,6 +653,126 @@ export class AdminService {
                 total,
                 totalPages: Math.ceil(total / limit) || 1
             }
+        };
+    }
+
+    /**
+     * Export audit logs as CSV with bounded limit (<= 1,000 rows), formula injection defense, and sensitive data redaction
+     */
+    static async exportAuditLogsCsv(input: ExportAuditLogsQueryInput) {
+        const whereClauses: string[] = ['1=1'];
+        const params: any[] = [];
+
+        if (input.tenantId) {
+            params.push(input.tenantId);
+            whereClauses.push(`al.tenant_id = $${params.length}`);
+        }
+
+        if (input.userId) {
+            params.push(input.userId);
+            whereClauses.push(`al.user_id = $${params.length}`);
+        }
+
+        if (input.action && input.action.trim()) {
+            params.push(input.action.trim());
+            whereClauses.push(`al.action = $${params.length}`);
+        }
+
+        const fromDateStr = input.startDate || input.from;
+        if (fromDateStr) {
+            const fromIso = parseDateFilter(fromDateStr, false);
+            params.push(fromIso);
+            whereClauses.push(`al.created_at >= $${params.length}`);
+        }
+
+        const toDateStr = input.endDate || input.to;
+        if (toDateStr) {
+            const toIso = parseDateFilter(toDateStr, true);
+            params.push(toIso);
+            whereClauses.push(`al.created_at <= $${params.length}`);
+        }
+
+        const whereSql = whereClauses.join(' AND ');
+
+        const MAX_EXPORT_ROWS = 1000;
+        const FETCH_LIMIT = MAX_EXPORT_ROWS + 1; // 1001
+
+        // Single atomic query with LIMIT 1001 to prevent two-snapshot race condition (R1)
+        const dataParams = [...params, FETCH_LIMIT];
+        const dataSql = `
+            SELECT
+                al.id, al.tenant_id, al.user_id, al.action, al.resource_type, al.resource_id, al.details, al.created_at,
+                u.email as user_email, u.full_name as user_name,
+                t.name as tenant_name
+            FROM audit_logs al
+            LEFT JOIN users u ON u.id = al.user_id
+            LEFT JOIN tenants t ON t.id = al.tenant_id
+            WHERE ${whereSql}
+            ORDER BY al.created_at DESC, al.id DESC
+            LIMIT $${dataParams.length}
+        `;
+
+        const dataRes = await query(dataSql, dataParams);
+
+        // Strict limit enforcement: If matching rows > 1000, reject immediately without silent truncation
+        if (dataRes.rows.length > MAX_EXPORT_ROWS) {
+            throw new AdminApiError(
+                400,
+                'EXPORT_LIMIT_EXCEEDED',
+                'Dữ liệu xuất vượt quá giới hạn 1.000 bản ghi. Vui lòng thu hẹp khoảng thời gian hoặc áp dụng thêm bộ lọc để xuất.',
+                { limit: MAX_EXPORT_ROWS, overflow: true }
+            );
+        }
+
+        const total = dataRes.rows.length;
+
+        // 3. Build CSV lines with RFC 4180 escaping and formula neutralization
+        const headers = [
+            'Thời gian (UTC+7)',
+            'Mã nhật ký',
+            'Hành động',
+            'Mã quán',
+            'Tên quán',
+            'Mã người thực hiện',
+            'Người thực hiện',
+            'Email người thực hiện',
+            'Loại đối tượng',
+            'Mã đối tượng',
+            'Chi tiết'
+        ];
+
+        const lines: string[] = [headers.map(sanitizeCsvCell).join(',')];
+
+        for (const row of dataRes.rows) {
+            const formattedTime = formatVietnamDateTime(row.created_at);
+            const actorName = row.user_name || (row.user_id ? `Người dùng (${row.user_id.slice(0, 8)}...)` : 'Hệ thống / Tự động');
+            const actorEmail = row.user_email || (row.user_id ? 'Tài khoản đã xoá hoặc chưa có email' : '—');
+            const tenantName = row.tenant_name || '— Toàn hệ thống —';
+            const redactedDetails = row.details ? JSON.stringify(redactSensitiveDetails(row.details)) : '';
+
+            const rowValues = [
+                formattedTime,
+                row.id || '',
+                row.action || '',
+                row.tenant_id || '',
+                tenantName,
+                row.user_id || '',
+                actorName,
+                actorEmail,
+                row.resource_type || '',
+                row.resource_id || '',
+                redactedDetails
+            ];
+
+            lines.push(rowValues.map(sanitizeCsvCell).join(','));
+        }
+
+        const UTF8_BOM = '\uFEFF';
+        const csv = UTF8_BOM + lines.join('\r\n');
+
+        return {
+            csv,
+            total
         };
     }
 }
