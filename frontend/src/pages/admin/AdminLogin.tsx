@@ -7,8 +7,8 @@ interface AdminLoginProps {
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
-    const [email, setEmail] = useState('superadmin@qrorder.vn');
-    const [password, setPassword] = useState('admin123');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -64,7 +64,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                placeholder="superadmin@qrorder.vn"
+                                placeholder="admin@example.com"
                                 className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-3 text-sm text-white focus:outline-hidden focus:border-indigo-500 transition"
                             />
                         </div>
@@ -94,10 +94,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
                         <ArrowRight className="w-4 h-4" />
                     </button>
                 </form>
-
-                <div className="pt-2 text-center text-[11px] text-slate-500 border-t border-slate-800">
-                    <p>Tài khoản mẫu: <code className="text-slate-400">superadmin@qrorder.vn</code> / <code className="text-slate-400">admin123</code></p>
-                </div>
             </div>
         </div>
     );
