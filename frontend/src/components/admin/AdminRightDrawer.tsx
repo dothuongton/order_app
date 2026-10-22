@@ -34,6 +34,7 @@ interface AdminRightDrawerProps {
     onSavePermissions?: (roleId: string, updatedGroups: any[]) => void;
     onEditShop?: (shop: ShopDetail | ShopSummary) => void;
     onToggleShopStatus?: (shop: ShopDetail | ShopSummary, newStatus: 'active' | 'suspended' | 'archived') => void;
+    onManageTables?: (shop: ShopDetail | ShopSummary) => void;
 }
 
 export const AdminRightDrawer: React.FC<AdminRightDrawerProps> = ({

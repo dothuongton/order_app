@@ -549,3 +549,99 @@ Tất cả các API đọc sâu dưới đây yêu cầu quyền Super Admin (`a
 }
 ```
 - **Xử lý Zero-Data**: Khi khoảng ngày được chọn chưa có giao dịch nào được chốt, `summary` trả về các giá trị 0 và `dailyBreakdown` là mảng rỗng `[]`. Giao diện hiển thị trạng thái "Chưa có dữ liệu kinh doanh" rõ ràng, tuyệt đối không chèn số liệu giả lập.
+
+### 3.11 Quản Lý Bàn và Mã QR theo Quán (Issue #94, Core Capability #41)
+
+Cung cấp các API hỗ trợ kỹ thuật và quản trị bàn ăn cho Super Admin có kiểm soát phạm vi quán (tenant-isolation), ràng buộc khóa nguyên tử (optimistic concurrency), bảo vệ lịch sử kế toán (DATA-01 safeguard) và sinh mã QR bảo mật cao:
+
+#### 1. Tạo bàn mới cho quán
+- **Endpoint**: `POST /api/v1/admin/shops/:id/tables`
+- **Yêu cầu Xác thực**: Bearer token của Super Admin.
+- **Rate Limit**: Áp dụng `adminMutationLimiter` (60 req/min).
+- **Body Request**:
+```json
+{
+  "table_number": "B01",
+  "capacity": 4,
+  "reason": "Yêu cầu mở rộng khu vực phục vụ của chủ quán"
+}
+```
+- **Ràng buộc & Kiểm soát**:
+  - Quán phải đang ở trạng thái hoạt động (`active`). Nếu `archived` trả về `403 SHOP_ARCHIVED`; nếu `suspended` trả về `403 SHOP_SUSPENDED`.
+  - Kiểm tra tính duy nhất của số bàn trong cùng một quán (không phân biệt hoa thường). Nếu trùng trả về `400 DUPLICATE_TABLE`.
+  - Sinh mã `public_qr_id` bằng chuẩn CSPRNG của Core #41 (`generatePublicQrId`) với độ dài $\le 63$ ký tự và entropy $\ge 128$ bits.
+  - Tự động ghi nhật ký kiểm toán (`recordAuditLog`) với hành động `ADMIN_TABLE_CREATE` và lý do hỗ trợ.
+- **Phản Hồi (201 Created)**:
+```json
+{
+  "message": "Tạo bàn \"B01\" thành công",
+  "table": {
+    "id": "22222222-2222-2222-2222-222222222222",
+    "tenant_id": "11111111-1111-1111-1111-111111111111",
+    "table_number": "B01",
+    "public_qr_id": "qr_pho-co_b01_a1b2c3d4e5f678901234567890abcdef",
+    "capacity": 4,
+    "readiness": "READY",
+    "is_enabled": true,
+    "created_at": "2026-10-22T09:00:00.000Z",
+    "updated_at": "2026-10-22T09:00:00.000Z"
+  }
+}
+```
+
+#### 2. Cập nhật thông tin bàn
+- **Endpoint**: `PATCH /api/v1/admin/shops/:id/tables/:tableId`
+- **Body Request**:
+```json
+{
+  "table_number": "B01-VIP",
+  "capacity": 6,
+  "is_enabled": true,
+  "expected_updated_at": "2026-10-22T09:00:00.000Z",
+  "reason": "Đổi tên bàn theo sơ đồ mới của quán"
+}
+```
+- **Ràng buộc**:
+  - Cách ly đa quán: Bàn `:tableId` bắt buộc phải thuộc về quán `:id`. Nếu không thuộc về quán chỉ định, trả về `404 CROSS_TENANT_FORBIDDEN`.
+  - Kiểm soát xung đột lạc quan (Optimistic Concurrency Control): So khớp `expected_updated_at` với thời điểm cập nhật thực tế trong DB. Nếu có sự chênh lệch (do nhân viên quán hoặc admin khác vừa cập nhật), trả về `409 CONFLICT` kèm `currentTable` để client giữ nguyên form và hiển thị dữ liệu mới nhất.
+  - Tuyệt đối bảo toàn `public_qr_id`: Mã QR đã in trên bàn không bị xoay hoặc thay đổi âm thầm khi sửa tên hay sức chứa.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "message": "Cập nhật bàn \"B01-VIP\" thành công",
+  "table": { ... }
+}
+```
+
+#### 3. Xóa bàn (Guarded Deletion)
+- **Endpoint**: `DELETE /api/v1/admin/shops/:id/tables/:tableId`
+- **Body Request**:
+```json
+{
+  "reason": "Bàn tạo nhầm khi chạy thử nghiệm"
+}
+```
+- **Ràng buộc An toàn Kế toán (DATA-01)**:
+  - Nếu bàn đang có phiên phục vụ mở (`status = 'OPEN'`): Trả về `400 TABLE_SESSION_OPEN`.
+  - Nếu bàn đã từng phát sinh phiên phục vụ hoặc đơn hàng trong lịch sử (`table_sessions` tồn tại bản ghi): Trả về `400 TABLE_HAS_HISTORY`. Không cho phép xóa cứng để bảo vệ dữ liệu kế toán và đối soát doanh thu; hướng dẫn chuyển sang trạng thái `is_enabled = false` (Ngừng phục vụ).
+  - Chỉ xóa vật lý khi bàn có 0 phiên phục vụ mở và 0 lịch sử giao dịch.
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "success": true,
+  "message": "Đã xóa bàn \"B01\" thành công"
+}
+```
+
+#### 4. Lấy mã QR bàn
+- **Endpoint**: `GET /api/v1/admin/shops/:id/tables/:tableId/qr`
+- **Phản Hồi (200 OK)**:
+```json
+{
+  "tableId": "22222222-2222-2222-2222-222222222222",
+  "tableNumber": "B01",
+  "publicQrId": "qr_pho-co_b01_a1b2c3d4e5f678901234567890abcdef",
+  "qrUrl": "https://example.com/t/qr_pho-co_b01_a1b2c3d4e5f678901234567890abcdef",
+  "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+}
+```

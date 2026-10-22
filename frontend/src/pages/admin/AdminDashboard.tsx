@@ -27,6 +27,7 @@ import { useAdminShopDrawer } from '../../hooks/admin/useAdminShopDrawer.js';
 import { CreateShopModal } from '../../components/admin/CreateShopModal.js';
 import { EditShopModal } from '../../components/admin/EditShopModal.js';
 import { LifecycleConfirmModal } from '../../components/admin/LifecycleConfirmModal.js';
+import { ShopTablesManager } from '../../components/admin/ShopTablesManager.js';
 import { Store, ChevronRight, CheckCircle2, TrendingUp, DollarSign, Layers } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -260,6 +261,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
     } = useAdminShopDrawer();
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingShop, setEditingShop] = useState<ShopDetail | ShopSummary | null>(null);
+    const [managingTablesShop, setManagingTablesShop] = useState<ShopSummary | ShopDetail | null>(null);
     const [lifecycleTarget, setLifecycleTarget] = useState<{
         shop: ShopSummary;
         targetStatus: ShopStatus;
@@ -681,6 +683,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                     setEditingShop(shop);
                 }}
                 onToggleShopStatus={handleRequestLifecycleChange}
+                onManageTables={(shop) => {
+                    closeDrawer();
+                    setManagingTablesShop(shop);
+                }}
             />
 
             {/* 4. Modals */}
@@ -705,6 +711,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
                     onClose={() => setLifecycleTarget(null)}
                     onConfirm={handleConfirmLifecycle}
                 />
+            )}
+
+            {managingTablesShop && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+                    <div className="w-full max-w-4xl h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                        <ShopTablesManager
+                            shopId={managingTablesShop.id}
+                            shopName={managingTablesShop.name}
+                            shopStatus={managingTablesShop.status}
+                            onClose={() => setManagingTablesShop(null)}
+                        />
+                    </div>
+                </div>
             )}
         </div>
     );

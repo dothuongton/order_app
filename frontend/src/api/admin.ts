@@ -14,7 +14,11 @@ import {
     AdminStaffResponse,
     AdminCmsResponse,
     AdminDailyStatsResponse,
-    AdminAnalyticsResponse
+    AdminAnalyticsResponse,
+    AdminCreateTablePayload,
+    AdminUpdateTablePayload,
+    AdminDeleteTablePayload,
+    AdminTableQrResponse
 } from '../types/admin.js';
 
 function getAdminHeaders(): HeadersInit {
@@ -260,6 +264,58 @@ export const AdminApi = {
         if (params.to) queryParams.set('to', params.to);
         const query = queryParams.toString();
         return request<AdminAnalyticsResponse>(`/admin/analytics${query ? `?${query}` : ''}`, {
+            headers: getAdminHeaders()
+        });
+    }
+,
+
+    /**
+     * Create a new table for shop with support reason (Issue #94)
+     */
+    async createShopTable(shopId: string, payload: AdminCreateTablePayload): Promise<{ message: string; table: any }> {
+        return request<{ message: string; table: any }>(`/admin/shops/${shopId}/tables`, {
+            method: 'POST',
+            headers: {
+                ...getAdminHeaders(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+    },
+
+    /**
+     * Update table with optimistic concurrency control and reason (Issue #94)
+     */
+    async updateShopTable(shopId: string, tableId: string, payload: AdminUpdateTablePayload): Promise<{ message: string; table: any }> {
+        return request<{ message: string; table: any }>(`/admin/shops/${shopId}/tables/${tableId}`, {
+            method: 'PATCH',
+            headers: {
+                ...getAdminHeaders(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+    },
+
+    /**
+     * Delete table guarded by active session and historical ledger protection (Issue #94)
+     */
+    async deleteShopTable(shopId: string, tableId: string, payload: AdminDeleteTablePayload): Promise<{ success: boolean; message: string }> {
+        return request<{ success: boolean; message: string }>(`/admin/shops/${shopId}/tables/${tableId}`, {
+            method: 'DELETE',
+            headers: {
+                ...getAdminHeaders(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+    },
+
+    /**
+     * Get QR code data URL and public link for a table (Issue #94)
+     */
+    async getShopTableQr(shopId: string, tableId: string): Promise<AdminTableQrResponse> {
+        return request<AdminTableQrResponse>(`/admin/shops/${shopId}/tables/${tableId}/qr`, {
             headers: getAdminHeaders()
         });
     }

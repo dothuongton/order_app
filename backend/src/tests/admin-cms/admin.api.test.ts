@@ -2182,4 +2182,248 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             }
         });
     });
+
+    // =========================================================================
+    // 15. SHOP TABLES & QR CAPABILITY SUITE (Issue #94)
+    // =========================================================================
+    describe('Admin Shop Tables & QR Capabilities (Issue #94)', () => {
+        let testTableId: string;
+        let otherTenantId: string;
+        let otherTableId: string;
+
+        beforeAll(async () => {
+            // Create a second shop (otherTenantId) for cross-tenant tests
+            const otherRes = await query(`
+                INSERT INTO tenants (name, slug, status)
+                VALUES ('Quán Thử Nghiệm B', 'quan-thu-nghiem-b', 'active')
+                RETURNING id
+            `);
+            otherTenantId = otherRes.rows[0].id;
+
+            const otherTableRes = await query(`
+                INSERT INTO tables (tenant_id, table_number, public_qr_id, capacity, readiness, is_enabled)
+                VALUES ($1, 'B-OTHER-01', 'qr_other_b01_1234567890abcdef', 4, 'READY', true)
+                RETURNING id
+            `, [otherTenantId]);
+            otherTableId = otherTableRes.rows[0].id;
+        });
+
+        afterAll(async () => {
+            if (otherTenantId) {
+                await query('DELETE FROM tables WHERE tenant_id = $1', [otherTenantId]);
+                await query('DELETE FROM tenants WHERE id = $1', [otherTenantId]);
+            }
+            if (testTableId) {
+                await query('DELETE FROM tables WHERE id = $1', [testTableId]);
+            }
+        });
+
+        it('rejects table creation if support reason is missing', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${superAdminToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    table_number: 'B99',
+                    capacity: 4
+                })
+            });
+            expect(res.status).toBe(400);
+            const data: any = await res.json();
+            expect(data.error).toBe('BAD_REQUEST');
+        });
+
+        it('creates a new table with secure CSPRNG QR ID and records audit log', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${superAdminToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    table_number: 'B99',
+                    capacity: 6,
+                    reason: 'Setup bàn mới phục vụ khách đoàn'
+                })
+            });
+            expect(res.status).toBe(201);
+            const data: any = await res.json();
+            expect(data.table).toBeDefined();
+            expect(data.table.table_number).toBe('B99');
+            expect(data.table.capacity).toBe(6);
+            expect(data.table.readiness).toBe('READY');
+            expect(data.table.is_enabled).toBe(true);
+
+            // Public QR ID must be secure, prefixed, <= 63 chars
+            expect(data.table.public_qr_id).toBeDefined();
+            expect(data.table.public_qr_id.length).toBeLessThanOrEqual(63);
+            expect(data.table.public_qr_id).toMatch(/^qr_/);
+
+            testTableId = data.table.id;
+
+            // Verify audit log was recorded
+            const auditRes = await query(
+                "SELECT * FROM audit_logs WHERE tenant_id = $1 AND action = 'ADMIN_TABLE_CREATE' AND resource_id = $2",
+                [seedTenantId, testTableId]
+            );
+            expect(auditRes.rows.length).toBe(1);
+            expect(auditRes.rows[0].details.reason).toBe('Setup bàn mới phục vụ khách đoàn');
+        });
+
+        it('rejects duplicate table_number within the same shop (case-insensitive)', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${superAdminToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    table_number: 'b99',
+                    capacity: 2,
+                    reason: 'Thử tạo bàn trùng tên'
+                })
+            });
+            expect(res.status).toBe(400);
+            const data: any = await res.json();
+            expect(data.error).toBe('DUPLICATE_TABLE');
+        });
+
+        it('rejects table operations across tenants (table of shop B on shop A url)', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables/${otherTableId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${superAdminToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    table_number: 'HACKED',
+                    reason: 'Tấn công cross-tenant'
+                })
+            });
+            expect(res.status).toBe(404);
+            const data: any = await res.json();
+            expect(data.error).toBe('CROSS_TENANT_FORBIDDEN');
+        });
+
+        it('detects optimistic concurrency conflict (409) if table was modified concurrently', async () => {
+            const staleTimestamp = new Date(Date.now() - 60000).toISOString();
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables/${testTableId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${superAdminToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    table_number: 'B99-VIP',
+                    expected_updated_at: staleTimestamp,
+                    reason: 'Cập nhật với timestamp cũ'
+                })
+            });
+            expect(res.status).toBe(409);
+            const data: any = await res.json();
+            expect(data.error).toBe('CONFLICT');
+            expect(data.details?.currentTable).toBeDefined();
+            expect(data.details.currentTable.table_number).toBe('B99');
+        });
+
+        it('updates table successfully, preserving existing QR ID', async () => {
+            // Get current updated_at
+            const tableRes = await query('SELECT * FROM tables WHERE id = $1', [testTableId]);
+            const currentTable = tableRes.rows[0];
+            const originalQrId = currentTable.public_qr_id;
+
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables/${testTableId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${superAdminToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    table_number: 'B99-NEW',
+                    capacity: 8,
+                    expected_updated_at: currentTable.updated_at.toISOString(),
+                    reason: 'Đổi tên và tăng sức chứa'
+                })
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+            expect(data.table.table_number).toBe('B99-NEW');
+            expect(data.table.capacity).toBe(8);
+            // Public QR ID must remain unchanged
+            expect(data.table.public_qr_id).toBe(originalQrId);
+        });
+
+        it('gets QR code data URL using Core capability', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables/${testTableId}/qr`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+            expect(data.tableId).toBe(testTableId);
+            expect(data.tableNumber).toBe('B99-NEW');
+            expect(data.publicQrId).toBeDefined();
+            expect(data.dataUrl.startsWith('data:image/png;base64,')).toBe(true);
+            expect(data.qrUrl).toContain(data.publicQrId);
+        });
+
+        it('guards against deletion of table with historical sessions (DATA-01)', async () => {
+            // Create a fake closed historical session for testTableId
+            const sessionRes = await query(`
+                INSERT INTO table_sessions (tenant_id, table_id, status, opened_at, closed_at)
+                VALUES ($1, $2, 'CLOSED', NOW() - INTERVAL '1 day', NOW())
+                RETURNING id
+            `, [seedTenantId, testTableId]);
+            const sessionId = sessionRes.rows[0].id;
+
+            try {
+                const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables/${testTableId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${superAdminToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        reason: 'Cố gắng xóa bàn đã có lịch sử đơn'
+                    })
+                });
+                expect(res.status).toBe(400);
+                const data: any = await res.json();
+                expect(data.error).toBe('TABLE_HAS_HISTORY');
+            } finally {
+                await query('DELETE FROM table_sessions WHERE id = $1', [sessionId]);
+            }
+        });
+
+        it('deletes table successfully when it has 0 history and 0 sessions', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/shops/${seedTenantId}/tables/${testTableId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${superAdminToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    reason: 'Xóa bàn thử nghiệm sau khi hoàn tất test'
+                })
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+            expect(data.success).toBe(true);
+
+            // Verify table is deleted
+            const checkRes = await query('SELECT id FROM tables WHERE id = $1', [testTableId]);
+            expect(checkRes.rows.length).toBe(0);
+
+            // Verify audit log was recorded
+            const auditRes = await query(
+                "SELECT * FROM audit_logs WHERE tenant_id = $1 AND action = 'ADMIN_TABLE_DELETE' AND resource_id = $2",
+                [seedTenantId, testTableId]
+            );
+            expect(auditRes.rows.length).toBe(1);
+
+            testTableId = '';
+        });
+    });
+
 });

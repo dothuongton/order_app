@@ -294,3 +294,33 @@ export interface AdminAnalyticsResponse {
     dailyBreakdown: AdminDailyBreakdownItem[];
     topShops: AdminTopShopItem[];
 }
+
+// =========================================================================
+// TABLE MANAGEMENT TYPES (Issue #94)
+// =========================================================================
+
+export interface AdminCreateTablePayload {
+    table_number: string;
+    capacity?: number;
+    reason: string;
+}
+
+export interface AdminUpdateTablePayload {
+    table_number?: string;
+    capacity?: number;
+    is_enabled?: boolean;
+    expected_updated_at?: string;
+    reason: string;
+}
+
+export interface AdminDeleteTablePayload {
+    reason: string;
+}
+
+export interface AdminTableQrResponse {
+    tableId: string;
+    tableNumber: string;
+    publicQrId: string;
+    qrUrl: string;
+    dataUrl: string;
+}
