@@ -204,3 +204,21 @@ export const getShopDailyStatsQuerySchema = z.object({
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày kết thúc YYYY-MM-DD không hợp lệ').optional()
 });
 export type GetShopDailyStatsQueryInput = z.infer<typeof getShopDailyStatsQuerySchema>;
+
+// =========================================================================
+// ANALYTICS QUERY SCHEMA (Issue #91)
+// =========================================================================
+
+export const getAnalyticsQuerySchema = z.object({
+    tenantId: z.string().uuid('Mã quán không đúng định dạng UUID').optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày bắt đầu YYYY-MM-DD không hợp lệ').optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Định dạng ngày kết thúc YYYY-MM-DD không hợp lệ').optional()
+}).refine(data => {
+    if (data.from && !isValidCalendarDate(data.from)) return false;
+    if (data.to && !isValidCalendarDate(data.to)) return false;
+    if (data.from && data.to && data.from > data.to) return false;
+    return true;
+}, {
+    message: 'Khoảng thời gian không hợp lệ hoặc ngày bắt đầu lớn hơn ngày kết thúc'
+});
+export type GetAnalyticsQueryInput = z.infer<typeof getAnalyticsQuerySchema>;

@@ -2053,4 +2053,133 @@ describe('Admin CMS Management API Suite (Issue #16 [CMS-02])', () => {
             }
         });
     });
+
+    // =========================================================================
+    // 14. ADMIN ANALYTICS READ-MODEL API (Issue #91, Contract #45)
+    // =========================================================================
+    describe('Admin Analytics Read-Model API (Issue #91, Contract #45)', () => {
+        const nonExistentShopId = 'e0000000-0000-0000-0000-000000000099';
+
+        it('denies unauthenticated requests with 401', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics`);
+            expect(res.status).toBe(401);
+            const data: any = await res.json();
+            expect(data.error).toBe('UNAUTHORIZED');
+        });
+
+        it('denies non-superadmin staff requests with 403', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics`, {
+                headers: { 'Authorization': `Bearer ${staffToken}` }
+            });
+            expect(res.status).toBe(403);
+            const data: any = await res.json();
+            expect(data.error).toBe('FORBIDDEN');
+        });
+
+        it('rejects invalid date format with 400', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics?from=invalid-date`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(400);
+        });
+
+        it('rejects non-existent calendar dates (e.g. Feb 31) with 400', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics?from=2026-02-31`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(400);
+        });
+
+        it('rejects inverted chronological order (from > to) with 400', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics?from=2026-10-25&to=2026-10-10`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(400);
+        });
+
+        it('returns 404 SHOP_NOT_FOUND when scoped to non-existent shop id', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics?tenantId=${nonExistentShopId}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(404);
+            const data: any = await res.json();
+            expect(data.error).toBe('SHOP_NOT_FOUND');
+        });
+
+        it('returns valid analytics structure with summary, dailyBreakdown and topShops', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(data.summary).toBeDefined();
+            expect(typeof data.summary.totalConfirmedSessions).toBe('number');
+            expect(typeof data.summary.totalGrossAmount).toBe('number');
+            expect(typeof data.summary.totalNetAmount).toBe('number');
+            expect(typeof data.summary.totalDiscountAmount).toBe('number');
+            expect(typeof data.summary.totalOrderItems).toBe('number');
+
+            expect(Array.isArray(data.dailyBreakdown)).toBe(true);
+            expect(Array.isArray(data.topShops)).toBe(true);
+        });
+
+        it('returns accurate zero-data response for future date without fake numbers', async () => {
+            const futureFrom = '2029-01-01';
+            const futureTo = '2029-01-07';
+            const res = await fetch(`${baseUrl}/api/v1/admin/analytics?from=${futureFrom}&to=${futureTo}`, {
+                headers: { 'Authorization': `Bearer ${superAdminToken}` }
+            });
+            expect(res.status).toBe(200);
+            const data: any = await res.json();
+
+            expect(data.summary.totalConfirmedSessions).toBe(0);
+            expect(data.summary.totalGrossAmount).toBe(0);
+            expect(data.summary.totalNetAmount).toBe(0);
+            expect(data.summary.totalDiscountAmount).toBe(0);
+            expect(data.summary.totalOrderItems).toBe(0);
+            expect(data.dailyBreakdown.length).toBe(0);
+            expect(data.topShops.length).toBe(0);
+        });
+
+        it('supports shop-scoped analytics and correctly matches seed shop data', async () => {
+            // Seed a daily stat record for testing
+            const testDate = '2026-10-18';
+            await query(`
+                INSERT INTO daily_shop_stats (
+                    tenant_id, stat_date, confirmed_sessions_count, gross_amount, net_amount, discount_amount, order_items_count
+                ) VALUES ($1, $2::date, 5, 500000, 450000, 50000, 15)
+                ON CONFLICT (tenant_id, stat_date) DO UPDATE SET
+                    confirmed_sessions_count = 5,
+                    gross_amount = 500000,
+                    net_amount = 450000,
+                    discount_amount = 50000,
+                    order_items_count = 15
+            `, [seedTenantId, testDate]);
+
+            try {
+                const res = await fetch(`${baseUrl}/api/v1/admin/analytics?tenantId=${seedTenantId}&from=2026-10-18&to=2026-10-18`, {
+                    headers: { 'Authorization': `Bearer ${superAdminToken}` }
+                });
+                expect(res.status).toBe(200);
+                const data: any = await res.json();
+
+                expect(data.tenantId).toBe(seedTenantId);
+                expect(data.summary.totalConfirmedSessions).toBe(5);
+                expect(data.summary.totalGrossAmount).toBe(500000);
+                expect(data.summary.totalNetAmount).toBe(450000);
+                expect(data.summary.totalDiscountAmount).toBe(50000);
+                expect(data.summary.totalOrderItems).toBe(15);
+
+                expect(data.dailyBreakdown.length).toBe(1);
+                expect(data.dailyBreakdown[0].date).toBe(testDate);
+                expect(data.dailyBreakdown[0].netAmount).toBe(450000);
+
+                // Scoped query does not return topShops list
+                expect(data.topShops.length).toBe(0);
+            } finally {
+                await query('DELETE FROM daily_shop_stats WHERE tenant_id = $1 AND stat_date = $2::date', [seedTenantId, testDate]);
+            }
+        });
+    });
 });

@@ -256,3 +256,41 @@ export interface AdminDailyStatsResponse {
         updatedAt: string;
     }>;
 }
+
+// =========================================================================
+// ANALYTICS TYPES (Issue #91)
+// =========================================================================
+
+export interface AdminAnalyticsSummary {
+    totalConfirmedSessions: number;
+    totalGrossAmount: number;
+    totalNetAmount: number;
+    totalDiscountAmount: number;
+    totalOrderItems: number;
+}
+
+export interface AdminDailyBreakdownItem {
+    date: string;
+    confirmedSessionsCount: number;
+    grossAmount: number;
+    netAmount: number;
+    discountAmount: number;
+    orderItemsCount: number;
+}
+
+export interface AdminTopShopItem {
+    tenantId: string;
+    shopName: string;
+    shopSlug: string;
+    netRevenue: number;
+    confirmedSessions: number;
+}
+
+export interface AdminAnalyticsResponse {
+    from: string | null;
+    to: string | null;
+    tenantId: string | null;
+    summary: AdminAnalyticsSummary;
+    dailyBreakdown: AdminDailyBreakdownItem[];
+    topShops: AdminTopShopItem[];
+}

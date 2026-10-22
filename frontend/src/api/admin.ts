@@ -13,7 +13,8 @@ import {
     AdminOrdersResponse,
     AdminStaffResponse,
     AdminCmsResponse,
-    AdminDailyStatsResponse
+    AdminDailyStatsResponse,
+    AdminAnalyticsResponse
 } from '../types/admin.js';
 
 function getAdminHeaders(): HeadersInit {
@@ -245,6 +246,20 @@ export const AdminApi = {
         if (params.to) queryParams.set('to', params.to);
         const query = queryParams.toString();
         return request<AdminDailyStatsResponse>(`/admin/shops/${shopId}/daily-stats${query ? `?${query}` : ''}`, {
+            headers: getAdminHeaders()
+        });
+    },
+
+    /**
+     * Get platform and shop-scoped analytics (Issue #91)
+     */
+    async getAnalytics(params: { tenantId?: string; from?: string; to?: string } = {}): Promise<AdminAnalyticsResponse> {
+        const queryParams = new URLSearchParams();
+        if (params.tenantId) queryParams.set('tenantId', params.tenantId);
+        if (params.from) queryParams.set('from', params.from);
+        if (params.to) queryParams.set('to', params.to);
+        const query = queryParams.toString();
+        return request<AdminAnalyticsResponse>(`/admin/analytics${query ? `?${query}` : ''}`, {
             headers: getAdminHeaders()
         });
     }

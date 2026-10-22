@@ -10,7 +10,8 @@ import {
     GetShopMenuQueryInput,
     GetShopOrdersQueryInput,
     GetShopStaffQueryInput,
-    GetShopDailyStatsQueryInput
+    GetShopDailyStatsQueryInput,
+    GetAnalyticsQueryInput
 } from './admin.validation.js';
 import {
     CreateShopInput,
@@ -1056,5 +1057,115 @@ export class AdminService {
         await this.ensureShopExists(tenantId);
         const dailyStats = await ReportingService.getDailyShopStats(tenantId, input.from, input.to);
         return { dailyStats };
+    }
+
+    /**
+     * Platform and shop-scoped analytics using read-model daily_shop_stats (Issue #91, Contract #45)
+     */
+    static async getAnalytics(input: GetAnalyticsQueryInput) {
+        const { tenantId, from, to } = input;
+        if (tenantId) {
+            await this.ensureShopExists(tenantId);
+        }
+
+        const conditions: string[] = [];
+        const params: any[] = [];
+
+        if (tenantId) {
+            params.push(tenantId);
+            conditions.push(`dss.tenant_id = $${params.length}`);
+        }
+
+        if (from) {
+            params.push(from);
+            conditions.push(`dss.stat_date >= $${params.length}::date`);
+        }
+
+        if (to) {
+            params.push(to);
+            conditions.push(`dss.stat_date <= $${params.length}::date`);
+        }
+
+        const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        // 1. Summary aggregates
+        const summarySql = `
+            SELECT 
+                COALESCE(SUM(dss.confirmed_sessions_count), 0)::int as total_confirmed_sessions,
+                COALESCE(SUM(dss.gross_amount), 0)::bigint as total_gross_amount,
+                COALESCE(SUM(dss.net_amount), 0)::bigint as total_net_amount,
+                COALESCE(SUM(dss.discount_amount), 0)::bigint as total_discount_amount,
+                COALESCE(SUM(dss.order_items_count), 0)::int as total_order_items
+            FROM daily_shop_stats dss
+            ${whereSql}
+        `;
+        const summaryRes = await query(summarySql, params);
+        const s = summaryRes.rows[0];
+
+        // 2. Daily breakdown
+        const dailySql = `
+            SELECT 
+                dss.stat_date::text as date,
+                COALESCE(SUM(dss.confirmed_sessions_count), 0)::int as confirmed_sessions_count,
+                COALESCE(SUM(dss.gross_amount), 0)::bigint as gross_amount,
+                COALESCE(SUM(dss.net_amount), 0)::bigint as net_amount,
+                COALESCE(SUM(dss.discount_amount), 0)::bigint as discount_amount,
+                COALESCE(SUM(dss.order_items_count), 0)::int as order_items_count
+            FROM daily_shop_stats dss
+            ${whereSql}
+            GROUP BY dss.stat_date
+            ORDER BY dss.stat_date ASC
+            LIMIT 180
+        `;
+        const dailyRes = await query(dailySql, params);
+
+        // 3. Top shops breakdown (when viewing all shops)
+        let topShops: any[] = [];
+        if (!tenantId) {
+            const topShopsSql = `
+                SELECT 
+                    dss.tenant_id,
+                    t.name as shop_name,
+                    t.slug as shop_slug,
+                    COALESCE(SUM(dss.net_amount), 0)::bigint as net_revenue,
+                    COALESCE(SUM(dss.confirmed_sessions_count), 0)::int as confirmed_sessions
+                FROM daily_shop_stats dss
+                JOIN tenants t ON t.id = dss.tenant_id
+                ${whereSql}
+                GROUP BY dss.tenant_id, t.name, t.slug
+                ORDER BY net_revenue DESC
+                LIMIT 10
+            `;
+            const topShopsRes = await query(topShopsSql, params);
+            topShops = topShopsRes.rows;
+        }
+
+        return {
+            from: from || null,
+            to: to || null,
+            tenantId: tenantId || null,
+            summary: {
+                totalConfirmedSessions: Number(s.total_confirmed_sessions),
+                totalGrossAmount: Number(s.total_gross_amount),
+                totalNetAmount: Number(s.total_net_amount),
+                totalDiscountAmount: Number(s.total_discount_amount),
+                totalOrderItems: Number(s.total_order_items)
+            },
+            dailyBreakdown: dailyRes.rows.map(r => ({
+                date: r.date,
+                confirmedSessionsCount: Number(r.confirmed_sessions_count),
+                grossAmount: Number(r.gross_amount),
+                netAmount: Number(r.net_amount),
+                discountAmount: Number(r.discount_amount),
+                orderItemsCount: Number(r.order_items_count)
+            })),
+            topShops: topShops.map(ts => ({
+                tenantId: ts.tenant_id,
+                shopName: ts.shop_name,
+                shopSlug: ts.shop_slug,
+                netRevenue: Number(ts.net_revenue),
+                confirmedSessions: Number(ts.confirmed_sessions)
+            }))
+        };
     }
 }
