@@ -15,7 +15,10 @@ import {
     getShopOrdersQuerySchema,
     getShopStaffQuerySchema,
     getShopDailyStatsQuerySchema,
-    getAnalyticsQuerySchema
+    getAnalyticsQuerySchema,
+    adminCreateTableSchema,
+    adminUpdateTableSchema,
+    adminDeleteTableSchema
 } from './admin.validation.js';
 
 export const adminRouter = Router();
@@ -52,6 +55,17 @@ function handleAdminError(err: any, res: Response) {
 }
 
 // Param middleware to validate UUID for :id
+// Param middleware to validate UUID for :tableId
+adminRouter.param('tableId', (req, res, next, tableId) => {
+    if (!z.string().uuid().safeParse(tableId).success) {
+        return res.status(400).json({
+            error: 'INVALID_ID',
+            message: 'Mã bàn không đúng định dạng UUID'
+        });
+    }
+    next();
+});
+
 adminRouter.param('id', (req, res, next, id) => {
     if (!z.string().uuid().safeParse(id).success) {
         return res.status(400).json({
@@ -129,6 +143,71 @@ adminRouter.get('/shops/:id/tables', async (req: Request, res: Response) => {
     try {
         const queryInput = getShopTablesQuerySchema.parse(req.query);
         const result = await AdminService.getShopTables(req.params.id, queryInput);
+        res.json(result);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * POST /api/v1/admin/shops/:id/tables
+ * Create a new table for shop with capability Core CSPRNG QR generation and audit (Issue #94)
+ */
+adminRouter.post('/shops/:id/tables', async (req: Request, res: Response) => {
+    try {
+        const input = adminCreateTableSchema.parse(req.body);
+        const actor = req.superAdmin?.id || 'superadmin';
+        const table = await AdminService.createShopTable(req.params.id, input, actor);
+        res.status(201).json({
+            message: `Tạo bàn "${table.table_number}" thành công`,
+            table
+        });
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * PATCH /api/v1/admin/shops/:id/tables/:tableId
+ * Update table with optimistic concurrency control, cross-tenant guard, and audit (Issue #94)
+ */
+adminRouter.patch('/shops/:id/tables/:tableId', async (req: Request, res: Response) => {
+    try {
+        const input = adminUpdateTableSchema.parse(req.body);
+        const actor = req.superAdmin?.id || 'superadmin';
+        const table = await AdminService.updateShopTable(req.params.id, req.params.tableId, input, actor);
+        res.json({
+            message: `Cập nhật bàn "${table.table_number}" thành công`,
+            table
+        });
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * DELETE /api/v1/admin/shops/:id/tables/:tableId
+ * Delete table guarded by active session and DATA-01 historical protection (Issue #94)
+ */
+adminRouter.delete('/shops/:id/tables/:tableId', async (req: Request, res: Response) => {
+    try {
+        const input = adminDeleteTableSchema.parse(req.body);
+        const actor = req.superAdmin?.id || 'superadmin';
+        const result = await AdminService.deleteShopTable(req.params.id, req.params.tableId, input, actor);
+        res.json(result);
+    } catch (err: any) {
+        handleAdminError(err, res);
+    }
+});
+
+/**
+ * GET /api/v1/admin/shops/:id/tables/:tableId/qr
+ * Get QR code data URL and public URL for table (Issue #94)
+ */
+adminRouter.get('/shops/:id/tables/:tableId/qr', async (req: Request, res: Response) => {
+    try {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const result = await AdminService.getShopTableQr(req.params.id, req.params.tableId, baseUrl);
         res.json(result);
     } catch (err: any) {
         handleAdminError(err, res);

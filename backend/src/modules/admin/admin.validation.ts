@@ -222,3 +222,28 @@ export const getAnalyticsQuerySchema = z.object({
     message: 'Khoảng thời gian không hợp lệ hoặc ngày bắt đầu lớn hơn ngày kết thúc'
 });
 export type GetAnalyticsQueryInput = z.infer<typeof getAnalyticsQuerySchema>;
+
+// =========================================================================
+// TABLE MANAGEMENT SCHEMAS (Issue #94)
+// =========================================================================
+
+export const adminCreateTableSchema = z.object({
+    table_number: z.string().trim().min(1, 'Số bàn không được để trống').max(64, 'Số bàn tối đa 64 ký tự'),
+    capacity: z.coerce.number().int().min(1, 'Sức chứa tối thiểu 1 người').max(100, 'Sức chứa tối đa 100 người').default(4),
+    reason: z.string().trim().min(1, 'Lý do hỗ trợ là bắt buộc').max(500, 'Lý do hỗ trợ tối đa 500 ký tự')
+});
+export type AdminCreateTableInput = z.infer<typeof adminCreateTableSchema>;
+
+export const adminUpdateTableSchema = z.object({
+    table_number: z.string().trim().min(1, 'Số bàn không được để trống').max(64, 'Số bàn tối đa 64 ký tự').optional(),
+    capacity: z.coerce.number().int().min(1, 'Sức chứa tối thiểu 1 người').max(100, 'Sức chứa tối đa 100 người').optional(),
+    is_enabled: z.boolean().optional(),
+    expected_updated_at: z.string().optional(),
+    reason: z.string().trim().min(1, 'Lý do hỗ trợ là bắt buộc').max(500, 'Lý do hỗ trợ tối đa 500 ký tự')
+});
+export type AdminUpdateTableInput = z.infer<typeof adminUpdateTableSchema>;
+
+export const adminDeleteTableSchema = z.object({
+    reason: z.string().trim().min(1, 'Lý do hỗ trợ là bắt buộc').max(500, 'Lý do hỗ trợ tối đa 500 ký tự')
+});
+export type AdminDeleteTableInput = z.infer<typeof adminDeleteTableSchema>;

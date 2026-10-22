@@ -5,13 +5,17 @@ import { AdminApiError } from './admin.errors.js';
 import { generatePublicQrId } from '../../utils/crypto.js';
 import { recordAuditLog } from '../../utils/audit.js';
 import { ReportingService } from '../reports/reporting.service.js';
+import { StaffService } from '../staff/staff.service.js';
 import {
     GetShopTablesQueryInput,
     GetShopMenuQueryInput,
     GetShopOrdersQueryInput,
     GetShopStaffQueryInput,
     GetShopDailyStatsQueryInput,
-    GetAnalyticsQueryInput
+    GetAnalyticsQueryInput,
+    AdminCreateTableInput,
+    AdminUpdateTableInput,
+    AdminDeleteTableInput
 } from './admin.validation.js';
 import {
     CreateShopInput,
@@ -1166,6 +1170,273 @@ export class AdminService {
                 netRevenue: Number(ts.net_revenue),
                 confirmedSessions: Number(ts.confirmed_sessions)
             }))
+        };
+    }
+
+    // =========================================================================
+    // TABLE MANAGEMENT METHODS (Issue #94)
+    // =========================================================================
+
+    /**
+     * Create table for a specific shop with tenant-scope check and audit
+     */
+    static async createShopTable(shopId: string, input: AdminCreateTableInput, actor: string) {
+        return await withTransaction(async (client) => {
+            // Guard: Tenant status must be active (not archived/suspended)
+            const tenantRes = await client.query('SELECT id, name, slug, status FROM tenants WHERE id = $1 FOR SHARE', [shopId]);
+            if (tenantRes.rows.length === 0) {
+                throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy quán');
+            }
+            const tenant = tenantRes.rows[0];
+            if (tenant.status === 'archived') {
+                throw new AdminApiError(403, 'SHOP_ARCHIVED', 'Quán đã bị lưu trữ, không thể tạo bàn mới');
+            }
+            if (tenant.status === 'suspended') {
+                throw new AdminApiError(403, 'SHOP_SUSPENDED', 'Quán đang bị tạm dừng, không thể tạo bàn mới');
+            }
+
+            // Check duplicate table_number within tenant (case-insensitive)
+            const dupRes = await client.query(
+                'SELECT id FROM tables WHERE tenant_id = $1 AND LOWER(table_number) = LOWER($2)',
+                [shopId, input.table_number]
+            );
+            if (dupRes.rows.length > 0) {
+                throw new AdminApiError(400, 'DUPLICATE_TABLE', `Bàn "${input.table_number}" đã tồn tại trong quán`);
+            }
+
+            // Generate cryptographically secure public_qr_id (>=128-bit entropy, Core #41 contract)
+            const cleanNum = input.table_number.toLowerCase().replace(/[^a-z0-9]/g, '') || 't';
+            const cleanSlug = (tenant.slug || 'shop').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+            const prefix = `qr_${cleanSlug}_${cleanNum}`.slice(0, 30);
+            const publicQrId = generatePublicQrId(prefix);
+
+            const insertRes = await client.query(`
+                INSERT INTO tables (tenant_id, table_number, public_qr_id, capacity, readiness, is_enabled)
+                VALUES ($1, $2, $3, $4, 'READY', true)
+                RETURNING id, tenant_id, table_number, public_qr_id, capacity, readiness, is_enabled, created_at, updated_at
+            `, [shopId, input.table_number, publicQrId, input.capacity]);
+
+            const table = insertRes.rows[0];
+
+            // Record audit log with support reason
+            await recordAuditLog({
+                tenantId: shopId,
+                userId: actor,
+                action: 'ADMIN_TABLE_CREATE',
+                resourceType: 'table',
+                resourceId: table.id,
+                details: {
+                    table_number: table.table_number,
+                    capacity: table.capacity,
+                    public_qr_id: table.public_qr_id,
+                    reason: input.reason
+                }
+            }, client);
+
+            return table;
+        });
+    }
+
+    /**
+     * Update table with cross-tenant check, atomic optimistic locking, and audit
+     */
+    static async updateShopTable(shopId: string, tableId: string, input: AdminUpdateTableInput, actor: string) {
+        return await withTransaction(async (client) => {
+            // Guard: Tenant status
+            const tenantRes = await client.query('SELECT id, name, slug, status FROM tenants WHERE id = $1 FOR SHARE', [shopId]);
+            if (tenantRes.rows.length === 0) {
+                throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy quán');
+            }
+            const tenant = tenantRes.rows[0];
+            if (tenant.status === 'archived') {
+                throw new AdminApiError(403, 'SHOP_ARCHIVED', 'Quán đã bị lưu trữ, không thể chỉnh sửa bàn');
+            }
+            if (tenant.status === 'suspended') {
+                throw new AdminApiError(403, 'SHOP_SUSPENDED', 'Quán đang bị tạm dừng, không thể chỉnh sửa bàn');
+            }
+
+            // Cross-tenant check: Table MUST belong to tenant shopId
+            const tableRes = await client.query('SELECT * FROM tables WHERE id = $1 FOR UPDATE', [tableId]);
+            if (tableRes.rows.length === 0) {
+                throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy bàn');
+            }
+            const currentTable = tableRes.rows[0];
+            if (currentTable.tenant_id !== shopId) {
+                throw new AdminApiError(404, 'CROSS_TENANT_FORBIDDEN', 'Bàn không thuộc về quán được chỉ định');
+            }
+
+            // Check duplicate table_number if changing
+            if (input.table_number && input.table_number.toLowerCase() !== currentTable.table_number.toLowerCase()) {
+                const dupRes = await client.query(
+                    'SELECT id FROM tables WHERE tenant_id = $1 AND LOWER(table_number) = LOWER($2) AND id != $3',
+                    [shopId, input.table_number, tableId]
+                );
+                if (dupRes.rows.length > 0) {
+                    throw new AdminApiError(400, 'DUPLICATE_TABLE', `Bàn "${input.table_number}" đã tồn tại trong quán`);
+                }
+            }
+
+            // Optimistic concurrency precondition check
+            if (input.expected_updated_at) {
+                const expectedDate = new Date(input.expected_updated_at).getTime();
+                const actualDate = new Date(currentTable.updated_at).getTime();
+                // Allow a tiny 1-second drift if serializing/deserializing ISO strings
+                if (Math.abs(expectedDate - actualDate) > 1000) {
+                    throw new AdminApiError(409, 'CONFLICT', 'Bàn đã bị thay đổi bởi người dùng khác hoặc nhân viên quán. Vui lòng tải lại dữ liệu mới nhất.', {
+                        currentTable: {
+                            id: currentTable.id,
+                            tenant_id: currentTable.tenant_id,
+                            table_number: currentTable.table_number,
+                            capacity: currentTable.capacity,
+                            readiness: currentTable.readiness,
+                            is_enabled: currentTable.is_enabled,
+                            updated_at: currentTable.updated_at
+                        }
+                    });
+                }
+            }
+
+            // Atomic update (QR code is preserved, never silently rotated)
+            const updateRes = await client.query(`
+                UPDATE tables
+                SET table_number = COALESCE($1, table_number),
+                    capacity = COALESCE($2, capacity),
+                    is_enabled = COALESCE($3, is_enabled),
+                    updated_at = NOW()
+                WHERE id = $4 AND tenant_id = $5
+                RETURNING id, tenant_id, table_number, public_qr_id, capacity, readiness, is_enabled, created_at, updated_at
+            `, [
+                input.table_number || null,
+                input.capacity || null,
+                input.is_enabled !== undefined ? input.is_enabled : null,
+                tableId,
+                shopId
+            ]);
+
+            const updatedTable = updateRes.rows[0];
+
+            // Record audit log
+            await recordAuditLog({
+                tenantId: shopId,
+                userId: actor,
+                action: 'ADMIN_TABLE_UPDATE',
+                resourceType: 'table',
+                resourceId: tableId,
+                details: {
+                    previous: {
+                        table_number: currentTable.table_number,
+                        capacity: currentTable.capacity,
+                        is_enabled: currentTable.is_enabled
+                    },
+                    updated: {
+                        table_number: updatedTable.table_number,
+                        capacity: updatedTable.capacity,
+                        is_enabled: updatedTable.is_enabled
+                    },
+                    reason: input.reason
+                }
+            }, client);
+
+            return updatedTable;
+        });
+    }
+
+    /**
+     * Delete table with session open guard and DATA-01 historical protection
+     */
+    static async deleteShopTable(shopId: string, tableId: string, input: AdminDeleteTableInput, actor: string) {
+        return await withTransaction(async (client) => {
+            // Guard: Tenant status
+            const tenantRes = await client.query('SELECT id, name, status FROM tenants WHERE id = $1 FOR SHARE', [shopId]);
+            if (tenantRes.rows.length === 0) {
+                throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy quán');
+            }
+            const tenant = tenantRes.rows[0];
+            if (tenant.status === 'archived') {
+                throw new AdminApiError(403, 'SHOP_ARCHIVED', 'Quán đã bị lưu trữ, không thể xóa bàn');
+            }
+
+            // Cross-tenant check: Table MUST belong to tenant shopId
+            const tableRes = await client.query('SELECT * FROM tables WHERE id = $1 FOR UPDATE', [tableId]);
+            if (tableRes.rows.length === 0) {
+                throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy bàn');
+            }
+            const currentTable = tableRes.rows[0];
+            if (currentTable.tenant_id !== shopId) {
+                throw new AdminApiError(404, 'CROSS_TENANT_FORBIDDEN', 'Bàn không thuộc về quán được chỉ định');
+            }
+
+            // 1. Check if table currently has an OPEN session
+            const openSessionRes = await client.query(
+                "SELECT id FROM table_sessions WHERE table_id = $1 AND status = 'OPEN'",
+                [tableId]
+            );
+            if (openSessionRes.rows.length > 0) {
+                throw new AdminApiError(
+                    400,
+                    'TABLE_SESSION_OPEN',
+                    `Bàn "${currentTable.table_number}" đang có phiên phục vụ mở. Vui lòng thanh toán hoặc hủy phiên trước khi xóa bàn.`
+                );
+            }
+
+            // 2. DATA-01 Safeguard: Check if this table has historical sessions, bills or settlements
+            const historyCheck = await client.query(
+                'SELECT id FROM table_sessions WHERE table_id = $1 LIMIT 1',
+                [tableId]
+            );
+            if (historyCheck.rows.length > 0) {
+                throw new AdminApiError(
+                    400,
+                    'TABLE_HAS_HISTORY',
+                    `Bàn "${currentTable.table_number}" đã có lịch sử phục vụ và hóa đơn. Để bảo toàn doanh thu và sổ sách kế toán, không thể xóa vĩnh viễn bàn này. Vui lòng chuyển trạng thái sang "Ngừng phục vụ" (Tắt hoạt động).`
+                );
+            }
+
+            // Delete table row safely (0 history, 0 open sessions)
+            await client.query('DELETE FROM tables WHERE id = $1 AND tenant_id = $2', [tableId, shopId]);
+
+            // Record audit log
+            await recordAuditLog({
+                tenantId: shopId,
+                userId: actor,
+                action: 'ADMIN_TABLE_DELETE',
+                resourceType: 'table',
+                resourceId: tableId,
+                details: {
+                    table_number: currentTable.table_number,
+                    public_qr_id: currentTable.public_qr_id,
+                    reason: input.reason
+                }
+            }, client);
+
+            return {
+                success: true,
+                message: `Đã xóa bàn "${currentTable.table_number}" thành công`
+            };
+        });
+    }
+
+    /**
+     * Get QR code data URL for table using Core StaffService capability
+     */
+    static async getShopTableQr(shopId: string, tableId: string, frontendBaseUrl: string) {
+        // Cross-tenant check
+        const tableRes = await query(
+            'SELECT id, tenant_id, table_number, public_qr_id FROM tables WHERE id = $1 AND tenant_id = $2',
+            [tableId, shopId]
+        );
+        if (tableRes.rows.length === 0) {
+            throw new AdminApiError(404, 'NOT_FOUND', 'Không tìm thấy bàn trong quán được chỉ định');
+        }
+        const table = tableRes.rows[0];
+
+        const qr = await StaffService.generateTableQR(table.public_qr_id, frontendBaseUrl);
+        return {
+            tableId: table.id,
+            tableNumber: table.table_number,
+            publicQrId: table.public_qr_id,
+            qrUrl: qr.qrUrl,
+            dataUrl: qr.dataUrl
         };
     }
 }
