@@ -990,7 +990,7 @@ export const StaffDashboard: React.FC = () => {
                   }`}
                   title="Lọc các bàn đang chờ duyệt mở bàn"
                 >
-                  <span className="text-xl sm:text-2xl font-bold leading-tight">
+                  <span className={`text-xl sm:text-2xl font-bold leading-tight ${countPending > 0 ? 'animate-pulse-attention' : ''}`}>
                     {countPending}
                   </span>
                   <span className={`text-xs sm:text-sm font-medium mt-1 ${
@@ -1011,7 +1011,7 @@ export const StaffDashboard: React.FC = () => {
                   }`}
                   title="Lọc các bàn yêu cầu thanh toán"
                 >
-                  <span className="text-xl sm:text-2xl font-bold leading-tight">
+                  <span className={`text-xl sm:text-2xl font-bold leading-tight ${countCheckout > 0 ? 'animate-pulse-attention' : ''}`}>
                     {countCheckout}
                   </span>
                   <span className={`text-xs sm:text-sm font-medium mt-1 leading-tight ${
@@ -1053,7 +1053,7 @@ export const StaffDashboard: React.FC = () => {
                   }`}
                   title="Lọc các bàn đang gọi nhân viên hỗ trợ"
                 >
-                  <span className="text-xl sm:text-2xl font-bold leading-tight">
+                  <span className={`text-xl sm:text-2xl font-bold leading-tight ${countAssistance > 0 ? 'animate-pulse-attention' : ''}`}>
                     {countAssistance}
                   </span>
                   <span className={`text-xs sm:text-sm font-medium mt-1 ${
@@ -1085,26 +1085,9 @@ export const StaffDashboard: React.FC = () => {
                 </button>
               </div>
 
-              {/* Alert Chips for Attention States (Cần bill / Bàn 0đ) */}
-              {(countCheckout > 0 || countZero > 0) && (
+              {/* Keep only the exceptional zero-bill shortcut; checkout already has a dedicated filter above. */}
+              {countZero > 0 && (
                 <div className="flex items-center gap-2 pt-0.5 text-xs font-bold overflow-x-auto no-scrollbar">
-                  {countCheckout > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setTableStatusFilter(tableStatusFilter === 'checkout' ? 'all' : 'checkout')}
-                      className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                        tableStatusFilter === 'checkout'
-                          ? 'bg-amber-500 text-white shadow-xs ring-2 ring-amber-400/40'
-                          : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100/80 animate-pulse'
-                      }`}
-                      title="Lọc các bàn đang xin thanh toán"
-                    >
-                      <span>Cần bill</span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded-full font-black bg-amber-600 text-white">
-                        {countCheckout}
-                      </span>
-                    </button>
-                  )}
                   {countZero > 0 && (
                     <button
                       type="button"
@@ -1156,7 +1139,7 @@ export const StaffDashboard: React.FC = () => {
                       key={table.table_id}
                       className={`bg-white rounded-2xl p-3 sm:p-3.5 border transition shadow-xs flex flex-col justify-between min-h-[148px] ${
                         hasCheckout
-                          ? 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/50 animate-pulse-attention'
+                          ? 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/50'
                           : isZeroOrder
                           ? 'border-rose-200 bg-rose-50/20'
                           : isServing
@@ -1176,7 +1159,7 @@ export const StaffDashboard: React.FC = () => {
                           </span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${
                             hasCheckout
-                              ? 'bg-amber-500 text-white animate-pulse'
+                              ? 'bg-amber-500 text-white'
                               : isZeroOrder
                               ? 'bg-rose-50 text-rose-700 border border-rose-200'
                               : isServing
@@ -1184,7 +1167,7 @@ export const StaffDashboard: React.FC = () => {
                               : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           }`}>
                             {hasCheckout
-                              ? 'Yêu cầu bill'
+                              ? 'Yêu cầu thanh toán'
                               : isZeroOrder
                               ? 'Bàn 0đ'
                               : isServing
@@ -1242,7 +1225,7 @@ export const StaffDashboard: React.FC = () => {
                         ) : hasCheckout ? (
                           <button
                             onClick={() => setSelectedTable(table)}
-                            className="flex-1 py-1.5 px-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap animate-pulse cursor-pointer"
+                            className="flex-1 py-1.5 px-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition min-h-[38px] flex items-center justify-center gap-1 whitespace-nowrap cursor-pointer"
                             title="Khách yêu cầu thanh toán"
                           >
                             <CreditCard className="w-3.5 h-3.5 shrink-0" />

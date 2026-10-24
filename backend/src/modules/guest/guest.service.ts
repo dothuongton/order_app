@@ -1295,21 +1295,14 @@ export class GuestService {
     // Chờ tiếp nhận = Σ(đơn giá snapshot × số lượng PENDING)
     // CANCELLED = 0đ
     static async getBillSummary(tenantId: string, sessionId: string) {
-        const sessionRes = await query(`
-            SELECT id, status, settlement_version, table_id
-            FROM table_sessions
-            WHERE id = $1 AND tenant_id = $2
-        `, [sessionId, tenantId]);
-
-        if (sessionRes.rows.length === 0) {
-            throw { status: 404, code: 'SESSION_NOT_FOUND', message: 'Không tìm thấy phiên' };
-        }
-
-        const session = sessionRes.rows[0];
-
-        // Fetch all order item parts with their snapshot price
+        // Read the session and its item parts in one round trip. LEFT JOIN keeps
+        // empty sessions visible so the existing 404 and empty-bill behavior stay intact.
         const partsRes = await query(`
             SELECT
+                ts.id AS session_id,
+                ts.status AS session_status,
+                ts.settlement_version,
+                ts.table_id,
                 o.order_number,
                 o.created_at as order_created_at,
                 o.applied_promotion_id,
@@ -1329,14 +1322,26 @@ export class GuestService {
                 oip.status,
                 oip.quantity,
                 oip.cancel_reason
-            FROM orders o
+            FROM table_sessions ts
+            LEFT JOIN orders o ON o.session_id = ts.id AND o.tenant_id = ts.tenant_id
             LEFT JOIN promotions p ON p.id = o.applied_promotion_id
-            JOIN order_items oi ON oi.order_id = o.id
-            JOIN order_item_parts oip ON oip.order_item_id = oi.id
-            WHERE o.session_id = $1 AND o.tenant_id = $2
+            LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
+            LEFT JOIN order_item_parts oip ON oip.order_item_id = oi.id AND oip.tenant_id = oi.tenant_id
+            WHERE ts.id = $1 AND ts.tenant_id = $2
             ORDER BY o.order_number ASC, oi.created_at ASC, oi.id,
                 CASE oip.status WHEN 'SERVED' THEN 1 WHEN 'ACCEPTED' THEN 2 WHEN 'PENDING' THEN 3 ELSE 4 END, oip.id
         `, [sessionId, tenantId]);
+
+        if (partsRes.rows.length === 0) {
+            throw { status: 404, code: 'SESSION_NOT_FOUND', message: 'Không tìm thấy phiên' };
+        }
+
+        const session = {
+            id: partsRes.rows[0].session_id,
+            status: partsRes.rows[0].session_status,
+            settlement_version: partsRes.rows[0].settlement_version,
+            table_id: partsRes.rows[0].table_id
+        };
 
         let confirmedOrAcceptedTotal = 0; // ACCEPTED + SERVED (after discount)
         let servedTotal = 0;              // Chỉ SERVED (after discount)
@@ -1350,6 +1355,9 @@ export class GuestService {
 
         const allocatedQuantities = new Map<string, number>();
         for (const row of partsRes.rows) {
+            // Match the previous INNER JOIN behavior: item rows without parts
+            // must not appear as bill lines.
+            if (!row.item_id || !row.status) continue;
             const price = Number(row.snapshot_price);
             const qty = row.quantity;
             const preceding = allocatedQuantities.get(row.item_id) || 0;

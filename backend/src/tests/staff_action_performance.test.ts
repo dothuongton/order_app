@@ -53,6 +53,21 @@ describe('Staff action latency benchmark (isolated test database)', () => {
         }
     }
 
+    async function measurePoolQueries<T>(run: () => Promise<T>): Promise<{ result: T; queryCount: number }> {
+        let queryCount = 0;
+        const poolAny = pool as any;
+        const originalQuery = poolAny.query;
+        poolAny.query = function (...args: any[]) {
+            queryCount += 1;
+            return originalQuery.apply(pool, args);
+        };
+        try {
+            return { result: await run(), queryCount };
+        } finally {
+            poolAny.query = originalQuery;
+        }
+    }
+
     function percentile(values: number[], p: number): number {
         const sorted = [...values].sort((a, b) => a - b);
         return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
@@ -64,6 +79,7 @@ describe('Staff action latency benchmark (isolated test database)', () => {
         const billMs: number[] = [];
         let acceptQueryCount = 0;
         let serveQueryCount = 0;
+        let billQueryCount = 0;
 
         for (let sample = 0; sample < sampleCount; sample += 1) {
             const session = await StaffService.openSession(tenantId, tableId, userId);
@@ -101,8 +117,11 @@ describe('Staff action latency benchmark (isolated test database)', () => {
             expect(serve.queryCount).toBeLessThanOrEqual(5);
 
             const billStart = performance.now();
-            const summary = await GuestService.getBillSummary(tenantId, sessionId);
+            const bill = await measurePoolQueries(() => GuestService.getBillSummary(tenantId, sessionId));
+            const summary = bill.result;
             billMs.push(performance.now() - billStart);
+            billQueryCount += bill.queryCount;
+            expect(bill.queryCount).toBeLessThanOrEqual(2);
             expect(summary.unresolvedCount).toBe(0);
             expect(summary.servedTotal).toBe(partCount * 1000);
             expect(summary.rounds[0].items).toHaveLength(partCount);
@@ -128,7 +147,7 @@ describe('Staff action latency benchmark (isolated test database)', () => {
             partsPerSession: partCount,
             accept: { p50Ms: percentile(acceptMs, 0.5), p95Ms: percentile(acceptMs, 0.95), avgSqlCalls: acceptQueryCount / sampleCount },
             serve: { p50Ms: percentile(serveMs, 0.5), p95Ms: percentile(serveMs, 0.95), avgSqlCalls: serveQueryCount / sampleCount },
-            billSummary: { p50Ms: percentile(billMs, 0.5), p95Ms: percentile(billMs, 0.95) }
+            billSummary: { p50Ms: percentile(billMs, 0.5), p95Ms: percentile(billMs, 0.95), avgSqlCalls: billQueryCount / sampleCount }
         })}\n`);
     });
 });
