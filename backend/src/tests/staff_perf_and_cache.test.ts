@@ -67,8 +67,8 @@ describe('Staff Performance, Asset Caching, and Snapshot Parallelism (Issue #142
         });
     });
 
-    describe('Staff Dashboard Snapshot Parallelism', () => {
-        it('fetches dashboard snapshot accurately with parallel queries', async () => {
+    describe('Staff Dashboard Snapshot', () => {
+        it('returns dashboard snapshot with expected shape', async () => {
             const snapshot = await StaffService.getDashboardSnapshot(tenantId);
             expect(snapshot).toBeDefined();
             expect(snapshot.tables).toBeInstanceOf(Array);

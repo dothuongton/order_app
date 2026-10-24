@@ -20,11 +20,10 @@ async function lockOpenSession(client: PoolClient, tenantId: string, sessionId: 
 export class StaffService {
     // 1. Get Dashboard Snapshot
     static async getDashboardSnapshot(tenantId: string) {
-        // Fetch snapshot data in parallel to optimize response latency and minimize connection hold time
-        const [tablesRes, requestsRes, activeItemsRes, pendingItemsRes] = await Promise.all([
-            // 1. Fetch all tables
-            query(`
-                SELECT 
+        // Query sequentially to avoid multiplying shared-pool usage per dashboard request.
+        // 1. Fetch all tables
+        const tablesRes = await query(`
+                SELECT
                     t.id as table_id,
                     t.table_number,
                     t.public_qr_id,
@@ -39,15 +38,15 @@ export class StaffService {
                 LEFT JOIN table_sessions ts ON ts.table_id = t.id AND ts.status = 'OPEN'
                 LEFT JOIN users u ON u.id = ts.opened_by
                 WHERE t.tenant_id = $1
-                ORDER BY 
+                ORDER BY
                     CASE WHEN ts.id IS NOT NULL THEN 0 ELSE 1 END ASC,
                     LENGTH(t.table_number) ASC,
                     t.table_number ASC
-            `, [tenantId]),
+            `, [tenantId]);
 
-            // 2. Fetch open service requests
-            query(`
-                SELECT 
+        // 2. Fetch open service requests
+        const requestsRes = await query(`
+                SELECT
                     sr.id,
                     sr.table_id,
                     sr.session_id,
@@ -64,11 +63,11 @@ export class StaffService {
                 LEFT JOIN users u ON u.id = sr.accepted_by
                 WHERE sr.tenant_id = $1 AND sr.status IN ('PENDING', 'ACCEPTED')
                 ORDER BY COALESCE(sr.updated_at, sr.created_at) DESC
-            `, [tenantId]),
+            `, [tenantId]);
 
-            // 3. Fetch active order items with notes for tables currently in OPEN session
-            query(`
-                SELECT 
+        // 3. Fetch active order items with notes for tables currently in OPEN session
+        const activeItemsRes = await query(`
+                SELECT
                     ts.table_id,
                     o.order_number,
                     oi.id as order_item_id,
@@ -87,11 +86,11 @@ export class StaffService {
                 JOIN order_item_parts oip ON oip.order_item_id = oi.id
                 WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
                 ORDER BY o.order_number ASC, oi.created_at ASC
-            `, [tenantId]),
+            `, [tenantId]);
 
-            // 4. Fetch pending/active order counts per table
-            query(`
-                SELECT 
+        // 4. Fetch pending/active order counts per table
+        const pendingItemsRes = await query(`
+                SELECT
                     ts.table_id,
                     COUNT(oip.id) FILTER (WHERE oip.status = 'PENDING') as pending_count,
                     COUNT(oip.id) FILTER (WHERE oip.status = 'ACCEPTED') as accepted_count,
@@ -102,8 +101,7 @@ export class StaffService {
                 JOIN order_item_parts oip ON oip.order_item_id = oi.id
                 WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
                 GROUP BY ts.table_id
-            `, [tenantId])
-        ]);
+            `, [tenantId]);
 
         const itemsByTable = new Map<string, any[]>();
         activeItemsRes.rows.forEach(r => {
