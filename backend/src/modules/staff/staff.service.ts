@@ -717,29 +717,29 @@ export class StaffService {
     static async acceptAllPending(tenantId: string, sessionId: string, userId: string) {
         return await withTransaction(async (client) => {
             await lockOpenSession(client, tenantId, sessionId);
-            const pendingParts = await client.query(`
-                SELECT oip.id, oip.order_item_id, oip.quantity, oi.snapshot_name
-                FROM order_item_parts oip
-                JOIN order_items oi ON oi.id = oip.order_item_id
-                JOIN orders o ON o.id = oi.order_id
-                WHERE o.session_id = $1 AND o.tenant_id = $2 AND oip.status = 'PENDING'
-                FOR UPDATE
-            `, [sessionId, tenantId]);
-
-            for (const part of pendingParts.rows) {
-                await client.query(`
-                    UPDATE order_item_parts
+            const accepted = await client.query(`
+                WITH changed AS (
+                    UPDATE order_item_parts oip
                     SET status = 'ACCEPTED', updated_at = NOW()
-                    WHERE id = $1
-                `, [part.id]);
-
-                await client.query(`
+                    FROM order_items oi, orders o
+                    WHERE oip.order_item_id = oi.id
+                      AND oi.order_id = o.id
+                      AND oip.tenant_id = $2
+                      AND o.session_id = $1
+                      AND o.tenant_id = $2
+                      AND oip.status = 'PENDING'
+                    RETURNING oip.order_item_id, oip.quantity
+                ), events AS (
                     INSERT INTO order_item_events (tenant_id, order_item_id, from_status, to_status, quantity, changed_by)
-                    VALUES ($1, $2, 'PENDING', 'ACCEPTED', $3, $4)
-                `, [tenantId, part.order_item_id, part.quantity, userId]);
-            }
+                    SELECT $2, order_item_id, 'PENDING', 'ACCEPTED', quantity, $3
+                    FROM changed
+                    RETURNING id
+                )
+                SELECT COUNT(*)::int AS count FROM events
+            `, [sessionId, tenantId, userId]);
+            const acceptedCount = accepted.rows[0].count;
 
-            if (pendingParts.rows.length > 0) {
+            if (acceptedCount > 0) {
                 await client.query(`
                     UPDATE table_sessions
                     SET settlement_version = settlement_version + 1, updated_at = NOW()
@@ -750,13 +750,13 @@ export class StaffService {
                 broadcastToSession(sessionId, 'order.updated', {
                     sessionId,
                     type: 'ACCEPTED',
-                    message: `Nhà hàng đã tiếp nhận ${pendingParts.rows.length} món đang chờ của bạn`
+                    message: `Nhà hàng đã tiếp nhận ${acceptedCount} món đang chờ của bạn`
                 });
             }
 
             return {
-                acceptedCount: pendingParts.rows.length,
-                message: `Đã tiếp nhận toàn bộ ${pendingParts.rows.length} món chờ`
+                acceptedCount,
+                message: `Đã tiếp nhận toàn bộ ${acceptedCount} món chờ`
             };
         });
     }
@@ -838,29 +838,29 @@ export class StaffService {
     static async serveAllAccepted(tenantId: string, sessionId: string, userId: string) {
         return await withTransaction(async (client) => {
             await lockOpenSession(client, tenantId, sessionId);
-            const acceptedParts = await client.query(`
-                SELECT oip.id, oip.order_item_id, oip.quantity, oi.snapshot_name
-                FROM order_item_parts oip
-                JOIN order_items oi ON oi.id = oip.order_item_id
-                JOIN orders o ON o.id = oi.order_id
-                WHERE o.session_id = $1 AND o.tenant_id = $2 AND oip.status = 'ACCEPTED'
-                FOR UPDATE
-            `, [sessionId, tenantId]);
-
-            for (const part of acceptedParts.rows) {
-                await client.query(`
-                    UPDATE order_item_parts
+            const served = await client.query(`
+                WITH changed AS (
+                    UPDATE order_item_parts oip
                     SET status = 'SERVED', updated_at = NOW()
-                    WHERE id = $1
-                `, [part.id]);
-
-                await client.query(`
+                    FROM order_items oi, orders o
+                    WHERE oip.order_item_id = oi.id
+                      AND oi.order_id = o.id
+                      AND oip.tenant_id = $2
+                      AND o.session_id = $1
+                      AND o.tenant_id = $2
+                      AND oip.status = 'ACCEPTED'
+                    RETURNING oip.order_item_id, oip.quantity
+                ), events AS (
                     INSERT INTO order_item_events (tenant_id, order_item_id, from_status, to_status, quantity, changed_by)
-                    VALUES ($1, $2, 'ACCEPTED', 'SERVED', $3, $4)
-                `, [tenantId, part.order_item_id, part.quantity, userId]);
-            }
+                    SELECT $2, order_item_id, 'ACCEPTED', 'SERVED', quantity, $3
+                    FROM changed
+                    RETURNING id
+                )
+                SELECT COUNT(*)::int AS count FROM events
+            `, [sessionId, tenantId, userId]);
+            const servedCount = served.rows[0].count;
 
-            if (acceptedParts.rows.length > 0) {
+            if (servedCount > 0) {
                 await client.query(`
                     UPDATE table_sessions
                     SET settlement_version = settlement_version + 1, updated_at = NOW()
@@ -876,8 +876,8 @@ export class StaffService {
             }
 
             return {
-                servedCount: acceptedParts.rows.length,
-                message: `Đã đánh dấu phục vụ toàn bộ ${acceptedParts.rows.length} món đã tiếp nhận`
+                servedCount,
+                message: `Đã đánh dấu phục vụ toàn bộ ${servedCount} món đã tiếp nhận`
             };
         });
     }

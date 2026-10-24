@@ -16,7 +16,6 @@ interface TableDetailModalProps {
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
   const { hasPermission } = useAuth();
-  const [orders, setOrders] = useState<any[]>([]);
   const [billSummary, setBillSummary] = useState<BillSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -81,7 +80,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       loadSessionData(currentSessionId);
     } else {
       setBillSummary(null);
-      setOrders([]);
     }
   }, [table?.table_id, table?.active_session_id]);
 
@@ -95,13 +93,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       const summary = await request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`);
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setBillSummary(summary);
-
-      // Also fetch items for the table session
-      const ordersRes = await request<{ orders: any[] }>('/guest/orders', {
-        headers: { 'x-tenant-id': localStorage.getItem('staff_tenant_id') || '' }
-      }).catch(() => ({ orders: [] }));
-      if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
-      setOrders(ordersRes.orders || []);
     } catch (err: any) {
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setActionError(err.message || 'Lỗi tải dữ liệu phiên');
@@ -122,8 +113,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         body: JSON.stringify({ quantity })
       });
       setActionSuccess('Đã tiếp nhận món');
-      await loadSessionData();
       onRefresh();
+      await loadSessionData();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi tiếp nhận món');
     }
@@ -134,8 +125,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     try {
       await request(`/staff/sessions/${table.active_session_id}/accept-all`, { method: 'POST' });
       setActionSuccess('Đã tiếp nhận toàn bộ món chờ');
-      await loadSessionData();
       onRefresh();
+      await loadSessionData();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi tiếp nhận toàn bộ');
     }
@@ -148,8 +139,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         body: JSON.stringify({ quantity })
       });
       setActionSuccess('Đã đánh dấu phục vụ');
-      await loadSessionData();
       onRefresh();
+      await loadSessionData();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi phục vụ món');
     }
@@ -160,8 +151,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     try {
       await request(`/staff/sessions/${table.active_session_id}/serve-all`, { method: 'POST' });
       setActionSuccess('Đã đánh dấu phục vụ toàn bộ món');
-      await loadSessionData();
       onRefresh();
+      await loadSessionData();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi phục vụ toàn bộ');
     }
@@ -173,8 +164,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       await request(`/staff/sessions/${table.active_session_id}/accept-all`, { method: 'POST' });
       await request(`/staff/sessions/${table.active_session_id}/serve-all`, { method: 'POST' });
       setActionSuccess('Đã tiếp nhận và phục vụ toàn bộ món!');
-      await loadSessionData();
       onRefresh();
+      await loadSessionData();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi tiếp nhận và phục vụ');
     }
@@ -193,8 +184,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       });
       setCancelModalItem(null);
       setActionSuccess('Đã hủy món');
-      await loadSessionData();
       onRefresh();
+      await loadSessionData();
     } catch (err: any) {
       setActionError(err.message || 'Lỗi hủy món');
     }

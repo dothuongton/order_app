@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Bell, CheckCircle2, AlertTriangle, AlertCircle, X, Volume2, Mic, VolumeX } from 'lucide-react';
+import { readSoundMode, writeSoundMode } from '../lib/sound-preferences.js';
+import { getAlertSpeechPrompt, type AlertRequestType } from '../lib/notification-speech.js';
 
-export type SoundMode = 'voice' | 'chime' | 'off';
+export type { SoundMode } from '../lib/sound-preferences.js';
+import type { SoundMode } from '../lib/sound-preferences.js';
 
 export interface ToastNotification {
   id: string;
@@ -27,7 +30,7 @@ interface NotificationContextType {
   releaseWakeLock: () => void;
   toggleWakeLock: () => void;
   playOrderSound: (tableName?: string, eventId?: string) => void;
-  playAlertSound: (tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE', eventId?: string) => void;
+  playAlertSound: (tableName?: string, requestType?: AlertRequestType, eventId?: string) => void;
   playSuccessSound: () => void;
   testSound: () => void;
   toasts: ToastNotification[];
@@ -44,6 +47,20 @@ const NotificationContext = createContext<NotificationContextType | null>(null);
 
 // Global persistent AudioContext singleton
 let globalAudioCtx: AudioContext | null = null;
+
+function playHtmlAudioOrFallback(audio: HTMLAudioElement | null, fallback: () => void) {
+  if (!audio) {
+    fallback();
+    return;
+  }
+  try {
+    audio.currentTime = 0;
+    const playback = audio.play();
+    if (playback) playback.catch(fallback);
+  } catch {
+    fallback();
+  }
+}
 
 // Audio & Speech guard: strictly limit sound/speech to staff routes, never play in superadmin (/admin)
 function isSoundAllowed(): boolean {
@@ -72,20 +89,18 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   
   // soundMode: 'voice' (default - nói tiếng Việt + chuông), 'chime' (chỉ chuông), 'off' (tắt)
   const [soundMode, setSoundModeState] = useState<SoundMode>(() => {
-    const saved = localStorage.getItem('sound_mode') as SoundMode;
-    if (saved === 'voice' || saved === 'chime' || saved === 'off') {
-      return saved;
-    }
-    // Fallback legacy sound_enabled
-    const legacyEnabled = localStorage.getItem('sound_enabled');
-    if (legacyEnabled === 'false') return 'off';
-    return 'voice'; // Default to voice as requested by user
+    if (typeof window === 'undefined') return 'voice';
+    return readSoundMode((key) => localStorage.getItem(key), document.cookie);
   });
+  const soundModeRef = useRef(soundMode);
+  soundModeRef.current = soundMode;
 
   const soundEnabled = soundMode !== 'off';
   const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(true);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const timeoutsRef = useRef<Map<string, any>>(new Map());
+  const speechQueueRef = useRef<SpeechSynthesisUtterance[]>([]);
+  const speechTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   // HTML5 Audio fallbacks for mobile / iOS
   const orderAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -242,16 +257,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const speakVietnamese = useCallback((text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     if (!isSoundAllowed()) return;
+    if (soundModeRef.current !== 'voice') return;
     try {
       // 1. Unfreeze if paused
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
-
-      // 2. Clear any pending speech queue
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'vi-VN';
@@ -272,20 +283,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
       } catch {}
 
-      // Retain reference on window to prevent garbage collection mid-speech
-      (window as any).__qr_active_utterance = utterance;
+      speechQueueRef.current.push(utterance);
       utterance.onend = () => {
-        (window as any).__qr_active_utterance = null;
+        speechQueueRef.current = speechQueueRef.current.filter((queued) => queued !== utterance);
       };
       utterance.onerror = () => {
-        (window as any).__qr_active_utterance = null;
+        speechQueueRef.current = speechQueueRef.current.filter((queued) => queued !== utterance);
       };
 
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
-
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        speechTimersRef.current.delete(timer);
         try {
           if (window.speechSynthesis.paused) {
             window.speechSynthesis.resume();
@@ -293,6 +300,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           window.speechSynthesis.speak(utterance);
         } catch {}
       }, 60);
+      speechTimersRef.current.add(timer);
     } catch (e) {
       console.warn('Speech synthesis unavailable', e);
     }
@@ -347,77 +355,73 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     } catch {}
   }, []);
 
-  // Pure chime tone helpers (Dual HTML5 Audio + WebAudio harmonic notes)
+  // Use WebAudio only when HTML audio is unavailable or blocked.
   const playOrderSoundTone = useCallback(() => {
     if (!isSoundAllowed()) return;
-    // 1. Play pre-loaded HTML5 Audio element
-    if (orderAudioRef.current) {
+    const playFallback = () => {
       try {
-        orderAudioRef.current.currentTime = 0;
-        const p = orderAudioRef.current.play();
-        if (p) p.catch(() => {});
+        const ctx = getOrCreateAudioContext();
+        if (!ctx) return;
+        if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
+          ctx.resume().catch(() => {});
+        }
+
+        const now = ctx.currentTime;
+        playHarmonicNote(ctx, 523.25, now, 0.45, 0.55);
+        playHarmonicNote(ctx, 659.25, now + 0.15, 0.45, 0.55);
+        playHarmonicNote(ctx, 783.99, now + 0.30, 0.65, 0.60);
+
+        playHarmonicNote(ctx, 523.25, now + 0.65, 0.45, 0.55);
+        playHarmonicNote(ctx, 659.25, now + 0.80, 0.45, 0.55);
+        playHarmonicNote(ctx, 1046.50, now + 0.95, 0.80, 0.65);
       } catch {}
-    }
-
-    // 2. Play WebAudio harmonic synthesizer
-    try {
-      const ctx = getOrCreateAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
-        ctx.resume().catch(() => {});
-      }
-
-      const now = ctx.currentTime;
-      playHarmonicNote(ctx, 523.25, now, 0.45, 0.55);
-      playHarmonicNote(ctx, 659.25, now + 0.15, 0.45, 0.55);
-      playHarmonicNote(ctx, 783.99, now + 0.30, 0.65, 0.60);
-
-      playHarmonicNote(ctx, 523.25, now + 0.65, 0.45, 0.55);
-      playHarmonicNote(ctx, 659.25, now + 0.80, 0.45, 0.55);
-      playHarmonicNote(ctx, 1046.50, now + 0.95, 0.80, 0.65);
-    } catch {}
+    };
+    playHtmlAudioOrFallback(orderAudioRef.current, playFallback);
   }, [playHarmonicNote]);
 
   const playAlertSoundTone = useCallback(() => {
     if (!isSoundAllowed()) return;
-    // 1. Play pre-loaded HTML5 Audio element
-    if (alertAudioRef.current) {
+    const playFallback = () => {
       try {
-        alertAudioRef.current.currentTime = 0;
-        const p = alertAudioRef.current.play();
-        if (p) p.catch(() => {});
+        const ctx = getOrCreateAudioContext();
+        if (!ctx) return;
+        if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
+          ctx.resume().catch(() => {});
+        }
+
+        const now = ctx.currentTime;
+        playHarmonicNote(ctx, 880.00, now, 0.35, 0.65);
+        playHarmonicNote(ctx, 587.33, now + 0.20, 0.60, 0.60);
+
+        playHarmonicNote(ctx, 880.00, now + 0.60, 0.35, 0.65);
+        playHarmonicNote(ctx, 587.33, now + 0.80, 0.70, 0.60);
       } catch {}
-    }
-
-    // 2. Play WebAudio harmonic synthesizer
-    try {
-      const ctx = getOrCreateAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended' || (ctx as any).state === 'interrupted') {
-        ctx.resume().catch(() => {});
-      }
-
-      const now = ctx.currentTime;
-      playHarmonicNote(ctx, 880.00, now, 0.35, 0.65);
-      playHarmonicNote(ctx, 587.33, now + 0.20, 0.60, 0.60);
-
-      playHarmonicNote(ctx, 880.00, now + 0.60, 0.35, 0.65);
-      playHarmonicNote(ctx, 587.33, now + 0.80, 0.70, 0.60);
-    } catch {}
+    };
+    playHtmlAudioOrFallback(alertAudioRef.current, playFallback);
   }, [playHarmonicNote]);
 
   // Sound Mode Management
   const setSoundMode = useCallback((mode: SoundMode) => {
     unlockAudio();
     setSoundModeState(mode);
-    localStorage.setItem('sound_mode', mode);
-    localStorage.setItem('sound_enabled', String(mode !== 'off'));
+    soundModeRef.current = mode;
+    const cookie = writeSoundMode(mode, (key, value) => localStorage.setItem(key, value), window.location.protocol === 'https:');
+    try {
+      document.cookie = cookie;
+    } catch {}
+
+    if (mode === 'off' && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      for (const timer of speechTimersRef.current) clearTimeout(timer);
+      speechTimersRef.current.clear();
+      speechQueueRef.current = [];
+      window.speechSynthesis.cancel();
+    }
 
     if (mode === 'voice') {
       speakVietnamese('Đã bật thông báo giọng nói tiếng Việt');
       showToast({
         title: '🗣️ Chế độ âm thanh: Giọng nói',
-        message: 'Hệ thống sẽ đọc tên bàn khi khách đặt món hoặc gọi phục vụ',
+        message: 'Hệ thống sẽ đọc tên bàn khi khách đặt món, gọi phục vụ hoặc yêu cầu mở bàn',
         type: 'info',
         duration: 3000
       });
@@ -539,7 +543,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [soundMode, speakVietnamese, playOrderSoundTone, shouldProcessEvent]);
 
   // 2. Service Request Notification (Dual Chime + Voice)
-  const playAlertSound = useCallback((tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE', eventId?: string) => {
+  const playAlertSound = useCallback((tableName?: string, requestType?: AlertRequestType, eventId?: string) => {
     if (!isSoundAllowed()) return;
     if (eventId && !shouldProcessEvent(eventId)) return;
     if (soundMode === 'off') return;
@@ -550,9 +554,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // 2. If 'voice' mode is enabled, speak table name & action
     if (soundMode === 'voice') {
       const spokenTable = tableName || 'Bàn';
-      const prompt = requestType === 'CHECKOUT'
-        ? `${spokenTable} yêu cầu thanh toán`
-        : `${spokenTable} yêu cầu hỗ trợ`;
+      const prompt = getAlertSpeechPrompt(spokenTable, requestType);
       setTimeout(() => {
         speakVietnamese(prompt);
       }, 350);
