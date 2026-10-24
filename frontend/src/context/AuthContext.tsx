@@ -32,6 +32,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   hasPermission: (perm: string) => boolean;
   updateCurrentTenant: (updates: Partial<TenantInfo>) => void;
+  updateUserProfile: (updates: { fullName: string; phone?: string }) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -132,8 +133,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentTenant(prev => prev ? { ...prev, ...updates } : null);
   };
 
+  const updateUserProfile = async (updates: { fullName: string; phone?: string }) => {
+    const res = await request<{ success: boolean; user: User }>('/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(updates)
+    });
+    if (res.user) {
+      setUser(prev => prev ? { ...prev, fullName: res.user.fullName, phone: res.user.phone } : res.user);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, currentTenant, memberships, isLoading, login, logout, hasPermission, updateCurrentTenant }}>
+    <AuthContext.Provider value={{ user, currentTenant, memberships, isLoading, login, logout, hasPermission, updateCurrentTenant, updateUserProfile }}>
       {children}
     </AuthContext.Provider>
   );

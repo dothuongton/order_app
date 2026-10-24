@@ -4,6 +4,7 @@ import { authenticateGuest } from '../../middleware/auth.js';
 import { config } from '../../config/index.js';
 import { query } from '../../db/pool.js';
 import { hashToken } from '../../utils/crypto.js';
+import { getOrSetDeviceCookie } from '../../utils/device-cookie.js';
 
 export const guestRouter = Router();
 
@@ -12,7 +13,8 @@ export const guestRouter = Router();
 guestRouter.get('/public/tables/:qrId/menu', async (req: Request, res: Response) => {
     try {
         const { qrId } = req.params;
-        const data = await GuestService.getPublicTableMenu(qrId);
+        const { deviceHash } = getOrSetDeviceCookie(req, res);
+        const data = await GuestService.getPublicTableMenu(qrId, deviceHash);
         if (!data) {
             return res.status(404).json({
                 error: 'NOT_FOUND',
@@ -25,12 +27,47 @@ guestRouter.get('/public/tables/:qrId/menu', async (req: Request, res: Response)
     }
 });
 
+// 1b. Gaeru Flow - Request Table Open (P1)
+guestRouter.post('/public/tables/:qrId/request-open', async (req: Request, res: Response) => {
+    try {
+        const { qrId } = req.params;
+        const { deviceHash } = getOrSetDeviceCookie(req, res);
+        const result = await GuestService.requestTableOpen(qrId, req.body, deviceHash);
+        return res.status((result as any).isRetry ? 200 : 201).json(result);
+    } catch (err: any) {
+        const status = err.status || err.statusCode || 500;
+        return res.status(status).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi gửi yêu cầu mở bàn'
+        });
+    }
+});
+
+// 1c. Gaeru Flow - Withdraw Table Request (P1)
+guestRouter.post('/public/tables/:qrId/withdraw-request', async (req: Request, res: Response) => {
+    try {
+        const { qrId } = req.params;
+        const { deviceHash } = getOrSetDeviceCookie(req, res);
+        const result = await GuestService.withdrawTableRequest(qrId, req.body?.requestId || req.body?.request_id, deviceHash);
+        return res.json(result);
+    } catch (err: any) {
+        const status = err.status || err.statusCode || 500;
+        return res.status(status).json({
+            error: err.code || 'SERVER_ERROR',
+            code: err.code || 'SERVER_ERROR',
+            message: err.message || 'Lỗi hủy yêu cầu mở bàn'
+        });
+    }
+});
+
 // 2. Join table session
 guestRouter.post('/public/tables/:qrId/join', async (req: Request, res: Response) => {
     try {
         const { qrId } = req.params;
         const { deviceFingerprint } = req.body || {};
-        const sessionData = await GuestService.joinSession(qrId, deviceFingerprint);
+        const { deviceHash } = getOrSetDeviceCookie(req, res);
+        const sessionData = await GuestService.joinSession(qrId, deviceFingerprint, deviceHash);
 
         // Set HttpOnly cookie for browser security
         res.cookie('guest_token', sessionData.token, {
@@ -273,7 +310,8 @@ guestRouter.post('/guest/orders', async (req: Request, res: Response) => {
             guest.tenantId,
             guest.sessionId,
             guest.tableId,
-            { idempotencyKey, items }
+            { idempotencyKey, items },
+            guest.deviceHash
         );
 
         return res.status(201).json(result);
@@ -326,7 +364,8 @@ guestRouter.post('/guest/service-requests', async (req: Request, res: Response) 
             guest.sessionId,
             guest.tableId,
             type,
-            note
+            note,
+            guest.deviceHash
         );
 
         return res.json(result);

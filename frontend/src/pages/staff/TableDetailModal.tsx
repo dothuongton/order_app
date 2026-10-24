@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StaffTable, BillSummary } from '../../types/index.js';
 import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
@@ -30,6 +30,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeletingTable, setIsDeletingTable] = useState(false);
+  const [isReleasingClaim, setIsReleasingClaim] = useState(false);
 
   useEffect(() => {
     if (table) {
@@ -49,29 +50,57 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const [settlementNote, setSettlementNote] = useState('');
   const [isSettling, setIsSettling] = useState(false);
 
-  useEffect(() => {
-    if (table?.active_session_id) {
-      loadSessionData();
-    }
-  }, [table?.active_session_id]);
+  // Scope & Operation Identity refs (R1)
+  const currentSessionRef = useRef<string | null>(null);
+  const modalScopeRef = useRef<number>(0);
+  const activeOperationRef = useRef<number>(0);
+  const operationCounterRef = useRef<number>(0);
 
-  const loadSessionData = async () => {
-    if (!table?.active_session_id) return;
+  // Reset modal state whenever the active table or session changes or closes
+  useEffect(() => {
+    // Invalidate prior scope on table/session change or close/reopen
+    modalScopeRef.current += 1;
+    activeOperationRef.current = 0;
+    const currentSessionId = table?.active_session_id || null;
+    currentSessionRef.current = currentSessionId;
+    setIsSettling(false);
+    setShowConfirmSettlement(false);
+    setSettlementNote('');
+    setActionError(null);
+    setActionSuccess(null);
+
+    if (currentSessionId) {
+      loadSessionData(currentSessionId);
+    } else {
+      setBillSummary(null);
+      setOrders([]);
+    }
+  }, [table?.table_id, table?.active_session_id]);
+
+  const loadSessionData = async (targetSessionId?: string) => {
+    const sessionId = targetSessionId || table?.active_session_id;
+    if (!sessionId) return;
+    const capturedScope = modalScopeRef.current;
     setIsLoading(true);
     setActionError(null);
     try {
-      const summary = await request<BillSummary>(`/staff/sessions/${table.active_session_id}/bill-summary`);
+      const summary = await request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`);
+      if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setBillSummary(summary);
 
       // Also fetch items for the table session
       const ordersRes = await request<{ orders: any[] }>('/guest/orders', {
         headers: { 'x-tenant-id': localStorage.getItem('staff_tenant_id') || '' }
       }).catch(() => ({ orders: [] }));
+      if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setOrders(ordersRes.orders || []);
     } catch (err: any) {
+      if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setActionError(err.message || 'Lỗi tải dữ liệu phiên');
     } finally {
-      setIsLoading(false);
+      if (modalScopeRef.current === capturedScope && currentSessionRef.current === sessionId) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -165,13 +194,24 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   // Confirm payment & close session (F10)
   const handleConfirmPaymentAndClose = async () => {
-    if (!table.active_session_id || !billSummary) return;
+    if (!table?.active_session_id || !billSummary) return;
+    if (isSettling) return; // Prevent duplicate clicks while in-flight
+    const operationId = ++operationCounterRef.current;
+    activeOperationRef.current = operationId;
+    const capturedScope = modalScopeRef.current;
+    const targetSessionId = table.active_session_id;
+
+    const isCurrentOperation = () => (
+      modalScopeRef.current === capturedScope &&
+      activeOperationRef.current === operationId &&
+      currentSessionRef.current === targetSessionId
+    );
+
     setIsSettling(true);
     setActionError(null);
     try {
       if (billSummary.unresolvedCount > 0) {
         setActionError('Còn món chưa được tiếp nhận hoặc phục vụ. Vui lòng hoàn tất hoặc hủy trước khi chốt hóa đơn.');
-        setIsSettling(false);
         return;
       }
 
@@ -180,18 +220,20 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       const displayedVersion = billSummary.settlementVersion;
 
       // Verify with server summary to prevent closing on stale data without re-confirmation
-      const latestSummary = await request<any>(`/staff/sessions/${table.active_session_id}/bill-summary`).catch(() => null);
+      const latestSummary = await request<any>(`/staff/sessions/${targetSessionId}/bill-summary`).catch(() => null);
+      if (!isCurrentOperation()) return;
+
       if (latestSummary && (latestSummary.validBillTotal !== displayedAmount || latestSummary.settlementVersion !== displayedVersion)) {
-        await loadSessionData();
+        await loadSessionData(targetSessionId);
+        if (!isCurrentOperation()) return;
         setShowConfirmSettlement(false);
         setActionError(
           `Số tiền thanh toán hoặc thông tin đơn đã thay đổi (từ ${displayedAmount.toLocaleString('vi-VN')}đ sang ${(latestSummary.validBillTotal ?? 0).toLocaleString('vi-VN')}đ). Vui lòng kiểm tra và xác nhận lại hóa đơn mới.`
         );
-        setIsSettling(false);
         return;
       }
 
-      await request(`/staff/sessions/${table.active_session_id}/confirm-payment-and-close`, {
+      await request(`/staff/sessions/${targetSessionId}/confirm-payment-and-close`, {
         method: 'POST',
         body: JSON.stringify({
           settlementVersion: displayedVersion,
@@ -200,46 +242,86 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
           requestId: `pay-${Date.now()}`
         })
       });
+
+      if (!isCurrentOperation()) {
+        // Old mutation completed on server: synchronize dashboard but do not close unrelated modal
+        onRefresh();
+        return;
+      }
+
       setShowConfirmSettlement(false);
       onRefresh();
       onClose();
     } catch (err: any) {
+      if (!isCurrentOperation()) return;
       if (err.code === 'PRICE_CHANGED' || err.code === 'PROMOTION_EXHAUSTED' || err.status === 409 || err.message?.includes('thay đổi') || err.message?.includes('hết lượt')) {
-        await loadSessionData();
+        await loadSessionData(targetSessionId);
+        if (!isCurrentOperation()) return;
         setShowConfirmSettlement(false);
         setActionError(err.message || 'Số tiền thanh toán hoặc khuyến mãi đã thay đổi. Vui lòng kiểm tra và xác nhận lại hóa đơn mới.');
       } else {
         setActionError(err.message || 'Lỗi xác nhận thanh toán');
       }
-      setIsSettling(false);
+    } finally {
+      if (activeOperationRef.current === operationId && modalScopeRef.current === capturedScope) {
+        setIsSettling(false);
+      }
     }
   };
 
   // Close session without charge (F12)
   const handleCloseWithoutCharge = async () => {
-    if (!table.active_session_id) return;
+    if (!table?.active_session_id) return;
+    if (isSettling) return; // Prevent duplicate clicks
+    const operationId = ++operationCounterRef.current;
+    activeOperationRef.current = operationId;
+    const capturedScope = modalScopeRef.current;
+    const targetSessionId = table.active_session_id;
+
+    const isCurrentOperation = () => (
+      modalScopeRef.current === capturedScope &&
+      activeOperationRef.current === operationId &&
+      currentSessionRef.current === targetSessionId
+    );
+
     setIsSettling(true);
     setActionError(null);
     try {
-      await request(`/staff/sessions/${table.active_session_id}/close-without-charge`, {
+      await request(`/staff/sessions/${targetSessionId}/close-without-charge`, {
         method: 'POST',
         body: JSON.stringify({ reason: 'WITHOUT_CHARGE' })
       });
+
+      if (!isCurrentOperation()) {
+        onRefresh();
+        return;
+      }
+
       onRefresh();
       onClose();
     } catch (err: any) {
+      if (!isCurrentOperation()) return;
       setActionError(err.message || 'Lỗi kết thúc phiên');
-      setIsSettling(false);
+    } finally {
+      if (activeOperationRef.current === operationId && modalScopeRef.current === capturedScope) {
+        setIsSettling(false);
+      }
     }
   };
 
   // Mark table ready after cleaning (F11)
   const handleMarkReady = async () => {
+    const capturedScope = modalScopeRef.current;
     try {
       await request(`/staff/tables/${table.table_id}/mark-ready`, { method: 'POST' });
+      if (modalScopeRef.current !== capturedScope) {
+        onRefresh();
+        return;
+      }
       onRefresh();
       onClose();
     } catch (err: any) {
+      if (modalScopeRef.current !== capturedScope) return;
       setActionError(err.message || 'Lỗi đánh dấu sẵn sàng');
     }
   };
@@ -256,6 +338,22 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     } catch (err: any) {
       setActionError(err.message || 'Lỗi mở phiên bàn');
       setIsLoading(false);
+    }
+  };
+
+  // Release device claim (Gaeru P1)
+  const handleReleaseClaim = async () => {
+    if (!table?.table_id) return;
+    setIsReleasingClaim(true);
+    setActionError(null);
+    try {
+      await request(`/staff/tables/${table.table_id}/release-claim`, { method: 'POST' });
+      setActionSuccess('Đã giải phóng thiết bị gọi món của bàn này.');
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || 'Lỗi giải phóng thiết bị');
+    } finally {
+      setIsReleasingClaim(false);
     }
   };
 
@@ -438,7 +536,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                   <span className={`font-bold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                                     {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
                                   </span>
-                                  {item.status !== 'CANCELLED' && item.rawPrice && item.rawPrice > item.subtotal && (
+                                  {item.status !== 'CANCELLED' && typeof item.rawPrice === 'number' && item.rawPrice > item.subtotal && (
                                     <span className="block text-[10px] text-slate-400 line-through">
                                       {item.rawPrice.toLocaleString('vi-VN')}đ
                                     </span>
@@ -497,7 +595,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   )}
 
                   {/* Promo discount breakdown */}
-                  {billSummary.totalDiscount && billSummary.totalDiscount > 0 && (
+                  {typeof billSummary.totalDiscount === 'number' && billSummary.totalDiscount > 0 && (
                     <div className="p-3 bg-emerald-50/70 border-t border-emerald-100 space-y-1 text-xs">
                       <div className="flex items-center justify-between text-slate-600">
                         <span>Tạm tính (chưa giảm):</span>
@@ -611,6 +709,21 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     </div>
                   );
                 })()}
+
+                {/* Release Claim (Gaeru P1) */}
+                <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
+                  <div className="text-[11px] text-slate-500">
+                    <span>Đổi máy gọi món / giải phóng quyền đặt</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleReleaseClaim}
+                    disabled={isReleasingClaim}
+                    className="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition cursor-pointer"
+                  >
+                    {isReleasingClaim ? 'Đang giải phóng...' : 'Giải phóng máy gọi'}
+                  </button>
+                </div>
               </div>
             )}
             </>
@@ -724,7 +837,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     {((billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0)).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
-                {billSummary.totalDiscount && billSummary.totalDiscount > 0 && (
+                {typeof billSummary.totalDiscount === 'number' && billSummary.totalDiscount > 0 && (
                   <div className="flex justify-between text-emerald-600 font-semibold">
                     <span>Đã trừ khuyến mãi:</span>
                     <span>-{billSummary.totalDiscount.toLocaleString('vi-VN')}đ</span>

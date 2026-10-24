@@ -47,11 +47,13 @@ export const loginLimiter = rateLimit({
     message: { error: 'RATE_LIMITED', message: 'Quá nhiều lần đăng nhập. Vui lòng thử lại sau.' }
 });
 export const guestWriteLimiter = rateLimit({
-    windowMs: 60 * 1000, limit: 30,
+    windowMs: 60 * 1000, limit: config.nodeEnv === 'test' ? 300 : 30,
     skip: req => ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
     keyGenerator: (req) => {
         const token = (req.headers['x-guest-token'] as string) || req.cookies?.guest_token;
         if (token) return `guest_${token}`;
+        const devToken = req.cookies?.['__Host-order-device'] || req.cookies?.['order_device'] || (req.headers['x-device-cookie'] as string);
+        if (devToken) return `device_${devToken}`;
         return req.ip || 'unknown';
     },
     validate: { keyGeneratorIpFallback: false },

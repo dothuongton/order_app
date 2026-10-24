@@ -338,6 +338,58 @@ export async function ensureSchemaOnBoot() {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_menu_categories_tenant_name ON menu_categories (tenant_id, LOWER(TRIM(name)));
         `);
 
+        // 8. Gaeru Flow - Session Request & Claim (P1)
+        await client.query(`
+            DO $$
+            DECLARE
+                v_has_conflicts BOOLEAN;
+            BEGIN
+                -- Preflight
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM table_sessions
+                    WHERE status IN ('PENDING_APPROVAL', 'OPEN')
+                    GROUP BY table_id
+                    HAVING COUNT(*) > 1
+                ) INTO v_has_conflicts;
+
+                IF v_has_conflicts THEN
+                    RAISE EXCEPTION 'Cannot apply auto-migration: Found multiple active or pending sessions on a table.';
+                END IF;
+
+                -- Add columns
+                ALTER TABLE table_sessions
+                    ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS requester_guest_name VARCHAR(80),
+                    ADD COLUMN IF NOT EXISTS requester_device_hash VARCHAR(128),
+                    ADD COLUMN IF NOT EXISTS claimed_device_hash VARCHAR(128),
+                    ADD COLUMN IF NOT EXISTS claim_version INT NOT NULL DEFAULT 1,
+                    ADD COLUMN IF NOT EXISTS request_id VARCHAR(128);
+
+                -- Replace index
+                DROP INDEX IF EXISTS idx_unique_open_session_per_table;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_session_per_table
+                ON table_sessions (table_id)
+                WHERE status IN ('PENDING_APPROVAL', 'OPEN');
+
+                CREATE INDEX IF NOT EXISTS idx_table_sessions_pending_expiry
+                ON table_sessions (expires_at)
+                WHERE status = 'PENDING_APPROVAL';
+
+                CREATE INDEX IF NOT EXISTS idx_table_sessions_requester_device
+                ON table_sessions (tenant_id, requester_device_hash)
+                WHERE status = 'PENDING_APPROVAL';
+
+                CREATE INDEX IF NOT EXISTS idx_table_sessions_claimed_device
+                ON table_sessions (tenant_id, claimed_device_hash)
+                WHERE status = 'OPEN';
+            END $$;
+        `);
+
         console.log('✅ Auto-migrations completed successfully.');
     } catch (err) {
         console.error('❌ Auto-migration error:', err);

@@ -125,6 +125,53 @@ authRouter.get('/me', authenticateStaff, async (req: Request, res: Response) => 
     });
 });
 
+authRouter.patch('/profile', authenticateStaff, async (req: Request, res: Response) => {
+    try {
+        const userId = req.staff?.id;
+        if (!userId) {
+            return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Chưa đăng nhập' });
+        }
+        const { fullName, phone } = req.body || {};
+        if (typeof fullName !== 'string' || !fullName.trim()) {
+            return res.status(400).json({ error: 'INVALID_INPUT', message: 'Tên nhân viên không được để trống' });
+        }
+        const trimmedName = fullName.trim();
+        if (trimmedName.length > 255) {
+            return res.status(400).json({ error: 'INVALID_INPUT', message: 'Tên nhân viên tối đa 255 ký tự' });
+        }
+        const trimmedPhone = typeof phone === 'string' ? phone.trim() : null;
+
+        const result = await query(
+            `UPDATE users 
+             SET full_name = $1, 
+                 phone = COALESCE($2, phone), 
+                 updated_at = NOW() 
+             WHERE id = $3 
+             RETURNING id, email, full_name, phone, is_platform_admin`,
+            [trimmedName, trimmedPhone, userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'Không tìm thấy tài khoản' });
+        }
+
+        const updated = result.rows[0];
+        return res.json({
+            success: true,
+            user: {
+                id: updated.id,
+                email: updated.email,
+                fullName: updated.full_name,
+                phone: updated.phone,
+                isPlatformAdmin: updated.is_platform_admin
+            }
+        });
+    } catch (err: any) {
+        console.error('Update profile error:', err);
+        return res.status(500).json({ error: 'SERVER_ERROR', message: 'Lỗi máy chủ khi cập nhật thông tin' });
+    }
+});
+
 authRouter.post('/logout', async (req: Request, res: Response) => {
     try {
         const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined;

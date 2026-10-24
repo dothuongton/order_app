@@ -15,6 +15,10 @@ Lấy role từ chỉ định của chủ dự án và assignee/ownership đã c
 
 Đã chốt MVP order tại bàn trên React/Vite/Express/pg hiện tại; chưa mở rộng online/payment integration hoặc đổi framework. Giữ nhiều thiết bị hiện có, chưa tự bật claim độc quyền. Spec V4 là đích phát triển toàn hệ thống theo giai đoạn. README QRv1.2 mô tả code hiện tại; báo cáo review không thay spec. Đợt sửa core không được gọi là hoàn thành V4. Đặc tả gốc lưu nguyên văn; proposal Muse hoặc nhận định agent không tự thay đổi nó. Nếu có mâu thuẫn spec/issue/hiện trạng, nêu khác biệt và ghi ADR/issue cụ thể; không tự quyết chính sách tiền/quyền. Làm phần độc lập đã rõ trong phạm vi chủ dự án giao.
 
+## Ngoại lệ chỉ cho nhánh thử nghiệm Gaeru
+
+Khi làm `codex/gaeru-flow-experiment` hoặc feature branch `codex/gaeru-*` có PR base nhánh thử nghiệm, đọc `docs/experiments/gaeru-flows/README.md` và ADR-0002. Yêu cầu mới21/10/2026 cho phép thử Staff-approved single-device claim trong sandbox riêng, không thay ADR-0001 của main. Một task Core coding mỗi lúc, ownership Sang/Core và review vẫn giữ nguyên. Không tự merge vào main, deploy Render production hoặc dùng DB/secret production. Nhánh hiện khởi tạo tài liệu; chưa có claim/payment tính năng mới.
+
 ## Ownership chống chồng chéo
 
 - SangVuxx: backend/src/modules/admin/**; frontend/src/pages/admin/** TRỪ AdminLogin.tsx; namespace admin mới trong components/hooks/api/types, tests/admin-cms và docs/admin-cms theo issue#2.

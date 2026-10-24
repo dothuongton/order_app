@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../../context/AuthContext.js';
 import { useNotification } from '../../context/NotificationContext.js';
 import { request } from '../../api/client.js';
-import { StaffTable, ServiceRequest } from '../../types/index.js';
+import { StaffTable, ServiceRequest, PendingTableRequest } from '../../types/index.js';
 import { TableDetailModal } from './TableDetailModal.js';
 import { QRModal } from '../../components/QRModal.js';
 import { StaffReports } from './StaffReports.js';
@@ -16,11 +16,12 @@ import {
   Bell, BarChart2, Plus, QrCode, CheckCircle2, Clock, Check,
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
   Smartphone, BellRing, Search, ShieldAlert, Palette, Settings, AlertTriangle,
-  ChevronRight, ArrowLeft, UserCheck, Sliders
+  ChevronRight, ArrowLeft, UserCheck, Sliders, Radio, Tag, Image as ImageIcon,
+  Edit3, User, Loader2
 } from 'lucide-react';
 
 export const StaffDashboard: React.FC = () => {
-  const { user, currentTenant, logout, hasPermission } = useAuth();
+  const { user, currentTenant, logout, hasPermission, updateUserProfile } = useAuth();
   const {
     socket,
     soundEnabled,
@@ -60,6 +61,64 @@ export const StaffDashboard: React.FC = () => {
   const [newTableCapacity, setNewTableCapacity] = useState<number>(4);
   const [isAddingTable, setIsAddingTable] = useState<boolean>(false);
 
+  const [pendingRequests, setPendingRequests] = useState<PendingTableRequest[]>([]);
+
+  // CMS initial subTab state
+  const [cmsSubTab, setCmsSubTab] = useState<'branding' | 'banners' | 'promotions' | 'history'>('branding');
+
+  // Staff Profile Modal state
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [profileName, setProfileName] = useState<string>('');
+  const [profilePhone, setProfilePhone] = useState<string>('');
+  const [isSavingProfile, setIsSavingProfile] = useState<boolean>(false);
+  const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Swipe gesture detection to navigate back from subviews to settings
+  const touchStartXRef = useRef<number>(0);
+  const touchStartYRef = useRef<number>(0);
+
+  const handleSubViewTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleSubViewTouchEnd = (e: React.TouchEvent) => {
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+    const deltaX = touchEndX - touchStartXRef.current;
+    const deltaY = touchEndY - touchStartYRef.current;
+    if (deltaX > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
+      setActiveTab('settings');
+    }
+  };
+
+  const handleOpenProfileModal = () => {
+    setProfileName(user?.fullName || '');
+    setProfilePhone(user?.phone || '');
+    setProfileMsg(null);
+    setShowProfileModal(true);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = profileName.trim();
+    if (!trimmed) {
+      setProfileMsg({ type: 'error', text: 'Tên nhân viên không được để trống' });
+      return;
+    }
+    setIsSavingProfile(true);
+    setProfileMsg(null);
+    try {
+      await updateUserProfile({ fullName: trimmed, phone: profilePhone.trim() || undefined });
+      setProfileMsg({ type: 'success', text: 'Cập nhật thông tin thành công' });
+      setTimeout(() => setShowProfileModal(false), 800);
+    } catch (err: any) {
+      setProfileMsg({ type: 'error', text: err.message || 'Không thể cập nhật thông tin' });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   const fetchDashboard = useCallback(async () => {
     try {
       const data = await request<{ tables: StaffTable[]; openRequests: ServiceRequest[] }>('/staff/dashboard/snapshot');
@@ -70,9 +129,41 @@ export const StaffDashboard: React.FC = () => {
     }
   }, []);
 
+  const fetchPendingRequests = useCallback(async () => {
+    try {
+      const data = await request<{ requests: PendingTableRequest[] }>('/staff/requests/pending');
+      setPendingRequests(data.requests || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     fetchDashboard();
-  }, [fetchDashboard]);
+    fetchPendingRequests();
+  }, [fetchDashboard, fetchPendingRequests]);
+
+  const handleApproveRequest = async (tableId: string) => {
+    try {
+      await request(`/staff/tables/${tableId}/approve-request`, { method: 'POST' });
+      showToast({ title: 'Đã duyệt mở bàn thành công', type: 'success', duration: 3000 });
+      fetchDashboard();
+      fetchPendingRequests();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi duyệt mở bàn', type: 'error' });
+    }
+  };
+
+  const handleRejectRequest = async (tableId: string) => {
+    try {
+      await request(`/staff/tables/${tableId}/reject-request`, { method: 'POST' });
+      showToast({ title: 'Đã từ chối yêu cầu mở bàn', type: 'info', duration: 3000 });
+      fetchDashboard();
+      fetchPendingRequests();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi từ chối mở bàn', type: 'error' });
+    }
+  };
 
   // Screen unlock / visibility wakeup: immediate fetch & audio sync
   useEffect(() => {
@@ -142,6 +233,20 @@ export const StaffDashboard: React.FC = () => {
 
     const handleUpdate = () => {
       fetchDashboard();
+      fetchPendingRequests();
+    };
+
+    const handleTableRequested = (payload: any) => {
+      fetchDashboard();
+      fetchPendingRequests();
+      const tableName = payload?.tableNumber ? `Bàn ${payload.tableNumber}` : 'Bàn';
+      playAlertSound(tableName, 'ASSISTANCE');
+      showToast({
+        title: `✨ Yêu cầu mở ${tableName}`,
+        message: `Khách "${payload?.guestName || 'Khách'}" vừa yêu cầu mở bàn`,
+        type: 'info',
+        duration: 8000
+      });
     };
 
     socket.on('order.created', handleOrderCreated);
@@ -149,13 +254,21 @@ export const StaffDashboard: React.FC = () => {
     socket.on('service_request.created', handleServiceRequestCreated);
     socket.on('service_request.updated', handleUpdate);
     socket.on('table.updated', handleUpdate);
+    socket.on('table_session:requested', handleTableRequested);
+    socket.on('table_session:withdrawn', handleUpdate);
+    socket.on('table_session:opened', handleUpdate);
+    socket.on('table_session:rejected', handleUpdate);
 
     // Backup polling (20s) as safety net while WebSockets handle instant real-time events (optimizing DB load for 100+ stores)
-    const interval = setInterval(fetchDashboard, 20000);
+    const interval = setInterval(() => {
+      fetchDashboard();
+      fetchPendingRequests();
+    }, 20000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchDashboard();
+        fetchPendingRequests();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -169,10 +282,14 @@ export const StaffDashboard: React.FC = () => {
       socket.off('service_request.created', handleServiceRequestCreated);
       socket.off('service_request.updated', handleUpdate);
       socket.off('table.updated', handleUpdate);
+      socket.off('table_session:requested', handleTableRequested);
+      socket.off('table_session:withdrawn', handleUpdate);
+      socket.off('table_session:opened', handleUpdate);
+      socket.off('table_session:rejected', handleUpdate);
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard]);
+  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard, fetchPendingRequests]);
 
   // Permission safeguard: automatically switch to tables tab if current tab is locked for current role
   useEffect(() => {
@@ -597,24 +714,32 @@ export const StaffDashboard: React.FC = () => {
                   ? 'text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100'
                   : 'text-[var(--brand-muted)] bg-[var(--brand-surface-soft)] border-[var(--brand-line)] hover:bg-[var(--brand-accent-tint)]'
               }`}
-              title={`Thông báo đẩy: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'server_disabled' ? 'Chưa bật trên máy chủ' : pushState === 'key_mismatch' ? 'Cần cập nhật khóa' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
+              title={`Thông báo đẩy PWA: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'server_disabled' ? 'Chưa bật trên máy chủ' : pushState === 'key_mismatch' ? 'Cần cập nhật khóa' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
             >
-              <BellRing className="w-4 h-4 text-[var(--brand-accent-text)]" />
+              <Radio className="w-4 h-4 text-[var(--brand-accent-text)]" />
               {pushState === 'granted' && isPushSubscribed && (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white"></span>
               )}
             </button>
 
-            {/* Test Sound Button - Icon Only */}
-            {soundEnabled && (
-              <button
-                onClick={testSound}
-                className="w-9 h-9 text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] hover:bg-[var(--brand-accent-strong)] border border-[var(--brand-line)] rounded-xl transition flex items-center justify-center shrink-0 cursor-pointer"
-                title="Nghe thử âm báo mẫu"
-              >
-                <Bell className="w-4 h-4" />
-              </button>
-            )}
+            {/* Quick Support Button */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('requests')}
+              className={`w-9 h-9 rounded-xl transition flex items-center justify-center border text-xs font-bold relative shrink-0 cursor-pointer ${
+                activeTab === 'requests'
+                  ? 'text-[var(--brand-accent-dark)] bg-[var(--brand-accent-tint)] border-[var(--brand-line)] shadow-2xs'
+                  : 'text-slate-600 bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300'
+              }`}
+              title="Yêu cầu hỗ trợ & thanh toán"
+            >
+              <Bell className="w-4 h-4 text-slate-700" />
+              {openRequests.length > 0 && (
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-amber-600 text-white rounded-full text-[9px] font-black animate-pulse shadow-xs">
+                  {openRequests.length}
+                </span>
+              )}
+            </button>
 
             {/* Logout Button */}
             <button
@@ -730,6 +855,66 @@ export const StaffDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Gaeru P1: Pending Table Open Requests */}
+            {pendingRequests.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-2.5 w-2.5 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                    </span>
+                    <h3 className="font-extrabold text-amber-950 text-xs uppercase tracking-wide">
+                      Yêu cầu mở bàn chờ duyệt ({pendingRequests.length})
+                    </h3>
+                  </div>
+                  <span className="text-[10px] text-amber-700 font-medium">Hết hạn sau 15 phút</span>
+                </div>
+
+                <div className="space-y-2">
+                  {pendingRequests.map((req) => (
+                    <div
+                      key={req.session_id}
+                      className="bg-white border border-amber-200/80 rounded-xl p-3 flex items-center justify-between gap-3 shadow-2xs"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-slate-900 text-sm">
+                            Bàn {req.table_number || req.table_id}
+                          </span>
+                          {req.guest_name && (
+                            <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                              {req.guest_name}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          Yêu cầu lúc {new Date(req.requested_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleRejectRequest(req.table_id)}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition min-h-[36px] cursor-pointer"
+                        >
+                          Từ chối
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveRequest(req.table_id)}
+                          className="px-3.5 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-xs transition min-h-[36px] cursor-pointer"
+                        >
+                          Duyệt mở
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Quick Search & Filter Bar for 100 Tables */}
             <div className="space-y-2.5">
@@ -1552,21 +1737,24 @@ export const StaffDashboard: React.FC = () => {
                 </button>
               )}
 
-              {/* Row 3: Thiết lập quán & CMS (owner / manager) */}
+              {/* Row 3: Khuyến mãi & Giảm giá (owner / manager) */}
               {['owner', 'manager'].includes(currentTenant?.role || '') && (
                 <button
                   type="button"
-                  onClick={() => setActiveTab('cms')}
+                  onClick={() => {
+                    setCmsSubTab('promotions');
+                    setActiveTab('cms');
+                  }}
                   className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
                     <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
-                      <Settings className="w-5 h-5" />
+                      <Tag className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
-                      <div className="font-bold text-slate-900 text-sm">Thiết lập</div>
+                      <div className="font-bold text-slate-900 text-sm">Khuyến mãi & Mã giảm giá</div>
                       <div className="text-xs text-slate-500 mt-0.5 truncate">
-                        Cấu hình thông tin quán, màu sắc giao diện theme và chi nhánh
+                        Tạo và quản lý các chương trình ưu đãi, mã giảm giá cho khách
                       </div>
                     </div>
                   </div>
@@ -1574,7 +1762,57 @@ export const StaffDashboard: React.FC = () => {
                 </button>
               )}
 
-              {/* Row 4: Web Push Notification Settings */}
+              {/* Row 4: Banner & Quảng cáo (owner / manager) */}
+              {['owner', 'manager'].includes(currentTenant?.role || '') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCmsSubTab('banners');
+                    setActiveTab('cms');
+                  }}
+                  className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                      <ImageIcon className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 text-sm">Banner & Hình ảnh quảng cáo</div>
+                      <div className="text-xs text-slate-500 mt-0.5 truncate">
+                        Cập nhật hình ảnh banner quảng cáo trên trang thực đơn của khách
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
+                </button>
+              )}
+
+              {/* Row 5: Thiết lập quán & Giao diện (owner / manager) */}
+              {['owner', 'manager'].includes(currentTenant?.role || '') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCmsSubTab('branding');
+                    setActiveTab('cms');
+                  }}
+                  className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                      <Settings className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 text-sm">Thiết lập quán & Giao diện</div>
+                      <div className="text-xs text-slate-500 mt-0.5 truncate">
+                        Cấu hình thông tin quán, màu sắc theme và chế độ hiển thị
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
+                </button>
+              )}
+
+              {/* Row 6: Web Push Notification Settings */}
               <button
                 type="button"
                 onClick={() => setShowPushModal(true)}
@@ -1582,11 +1820,11 @@ export const StaffDashboard: React.FC = () => {
               >
                 <div className="flex items-center gap-3.5 min-w-0">
                   <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
-                    <BellRing className="w-5 h-5" />
+                    <Radio className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm">Thông báo đẩy</span>
+                      <span className="font-bold text-slate-900 text-sm">Thông báo đẩy (PWA Push)</span>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         pushState === 'granted' && isPushSubscribed
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -1603,7 +1841,7 @@ export const StaffDashboard: React.FC = () => {
                 <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
               </button>
 
-              {/* Row 5: Âm thanh thông báo */}
+              {/* Row 7: Âm thanh thông báo */}
               <button
                 type="button"
                 onClick={cycleSoundMode}
@@ -1636,7 +1874,7 @@ export const StaffDashboard: React.FC = () => {
                 <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
               </button>
 
-              {/* Row 6: Tài khoản & Phiên làm việc + Đăng xuất */}
+              {/* Row 8: Tài khoản & Phiên làm việc + Đổi tên + Đăng xuất */}
               <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3.5 min-w-0">
                   <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 shadow-xs">
@@ -1649,59 +1887,82 @@ export const StaffDashboard: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={logout}
-                  className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ml-2"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Đăng xuất</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0 ml-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenProfileModal}
+                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    title="Chỉnh sửa thông tin cá nhân"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Đổi tên</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={logout}
+                    className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Đăng xuất</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Sub-views with Back to Settings button (R3) */}
+        {/* Sub-views with Back to Settings button (R3) & Touch Swipe Back Support */}
         {activeTab === 'reports' && (
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            onTouchStart={handleSubViewTouchStart}
+            onTouchEnd={handleSubViewTouchEnd}
+          >
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>← Quay lại Cài đặt</span>
+              <span>Quay lại Cài đặt</span>
             </button>
             <StaffReports />
           </div>
         )}
 
         {activeTab === 'menu' && (
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            onTouchStart={handleSubViewTouchStart}
+            onTouchEnd={handleSubViewTouchEnd}
+          >
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>← Quay lại Cài đặt</span>
+              <span>Quay lại Cài đặt</span>
             </button>
             <StaffMenuManage />
           </div>
         )}
 
         {activeTab === 'cms' && (
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            onTouchStart={handleSubViewTouchStart}
+            onTouchEnd={handleSubViewTouchEnd}
+          >
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>← Quay lại Cài đặt</span>
+              <span>Quay lại Cài đặt</span>
             </button>
-            <StaffCmsManage />
+            <StaffCmsManage initialSubTab={cmsSubTab} />
           </div>
         )}
       </main>
@@ -1713,12 +1974,17 @@ export const StaffDashboard: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('tables')}
-          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition cursor-pointer ${
+          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative cursor-pointer ${
             activeTab === 'tables' ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs' : 'text-slate-500 font-medium'
           }`}
         >
           <LayoutGrid className="w-5 h-5" />
           <span className="text-[10px] mt-1">Bàn</span>
+          {pendingRequests.length > 0 && (
+            <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[9px] font-black animate-pulse">
+              {pendingRequests.length}
+            </span>
+          )}
         </button>
 
         {/* 2. Đơn món */}
@@ -1749,7 +2015,9 @@ export const StaffDashboard: React.FC = () => {
           <Bell className="w-5 h-5" />
           <span className="text-[10px] mt-1">Hỗ trợ</span>
           {openRequests.length > 0 && (
-            <span className="absolute top-1.5 right-4 w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-amber-600 text-white rounded-full text-[9px] font-black animate-pulse">
+              {openRequests.length}
+            </span>
           )}
         </button>
 
@@ -1925,6 +2193,126 @@ export const StaffDashboard: React.FC = () => {
                   className="flex-1 py-2.5 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:scale-95 text-[var(--brand-on-accent)] font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
                 >
                   {isAddingTable ? 'Đang tạo...' : 'Tạo Bàn'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Staff Profile Modal (Đổi thông tin cá nhân & tên nhân viên) */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-100 animate-scale-up">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Thông tin cá nhân</h3>
+                  <p className="text-[11px] text-slate-500">Tùy chỉnh tên hiển thị của tài khoản</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProfile} className="mt-4 space-y-3.5">
+              {profileMsg && (
+                <div className={`p-3 rounded-xl text-xs font-semibold ${
+                  profileMsg.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}>
+                  {profileMsg.text}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Email đăng nhập
+                </label>
+                <input
+                  type="text"
+                  value={user?.email || ''}
+                  disabled
+                  className="w-full px-3 py-2 text-xs bg-slate-100 text-slate-500 rounded-xl border border-slate-200 cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Vai trò tại quán
+                </label>
+                <input
+                  type="text"
+                  value={currentTenant?.role ? currentTenant.role.toUpperCase() : ''}
+                  disabled
+                  className="w-full px-3 py-2 text-xs bg-slate-100 text-slate-500 rounded-xl border border-slate-200 cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="staff-profile-name" className="block text-xs font-bold text-slate-700 mb-1">
+                  Họ và tên nhân viên <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="staff-profile-name"
+                  type="text"
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  placeholder="Nhập họ và tên..."
+                  maxLength={100}
+                  required
+                  disabled={isSavingProfile}
+                  className="w-full px-3 py-2 text-sm bg-slate-50 hover:bg-white focus:bg-white rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[var(--brand-accent)] transition"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="staff-profile-phone" className="block text-xs font-bold text-slate-700 mb-1">
+                  Số điện thoại liên hệ
+                </label>
+                <input
+                  id="staff-profile-phone"
+                  type="tel"
+                  value={profilePhone}
+                  onChange={(e) => setProfilePhone(e.target.value)}
+                  placeholder="Ví dụ: 0912345678"
+                  maxLength={20}
+                  disabled={isSavingProfile}
+                  className="w-full px-3 py-2 text-sm bg-slate-50 hover:bg-white focus:bg-white rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[var(--brand-accent)] transition"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  disabled={isSavingProfile}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="flex-1 py-2.5 rounded-xl bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-[var(--brand-on-accent)] font-bold text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingProfile ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang lưu...</span>
+                    </>
+                  ) : (
+                    <span>Lưu thông tin</span>
+                  )}
                 </button>
               </div>
             </form>

@@ -55,20 +55,41 @@ CREATE TABLE IF NOT EXISTS table_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     table_id UUID NOT NULL REFERENCES tables(id) ON DELETE RESTRICT,
-    status VARCHAR(32) NOT NULL DEFAULT 'OPEN', -- 'OPEN', 'CLOSED'
+    status VARCHAR(32) NOT NULL DEFAULT 'OPEN', -- 'PENDING_APPROVAL', 'OPEN', 'CLOSED'
     settlement_version INT NOT NULL DEFAULT 1,
     opened_by UUID REFERENCES users(id) ON DELETE SET NULL,
     opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     closed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     closed_at TIMESTAMPTZ,
-    close_reason VARCHAR(64), -- 'CONFIRMED_SETTLED', 'WITHOUT_CHARGE', 'CANCELLED'
+    close_reason VARCHAR(64), -- 'CONFIRMED_SETTLED', 'WITHOUT_CHARGE', 'CANCELLED', 'STAFF_REJECTED', 'EXPIRED', 'CUSTOMER_WITHDRAWN'
+    requested_at TIMESTAMPTZ,
+    approved_at TIMESTAMPTZ,
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    expires_at TIMESTAMPTZ,
+    requester_guest_name VARCHAR(80),
+    requester_device_hash VARCHAR(128),
+    claimed_device_hash VARCHAR(128),
+    claim_version INT NOT NULL DEFAULT 1,
+    request_id VARCHAR(128),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Partial index: Tối đa 1 phiên OPEN trên một bàn tại một thời điểm [S1]
-CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_open_session_per_table 
-ON table_sessions (table_id) 
+-- Partial index: Tối đa 1 phiên PENDING_APPROVAL hoặc OPEN trên một bàn tại một thời điểm
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_session_per_table
+ON table_sessions (table_id)
+WHERE status IN ('PENDING_APPROVAL', 'OPEN');
+
+CREATE INDEX IF NOT EXISTS idx_table_sessions_pending_expiry
+ON table_sessions (expires_at)
+WHERE status = 'PENDING_APPROVAL';
+
+CREATE INDEX IF NOT EXISTS idx_table_sessions_requester_device
+ON table_sessions (tenant_id, requester_device_hash)
+WHERE status = 'PENDING_APPROVAL';
+
+CREATE INDEX IF NOT EXISTS idx_table_sessions_claimed_device
+ON table_sessions (tenant_id, claimed_device_hash)
 WHERE status = 'OPEN';
 
 -- 6. Guest Sessions (Quyền truy cập phiên qua trình duyệt khách)
