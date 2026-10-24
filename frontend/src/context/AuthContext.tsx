@@ -33,6 +33,7 @@ interface AuthContextType {
   hasPermission: (perm: string) => boolean;
   updateCurrentTenant: (updates: Partial<TenantInfo>) => void;
   updateUserProfile: (updates: { fullName: string; phone?: string }) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -143,8 +144,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    await request<{ success: boolean; message: string }>('/auth/change-password', {
+      method: 'PATCH',
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, currentTenant, memberships, isLoading, login, logout, hasPermission, updateCurrentTenant, updateUserProfile }}>
+    <AuthContext.Provider value={{ user, currentTenant, memberships, isLoading, login, logout, hasPermission, updateCurrentTenant, updateUserProfile, changePassword }}>
       {children}
     </AuthContext.Provider>
   );

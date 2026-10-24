@@ -132,12 +132,8 @@ const isPushEnabled = Boolean(
     !INSECURE_VAPID_SAMPLES.includes(finalVapidPrivate)
 );
 
-const orderingMode = (process.env.ORDERING_MODE || 'multi_device') as 'multi_device' | 'approved_single_device';
-if (orderingMode === 'approved_single_device' && production) {
-    if (process.env.ALLOW_GAERU_SANDBOX !== 'true' && !process.env.DATABASE_URL?.includes('sandbox')) {
-        throw new Error('ORDERING_MODE=approved_single_device is strictly an experimental mode and cannot run on production database');
-    }
-}
+const defaultOrderingMode = process.env.NODE_ENV === 'test' ? 'multi_device' : 'approved_single_device';
+const orderingMode = (process.env.ORDERING_MODE || defaultOrderingMode) as 'multi_device' | 'approved_single_device';
 
 export const config = {
     port: parseInt(process.env.PORT || '4000', 10),

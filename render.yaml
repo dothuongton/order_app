@@ -23,6 +23,8 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         value: mailto:contact@phoco.vn
+      - key: ORDERING_MODE
+        value: approved_single_device
 
 databases:
   - name: order-app-db

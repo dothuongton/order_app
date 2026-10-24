@@ -2,13 +2,23 @@ import React, { useState, useMemo } from 'react';
 import { useGuest } from '../../context/GuestContext.js';
 import { MenuItem } from '../../types/index.js';
 import { BannerDisplay } from '../../components/BannerDisplay.js';
-import { Plus, Minus, X, AlertCircle, Tag, Sparkles } from 'lucide-react';
+import { Plus, Minus, X, AlertCircle, Tag, Sparkles, Search } from 'lucide-react';
+
+const normalizeSearch = (str: string) => {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd');
+};
 
 export const GuestMenu: React.FC = () => {
   const { categories, menuItems, addToCart, session, isSessionClosed, tenant, banners, promotions, canOrder } = useGuest();
   const theme = tenant?.activeThemeConfig || {};
   const layout = theme.layout || tenant?.activeTemplateId || 'classic';
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
   const [selectedGroupOptions, setSelectedGroupOptions] = useState<Record<string, any>>({});
@@ -18,15 +28,23 @@ export const GuestMenu: React.FC = () => {
 
   // Available items always appear first; out-of-stock items (Hết món) are pushed to the bottom
   const filteredItems = useMemo(() => {
-    const raw = selectedCategory === 'all'
+    let raw = selectedCategory === 'all'
       ? menuItems
       : menuItems.filter(item => item.category_id === selectedCategory);
+
+    if (searchQuery.trim()) {
+      const q = normalizeSearch(searchQuery.trim());
+      raw = raw.filter(item =>
+        normalizeSearch(item.name).includes(q) ||
+        (item.description && normalizeSearch(item.description).includes(q))
+      );
+    }
 
     return [...raw].sort((a, b) => {
       if (a.is_available === b.is_available) return 0;
       return a.is_available ? -1 : 1;
     });
-  }, [selectedCategory, menuItems]);
+  }, [selectedCategory, menuItems, searchQuery]);
 
   const handleOpenCustomize = (item: MenuItem) => {
     if (!item.is_available || !session || isSessionClosed) return;
@@ -172,32 +190,76 @@ export const GuestMenu: React.FC = () => {
           })}
         </section>
       )}
-      {/* Category Tabs */}
-      <div className="sticky top-14 z-20 bg-slate-50/95 backdrop-blur border-b border-slate-200 py-2.5 px-4 overflow-x-auto no-scrollbar flex gap-2">
-        <button
-          onClick={() => setSelectedCategory('all')}
-          className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition min-h-[44px] flex items-center ${
-            selectedCategory === 'all'
-              ? 'bg-orange-600 text-white shadow-sm'
-              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-          }`}
-        >
-          Tất cả món
-        </button>
-        {categories.map(cat => (
+      {/* Search Bar & Category Tabs */}
+      <div className="sticky top-14 z-20 bg-slate-50/95 backdrop-blur border-b border-slate-200 px-4 pt-3 pb-2.5 space-y-2">
+        {/* Item Search Bar */}
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Tìm kiếm món ăn, đồ uống..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white border border-slate-200/90 rounded-2xl pl-10 pr-9 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-700/30 focus:border-teal-700 shadow-2xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 rounded-full cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Category Tabs */}
+        <div className="overflow-x-auto no-scrollbar flex gap-2 pt-0.5">
           <button
-            key={cat.id}
-            onClick={() => setSelectedCategory(cat.id)}
-            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition min-h-[44px] flex items-center ${
-              selectedCategory === cat.id
-                ? 'bg-orange-600 text-white shadow-sm'
+            onClick={() => setSelectedCategory('all')}
+            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition min-h-[40px] flex items-center ${
+              selectedCategory === 'all'
+                ? 'bg-teal-700 text-white shadow-xs'
                 : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
-            {cat.name}
+            Tất cả món
           </button>
-        ))}
+          {categories.map(cat => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.id)}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition min-h-[40px] flex items-center ${
+                selectedCategory === cat.id
+                  ? 'bg-teal-700 text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {cat.name}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* Empty State when no items found */}
+      {filteredItems.length === 0 && (
+        <div className="p-8 text-center space-y-2">
+          <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+            <Search className="w-6 h-6" />
+          </div>
+          <p className="text-sm font-bold text-slate-700">Không tìm thấy món nào</p>
+          <p className="text-xs text-slate-400">
+            {searchQuery ? `Không có kết quả phù hợp với từ khóa "${searchQuery}"` : 'Danh mục này hiện chưa có món'}
+          </p>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="text-xs font-bold text-teal-700 hover:underline pt-1 cursor-pointer"
+            >
+              Xóa tìm kiếm
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Menu Items Grid */}
       <div className={layout === 'modern_grid' ? "p-4 grid grid-cols-2 gap-3" : "p-4 space-y-3"}>

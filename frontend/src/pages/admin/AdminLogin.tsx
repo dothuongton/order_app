@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { request } from '../../api/client.js';
-import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 interface AdminLoginProps {
     onLoginSuccess: (user: any, token: string) => void;
@@ -9,8 +9,24 @@ interface AdminLoginProps {
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [rememberPassword, setRememberPassword] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        try {
+            const savedEmail = localStorage.getItem('saved_admin_email');
+            const savedPass = localStorage.getItem('saved_admin_password');
+            if (savedEmail && savedPass) {
+                setEmail(savedEmail);
+                setPassword(savedPass);
+                setRememberPassword(true);
+            }
+        } catch {
+            // Ignore localStorage errors
+        }
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -25,6 +41,14 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
 
             if (!data.user?.isPlatformAdmin) {
                 throw new Error('Tài khoản này không có quyền Quản trị viên tối cao (Super Admin)');
+            }
+
+            if (rememberPassword) {
+                localStorage.setItem('saved_admin_email', email);
+                localStorage.setItem('saved_admin_password', password);
+            } else {
+                localStorage.removeItem('saved_admin_email');
+                localStorage.removeItem('saved_admin_password');
             }
 
             localStorage.setItem('admin_token', data.token);
@@ -73,16 +97,36 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
                     <div>
                         <label className="block text-xs font-semibold text-slate-300 mb-1.5">Mật Khẩu</label>
                         <div className="relative">
-                            <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
+                            <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                             <input
-                                type="password"
+                                type={showPassword ? 'text' : 'password'}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
                                 placeholder="••••••••"
-                                className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-3 text-sm text-white focus:outline-hidden focus:border-indigo-500 transition"
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-10 text-sm text-white focus:outline-hidden focus:border-indigo-500 transition"
                             />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1 cursor-pointer"
+                                title={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+                            >
+                                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
                         </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-0.5">
+                        <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-400 select-none">
+                            <input
+                                type="checkbox"
+                                checked={rememberPassword}
+                                onChange={(e) => setRememberPassword(e.target.checked)}
+                                className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>Lưu mật khẩu trên thiết bị</span>
+                        </label>
                     </div>
 
                     <button
