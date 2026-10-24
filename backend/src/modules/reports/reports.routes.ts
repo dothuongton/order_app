@@ -79,7 +79,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
         `, [staff.tenantId]);
 
-        // 4. Recent settled sessions
+        // 4. Recent settled & released sessions
         const recentSettledRes = await query(`
             SELECT 
                 ts.id as session_id,
@@ -88,15 +88,20 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
                 COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) as confirmed_at,
                 COALESCE(u.full_name, 'Nhân viên') as confirmed_by_name,
                 msc.note as settlement_note,
-                ts.opened_at
+                ts.opened_at,
+                ts.status as session_status,
+                ts.close_reason,
+                b.status as bill_status
             FROM table_sessions ts
             JOIN tables t ON t.id = ts.table_id
             JOIN bills b ON b.session_id = ts.id
             LEFT JOIN manual_settlement_confirmations msc ON msc.session_id = ts.id
             LEFT JOIN users u ON u.id = COALESCE(msc.confirmed_by, ts.closed_by)
             WHERE ts.tenant_id = $1 
-              AND (b.status = 'CONFIRMED' OR msc.id IS NOT NULL OR ts.close_reason = 'CONFIRMED_SETTLED')
-              AND COALESCE(msc.amount, b.total_amount, 0) > 0
+              AND (
+                ((b.status = 'CONFIRMED' OR msc.id IS NOT NULL OR ts.close_reason = 'CONFIRMED_SETTLED') AND COALESCE(msc.amount, b.total_amount, 0) > 0)
+                OR (ts.status = 'CLOSED' AND b.status = 'CANCELLED' AND ts.close_reason IS NOT NULL)
+              )
             ORDER BY COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) DESC
             LIMIT 50
         `, [staff.tenantId]);

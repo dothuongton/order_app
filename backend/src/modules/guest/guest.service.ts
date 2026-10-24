@@ -1311,6 +1311,7 @@ export class GuestService {
         const partsRes = await query(`
             SELECT
                 o.order_number,
+                o.created_at as order_created_at,
                 o.applied_promotion_id,
                 o.discount_total,
                 p.title as promo_title,
@@ -1324,6 +1325,7 @@ export class GuestService {
                 oi.quantity as original_quantity,
                 oi.discount_amount,
                 oi.note,
+                oi.created_at as item_created_at,
                 oip.status,
                 oip.quantity,
                 oip.cancel_reason
@@ -1360,6 +1362,7 @@ export class GuestService {
             if (!roundSummaries[roundNum]) {
                 roundSummaries[roundNum] = {
                     orderNumber: roundNum,
+                    createdAt: row.order_created_at || row.item_created_at,
                     rawSubtotal: 0,
                     discountTotal: 0,
                     acceptedOrServedSubtotal: 0,
@@ -1420,7 +1423,8 @@ export class GuestService {
                 note: row.note,
                 status: row.status,
                 cancelReason: row.cancel_reason,
-                subtotal
+                subtotal,
+                createdAt: row.item_created_at || row.order_created_at
             });
         }
 
