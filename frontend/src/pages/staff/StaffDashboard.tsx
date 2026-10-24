@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../../context/AuthContext.js';
 import { useNotification } from '../../context/NotificationContext.js';
 import { request } from '../../api/client.js';
-import { StaffTable, ServiceRequest } from '../../types/index.js';
+import { StaffTable, ServiceRequest, PendingTableRequest } from '../../types/index.js';
 import { TableDetailModal } from './TableDetailModal.js';
 import { QRModal } from '../../components/QRModal.js';
 import { StaffReports } from './StaffReports.js';
@@ -60,6 +60,8 @@ export const StaffDashboard: React.FC = () => {
   const [newTableCapacity, setNewTableCapacity] = useState<number>(4);
   const [isAddingTable, setIsAddingTable] = useState<boolean>(false);
 
+  const [pendingRequests, setPendingRequests] = useState<PendingTableRequest[]>([]);
+
   const fetchDashboard = useCallback(async () => {
     try {
       const data = await request<{ tables: StaffTable[]; openRequests: ServiceRequest[] }>('/staff/dashboard/snapshot');
@@ -70,9 +72,41 @@ export const StaffDashboard: React.FC = () => {
     }
   }, []);
 
+  const fetchPendingRequests = useCallback(async () => {
+    try {
+      const data = await request<{ requests: PendingTableRequest[] }>('/staff/requests/pending');
+      setPendingRequests(data.requests || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     fetchDashboard();
-  }, [fetchDashboard]);
+    fetchPendingRequests();
+  }, [fetchDashboard, fetchPendingRequests]);
+
+  const handleApproveRequest = async (tableId: string) => {
+    try {
+      await request(`/staff/tables/${tableId}/approve-request`, { method: 'POST' });
+      showToast({ title: 'Đã duyệt mở bàn thành công', type: 'success', duration: 3000 });
+      fetchDashboard();
+      fetchPendingRequests();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi duyệt mở bàn', type: 'error' });
+    }
+  };
+
+  const handleRejectRequest = async (tableId: string) => {
+    try {
+      await request(`/staff/tables/${tableId}/reject-request`, { method: 'POST' });
+      showToast({ title: 'Đã từ chối yêu cầu mở bàn', type: 'info', duration: 3000 });
+      fetchDashboard();
+      fetchPendingRequests();
+    } catch (err: any) {
+      showToast({ title: err.message || 'Lỗi từ chối mở bàn', type: 'error' });
+    }
+  };
 
   // Screen unlock / visibility wakeup: immediate fetch & audio sync
   useEffect(() => {
@@ -142,6 +176,20 @@ export const StaffDashboard: React.FC = () => {
 
     const handleUpdate = () => {
       fetchDashboard();
+      fetchPendingRequests();
+    };
+
+    const handleTableRequested = (payload: any) => {
+      fetchDashboard();
+      fetchPendingRequests();
+      const tableName = payload?.tableNumber ? `Bàn ${payload.tableNumber}` : 'Bàn';
+      playAlertSound(tableName, 'ASSISTANCE');
+      showToast({
+        title: `✨ Yêu cầu mở ${tableName}`,
+        message: `Khách "${payload?.guestName || 'Khách'}" vừa yêu cầu mở bàn`,
+        type: 'info',
+        duration: 8000
+      });
     };
 
     socket.on('order.created', handleOrderCreated);
@@ -149,13 +197,21 @@ export const StaffDashboard: React.FC = () => {
     socket.on('service_request.created', handleServiceRequestCreated);
     socket.on('service_request.updated', handleUpdate);
     socket.on('table.updated', handleUpdate);
+    socket.on('table_session:requested', handleTableRequested);
+    socket.on('table_session:withdrawn', handleUpdate);
+    socket.on('table_session:opened', handleUpdate);
+    socket.on('table_session:rejected', handleUpdate);
 
     // Backup polling (20s) as safety net while WebSockets handle instant real-time events (optimizing DB load for 100+ stores)
-    const interval = setInterval(fetchDashboard, 20000);
+    const interval = setInterval(() => {
+      fetchDashboard();
+      fetchPendingRequests();
+    }, 20000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchDashboard();
+        fetchPendingRequests();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -169,10 +225,14 @@ export const StaffDashboard: React.FC = () => {
       socket.off('service_request.created', handleServiceRequestCreated);
       socket.off('service_request.updated', handleUpdate);
       socket.off('table.updated', handleUpdate);
+      socket.off('table_session:requested', handleTableRequested);
+      socket.off('table_session:withdrawn', handleUpdate);
+      socket.off('table_session:opened', handleUpdate);
+      socket.off('table_session:rejected', handleUpdate);
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard]);
+  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard, fetchPendingRequests]);
 
   // Permission safeguard: automatically switch to tables tab if current tab is locked for current role
   useEffect(() => {
@@ -730,6 +790,66 @@ export const StaffDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Gaeru P1: Pending Table Open Requests */}
+            {pendingRequests.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-2.5 w-2.5 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                    </span>
+                    <h3 className="font-extrabold text-amber-950 text-xs uppercase tracking-wide">
+                      Yêu cầu mở bàn chờ duyệt ({pendingRequests.length})
+                    </h3>
+                  </div>
+                  <span className="text-[10px] text-amber-700 font-medium">Hết hạn sau 15 phút</span>
+                </div>
+
+                <div className="space-y-2">
+                  {pendingRequests.map((req) => (
+                    <div
+                      key={req.session_id}
+                      className="bg-white border border-amber-200/80 rounded-xl p-3 flex items-center justify-between gap-3 shadow-2xs"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-slate-900 text-sm">
+                            Bàn {req.table_number || req.table_id}
+                          </span>
+                          {req.guest_name && (
+                            <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                              {req.guest_name}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          Yêu cầu lúc {new Date(req.requested_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleRejectRequest(req.table_id)}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition min-h-[36px] cursor-pointer"
+                        >
+                          Từ chối
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveRequest(req.table_id)}
+                          className="px-3.5 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-xs transition min-h-[36px] cursor-pointer"
+                        >
+                          Duyệt mở
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Quick Search & Filter Bar for 100 Tables */}
             <div className="space-y-2.5">
@@ -1713,12 +1833,17 @@ export const StaffDashboard: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('tables')}
-          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition cursor-pointer ${
+          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative cursor-pointer ${
             activeTab === 'tables' ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs' : 'text-slate-500 font-medium'
           }`}
         >
           <LayoutGrid className="w-5 h-5" />
           <span className="text-[10px] mt-1">Bàn</span>
+          {pendingRequests.length > 0 && (
+            <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[9px] font-black animate-pulse">
+              {pendingRequests.length}
+            </span>
+          )}
         </button>
 
         {/* 2. Đơn món */}
