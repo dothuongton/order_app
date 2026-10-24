@@ -46,6 +46,27 @@ export interface PromotionInput {
     endTime?: string;
 }
 
+export function normalizeThemeConfig(config: any) {
+    const raw = config && typeof config === 'object' ? config : {};
+    return {
+        primaryColor: typeof raw.primaryColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.primaryColor) ? raw.primaryColor.toLowerCase() : '#ea580c',
+        fontFamily: ['Inter', 'Roboto', 'Be Vietnam Pro', 'Nunito', 'system-ui'].includes(raw.fontFamily) ? raw.fontFamily : 'Inter',
+        layout: ['classic', 'modern_grid', 'compact_list', 'banner_featured'].includes(raw.layout) ? raw.layout : 'classic',
+        showBanner: raw.showBanner !== undefined ? Boolean(raw.showBanner) : true,
+        showPromotions: raw.showPromotions !== undefined ? Boolean(raw.showPromotions) : true,
+        bannerDisplayMode: raw.bannerDisplayMode === 'slide' ? 'slide' : 'stack',
+        blockOrder: Array.isArray(raw.blockOrder) && raw.blockOrder.length > 0 ? raw.blockOrder : ['header', 'banners', 'promotions', 'categories', 'product_grid', 'cart_footer'],
+        staffTheme: raw.staffTheme && typeof raw.staffTheme === 'object' && /^#[0-9a-fA-F]{6}$/.test(raw.staffTheme.accentColor) && /^#[0-9a-fA-F]{6}$/.test(raw.staffTheme.textColor) ? {
+            accentColor: String(raw.staffTheme.accentColor).toLowerCase(),
+            textColor: String(raw.staffTheme.textColor).toLowerCase()
+        } : {
+            accentColor: '#244f3c',
+            textColor: '#27382e'
+        },
+        staffDensity: raw.staffDensity === 'compact' ? 'compact' : 'comfortable'
+    };
+}
+
 export class CmsService {
     /**
      * Get Shop Profile and active theme/template settings
@@ -77,7 +98,7 @@ export class CmsService {
             address: row.address,
             openingHours: row.opening_hours,
             activeTemplateId: row.active_template_id,
-            activeThemeConfig: row.active_theme_config,
+            activeThemeConfig: normalizeThemeConfig(row.active_theme_config),
             activePublishedVersion: row.active_published_version,
             status: row.status
         };
@@ -133,7 +154,7 @@ export class CmsService {
                 openingHours: r.opening_hours,
                 opening_hours: r.opening_hours,
                 activeTemplateId: r.active_template_id,
-                activeThemeConfig: r.active_theme_config,
+                activeThemeConfig: normalizeThemeConfig(r.active_theme_config),
                 activePublishedVersion: r.active_published_version,
                 status: r.status
             };
@@ -165,7 +186,7 @@ export class CmsService {
         return {
             id: row.id,
             templateId: row.template_id,
-            themeConfig: row.theme_config,
+            themeConfig: normalizeThemeConfig(row.theme_config),
             contentConfig: row.content_config,
             version: row.version,
             updatedAt: row.updated_at
@@ -209,6 +230,8 @@ export class CmsService {
                 throw new Error('Chưa có bản nháp nào được lưu');
             }
             const draft = draftRes.rows[0];
+            const normalizedTheme = normalizeThemeConfig(draft.theme_config);
+            const themeConfigJson = JSON.stringify(normalizedTheme);
 
             // Get tenant current published version
             await client.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
@@ -219,14 +242,14 @@ export class CmsService {
             await client.query(`
                 INSERT INTO cms_published_versions (tenant_id, version, template_id, theme_config, content_config, changelog, published_by)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-            `, [tenantId, nextVersion, draft.template_id, draft.theme_config, draft.content_config, changelog, userId]);
+            `, [tenantId, nextVersion, draft.template_id, themeConfigJson, draft.content_config, changelog, userId]);
 
             // Update tenants active configuration
             await client.query(`
                 UPDATE tenants
                 SET active_template_id = $1, active_theme_config = $2, active_published_version = $3, updated_at = NOW()
                 WHERE id = $4
-            `, [draft.template_id, draft.theme_config, nextVersion, tenantId]);
+            `, [draft.template_id, themeConfigJson, nextVersion, tenantId]);
 
             // Audit
             await client.query(`
@@ -241,7 +264,7 @@ export class CmsService {
             return {
                 publishedVersion: nextVersion,
                 templateId: draft.template_id,
-                themeConfig: draft.theme_config,
+                themeConfig: normalizedTheme,
                 message: `Đã xuất bản giao diện phiên bản v${nextVersion} thành công!`
             };
         });
@@ -261,7 +284,7 @@ export class CmsService {
             ORDER BY pv.version DESC
             LIMIT 20
         `, [tenantId]);
-        return res.rows.map(row => ({ id: row.id, version: row.version, templateId: row.template_id, themeConfig: row.theme_config, changelog: row.changelog, publishedAt: row.published_at, publishedByName: row.published_by_name }));
+        return res.rows.map(row => ({ id: row.id, version: row.version, templateId: row.template_id, themeConfig: normalizeThemeConfig(row.theme_config), changelog: row.changelog, publishedAt: row.published_at, publishedByName: row.published_by_name }));
     }
 
     /**
@@ -280,13 +303,15 @@ export class CmsService {
             }
 
             const targetVersion = verRes.rows[0];
+            const normalizedTheme = normalizeThemeConfig(targetVersion.theme_config);
+            const themeConfigJson = JSON.stringify(normalizedTheme);
 
             // Update tenants table
             await client.query(`
                 UPDATE tenants
                 SET active_template_id = $1, active_theme_config = $2, active_published_version = $3, updated_at = NOW()
                 WHERE id = $4
-            `, [targetVersion.template_id, targetVersion.theme_config, targetVersion.version, tenantId]);
+            `, [targetVersion.template_id, themeConfigJson, targetVersion.version, tenantId]);
 
             // Sync back into cms_drafts as well
             await client.query(`
@@ -298,7 +323,7 @@ export class CmsService {
                     content_config = EXCLUDED.content_config,
                     updated_by = EXCLUDED.updated_by,
                     updated_at = NOW()
-            `, [tenantId, targetVersion.template_id, targetVersion.theme_config, targetVersion.content_config, userId]);
+            `, [tenantId, targetVersion.template_id, themeConfigJson, targetVersion.content_config, userId]);
 
             // Audit
             await client.query(`

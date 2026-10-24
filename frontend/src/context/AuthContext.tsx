@@ -20,6 +20,7 @@ export interface TenantInfo {
   phone?: string;
   address?: string;
   openingHours?: string;
+  activeThemeConfig?: any;
 }
 
 interface AuthContextType {
@@ -67,7 +68,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             description: res.user.description || res.user.tenantDescription,
             phone: res.user.phone || res.user.tenantPhone,
             address: res.user.address || res.user.tenantAddress,
-            openingHours: res.user.openingHours || res.user.tenantOpeningHours
+            openingHours: res.user.openingHours || res.user.tenantOpeningHours,
+            activeThemeConfig: res.user.activeThemeConfig || res.user.tenantThemeConfig || null
           });
         }
       } catch {

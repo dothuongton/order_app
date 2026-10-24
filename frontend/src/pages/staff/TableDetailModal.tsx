@@ -303,7 +303,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-fade-in">
-      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up">
+      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up staff-density-modal">
         {/* Top Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
           <div>
@@ -417,7 +417,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                     {item.name}
                                   </span>
                                   {item.variantName && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded shrink-0">
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] rounded shrink-0">
                                       {item.variantName}
                                     </span>
                                   )}
@@ -525,7 +525,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                       <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block">Tổng thanh toán</span>
                       <span className="text-[11px] text-slate-400">(Các món đã phục vụ/tiếp nhận)</span>
                     </div>
-                    <span className="text-2xl font-black text-orange-600">
+                    <span className="text-2xl font-black text-[var(--brand-accent-text)]">
                       {billSummary.validBillTotal.toLocaleString('vi-VN')}đ
                     </span>
                   </div>
@@ -597,7 +597,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     <button
                       onClick={() => setShowConfirmSettlement(true)}
                       disabled={isSettling}
-                      className="w-full min-h-[52px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-40 text-white font-black rounded-2xl py-3.5 px-4 shadow-lg flex items-center justify-center gap-2 transition"
+                      className="w-full min-h-[52px] bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-40 text-[var(--brand-on-accent)] font-black rounded-2xl py-3.5 px-4 shadow-lg flex items-center justify-center gap-2 transition"
                     >
                       <CreditCard className="w-5 h-5" />
                       <span>Xác nhận đã thanh toán {totalPayable.toLocaleString('vi-VN')}đ & Kết thúc phiên</span>
@@ -627,7 +627,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 type="button"
                 onClick={handleOpenFromModal}
                 disabled={!hasPermission('session.open') || isLoading}
-                className="py-3 px-6 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-extrabold text-xs rounded-2xl shadow-md transition inline-flex items-center gap-2 min-h-[46px]"
+                className="py-3 px-6 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:opacity-90 disabled:opacity-50 text-[var(--brand-on-accent)] font-extrabold text-xs rounded-2xl shadow-md transition inline-flex items-center gap-2 min-h-[46px]"
               >
                 <Plus className="w-4 h-4" />
                 <span>{isLoading ? 'Đang mở bàn...' : 'Mở bàn đón khách ngay'}</span>
@@ -675,7 +675,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   type="checkbox"
                   checked={markItemOutOfStock}
                   onChange={(e) => setMarkItemOutOfStock(e.target.checked)}
-                  className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500"
+                  className="w-4 h-4 rounded text-[var(--brand-accent)] focus:ring-[var(--brand-accent)]"
                 />
                 <span>Đồng thời đánh dấu món này là <strong>Hết món</strong> trên menu</span>
               </label>
@@ -702,7 +702,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         {showConfirmSettlement && billSummary && (
           <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 animate-scale-in">
-              <div className="flex items-center gap-2 text-orange-600">
+              <div className="flex items-center gap-2 text-[var(--brand-accent-text)]">
                 <CreditCard className="w-6 h-6" />
                 <h3 className="font-extrabold text-slate-900 text-base">Xác nhận thanh toán thủ công</h3>
               </div>
@@ -720,7 +720,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Số tiền xác nhận đã thu:</span>
-                  <span className="font-extrabold text-sm text-orange-600">
+                  <span className="font-extrabold text-sm text-[var(--brand-accent-text)]">
                     {((billSummary.validBillTotal || 0) + (billSummary.pendingTotal || 0)).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
@@ -761,7 +761,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 <button
                   onClick={handleConfirmPaymentAndClose}
                   disabled={isSettling}
-                  className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-md min-h-[44px]"
+                  className="flex-1 py-2.5 rounded-xl bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-[var(--brand-on-accent)] font-bold text-xs shadow-md min-h-[44px]"
                 >
                   {isSettling ? 'Đang xác nhận...' : 'Đã nhận đủ tiền'}
                 </button>
@@ -776,7 +776,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
             <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-slide-up">
               <div className="flex justify-between items-center pb-2 border-b border-slate-100">
                 <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                  <Edit3 className="w-4 h-4 text-orange-600" />
+                  <Edit3 className="w-4 h-4 text-[var(--brand-accent-text)]" />
                   <span>Chỉnh Sửa Bàn</span>
                 </h3>
                 <button
@@ -796,7 +796,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     required
                     value={editTableNumber}
                     onChange={(e) => setEditTableNumber(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-[var(--brand-accent)] text-sm"
                   />
                 </div>
 
@@ -808,7 +808,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     max={100}
                     value={editTableCapacity}
                     onChange={(e) => setEditTableCapacity(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-orange-500 text-sm"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:outline-none focus:border-[var(--brand-accent)] text-sm"
                   />
                 </div>
 
@@ -823,7 +823,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   <button
                     type="submit"
                     disabled={isUpdatingTable || !editTableNumber.trim()}
-                    className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+                    className="flex-1 py-2.5 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] active:scale-95 text-[var(--brand-on-accent)] font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
                   >
                     {isUpdatingTable ? 'Đang lưu...' : 'Lưu Thay Đổi'}
                   </button>

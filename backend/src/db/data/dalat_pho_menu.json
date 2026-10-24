@@ -1,0 +1,1233 @@
+[
+  {
+    "category": "Trà Sữa",
+    "sort_order": 1,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 1,
+        "name": "Trà Sữa Thái Xanh",
+        "price": 25000,
+        "image": "/images/menu/01_tra_sua_thai_xanh.jpg",
+        "desc": "Trà Thái xanh đậm vị thơm béo thanh mát đặc trưng"
+      },
+      {
+        "num": 2,
+        "name": "Trà Sữa Vị Dâu",
+        "price": 25000,
+        "image": "/images/menu/02_tra_sua_vi_dau.jpg",
+        "desc": "Trà sữa hương vị dâu tây ngọt ngào, thơm dịu"
+      },
+      {
+        "num": 3,
+        "name": "Trà Sữa Vị Việt Quất",
+        "price": 25000,
+        "image": "/images/menu/03_tra_sua_vi_viet.jpg",
+        "desc": "Trà sữa đậm đà kết hợp hương việt quất thanh ngọt"
+      },
+      {
+        "num": 4,
+        "name": "Trà Sữa Vị Dưa Lưới",
+        "price": 25000,
+        "image": "/images/menu/04_tra_sua_vi_dua.jpg",
+        "desc": "Trà sữa vị dưa lưới thanh mát, thơm dịu sảng khoái"
+      },
+      {
+        "num": 5,
+        "name": "Trà Sữa Truyền Thống Full Topping",
+        "price": 32000,
+        "image": "/images/menu/05_tra_sua_truyen_thong.jpg",
+        "desc": "Trà sữa truyền thống đậm đà đầy ắp trân châu, thạch giòn và pudding"
+      },
+      {
+        "num": 6,
+        "name": "Trà Sữa Trân Châu Đường Đen",
+        "price": 32000,
+        "image": "/images/menu/06_tra_sua_tran_chau.jpg",
+        "desc": "Trà sữa béo ngậy kèm trân châu đường đen dẻo dai nóng hổi"
+      },
+      {
+        "num": 7,
+        "name": "Trà Sữa Khoai Môn",
+        "price": 32000,
+        "image": "/images/menu/07_tra_sua_khoai_mon.jpg",
+        "desc": "Trà sữa khoai môn bùi béo, thơm ngậy tự nhiên"
+      },
+      {
+        "num": 8,
+        "name": "Trà Sữa Kem Dừa Nướng",
+        "price": 32000,
+        "image": "/images/menu/08_tra_sua_kem_dua.jpg",
+        "desc": "Trà sữa phủ lớp kem dừa thơm béo và dừa nướng giòn rụm"
+      },
+      {
+        "num": 9,
+        "name": "Trà Sữa Socola",
+        "price": 32000,
+        "image": "/images/menu/09_tra_sua_socola.jpg",
+        "desc": "Trà sữa hòa quyện socola đậm đà, vị đắng ngọt hài hòa"
+      },
+      {
+        "num": 10,
+        "name": "Trà Sữa Đậu Biếc Macchiato",
+        "price": 32000,
+        "image": "/images/menu/10_tra_sua_dau_biec.jpg",
+        "desc": "Trà hoa đậu biếc xanh mát phủ lớp macchiato kem mặn béo mịn"
+      },
+      {
+        "num": 11,
+        "name": "Trà Sữa Matcha",
+        "price": 37000,
+        "image": "/images/menu/matcha_milk_tea_in_cup.jpg",
+        "desc": "Matcha chuẩn vị trà xanh thanh mát, béo nhẹ êm dịu"
+      },
+      {
+        "num": 12,
+        "name": "Matcha Macchiato",
+        "price": 37000,
+        "image": "/images/menu/12_matcha_macchiato.jpg",
+        "desc": "Trà xanh matcha thơm nồng phủ lớp milk foam macchiato mềm mịn"
+      }
+    ]
+  },
+  {
+    "category": "Trà Trái Cây",
+    "sort_order": 2,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 13,
+        "name": "Trà Chanh Nha Đam",
+        "price": 22000,
+        "image": "/images/menu/13_tra_chanh_nha_dam.jpg",
+        "desc": "Trà chanh tươi chua ngọt thanh mát kèm thạch nha đam giòn sần sật"
+      },
+      {
+        "num": 14,
+        "name": "Trà Đào Cam Sả",
+        "price": 27000,
+        "image": "/images/menu/14_tra_dao_cam_sa.jpg",
+        "desc": "Hương vị cam sả thanh nhiệt, miếng đào giòn ngọt thơm mát"
+      },
+      {
+        "num": 15,
+        "name": "Trà Việt Quất",
+        "price": 27000,
+        "image": "/images/menu/15_tra_viet_quat.jpg",
+        "desc": "Trà thanh dịu kết hợp mứt việt quất chua ngọt đậm đà"
+      },
+      {
+        "num": 16,
+        "name": "Trà Dâu",
+        "price": 27000,
+        "image": "/images/menu/16_tra_dau.jpg",
+        "desc": "Trà dâu tây tươi mát, giải nhiệt cực đã"
+      },
+      {
+        "num": 17,
+        "name": "Trà Dưa Lưới",
+        "price": 27000,
+        "image": "/images/menu/17_tra_dua_luoi.jpg",
+        "desc": "Trà dưa lưới thơm lừng ngọt ngào mát lành"
+      },
+      {
+        "num": 18,
+        "name": "Trà Vải",
+        "price": 27000,
+        "image": "/images/menu/18_tra_vai.jpg",
+        "desc": "Trà vải ngọt thanh thơm ngát kèm trái vải mọng nước"
+      },
+      {
+        "num": 19,
+        "name": "Trà Đậu Biếc",
+        "price": 27000,
+        "image": "/images/menu/19_tra_dau_biec.jpg",
+        "desc": "Sắc hoa đậu biếc tự nhiên thanh tao mát dịu"
+      },
+      {
+        "num": 20,
+        "name": "Trà Mãng Cầu",
+        "price": 32000,
+        "image": "/images/menu/20_tra_mang_cau.jpg",
+        "desc": "Thịt mãng cầu xiêm tươi dầm chua ngọt đậm vị trên nền trà thanh mát"
+      },
+      {
+        "num": 21,
+        "name": "Trà Quất Chanh Leo Mật Ong",
+        "price": 32000,
+        "image": "/images/menu/21_tra_quat_chanh_leo.jpg",
+        "desc": "Sự kết hợp chua dịu của tắc, thơm của chanh leo và mật ong ngọt thanh"
+      },
+      {
+        "num": 22,
+        "name": "Trà Sen Vàng",
+        "price": 37000,
+        "image": "/images/menu/22_tra_sen_vang.jpg",
+        "desc": "Trà ô long kết hợp hạt sen bùi ngậy và củ năng giòn ngọt"
+      },
+      {
+        "num": 23,
+        "name": "Trà Xoài Chanh Leo",
+        "price": 32000,
+        "image": "/images/menu/23_tra_xoai_chanh_leo.jpg",
+        "desc": "Vị xoài chín thơm ngọt hòa quyện cùng cốt chanh leo chua thanh"
+      },
+      {
+        "num": 24,
+        "name": "Trà Dứa Chanh Leo",
+        "price": 32000,
+        "image": "/images/menu/24_tra_dua_chanh_leo.jpg",
+        "desc": "Hương vị nhiệt đới bùng nổ từ dứa tươi và chanh leo mát lạnh"
+      }
+    ]
+  },
+  {
+    "category": "Đá Xay",
+    "sort_order": 3,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 25,
+        "name": "Matcha Đá Xay",
+        "price": 37000,
+        "image": "/images/menu/25_matcha_da_xay.jpg",
+        "desc": "Matcha Nhật Bản xay tuyết mát lạnh phủ kem tươi whipping thơm béo"
+      },
+      {
+        "num": 26,
+        "name": "Khoai Môn Đá Xay",
+        "price": 32000,
+        "image": "/images/menu/26_khoai_mon_da_xay.jpg",
+        "desc": "Khoai môn xay mịn màng bùi ngậy thơm lừng"
+      },
+      {
+        "num": 27,
+        "name": "Việt Quất Đá Xay",
+        "price": 32000,
+        "image": "/images/menu/27_viet_quat_da_xay.jpg",
+        "desc": "Việt quất xay tuyết mịn chua ngọt thanh mát cực sảng khoái"
+      },
+      {
+        "num": 28,
+        "name": "Dâu Đá Xay",
+        "price": 32000,
+        "image": "/images/menu/blended_strawberry_ice_drink_cup.jpg",
+        "desc": "Dâu tây tươi xay nhuyễn cùng đá tuyết mát lạnh ngọt dịu"
+      },
+      {
+        "num": 29,
+        "name": "Dưa Lưới Đá Xay",
+        "price": 32000,
+        "image": "/images/menu/29_dua_luoi_da_xay.jpg",
+        "desc": "Đá xay dưa lưới hương thơm ngào ngạt tươi mát"
+      },
+      {
+        "num": 30,
+        "name": "Đào Đá Xay",
+        "price": 32000,
+        "image": "/images/menu/30_dao_da_xay.jpg",
+        "desc": "Vị đào tươi ngọt ngào xay tuyết phủ kem tươi"
+      },
+      {
+        "num": 31,
+        "name": "Socola Đá Xay",
+        "price": 37000,
+        "image": "/images/menu/31_socola_da_xay.jpg",
+        "desc": "Socola nguyên chất xay đá tuyết sánh mịn đậm đà thơm ngậy"
+      }
+    ]
+  },
+  {
+    "category": "Sinh Tố",
+    "sort_order": 4,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 32,
+        "name": "Sinh Tố Mãng Cầu",
+        "price": 37000,
+        "image": "/images/menu/32_sinh_to_mang_cau.jpg",
+        "desc": "Mãng cầu tươi xay cùng sữa đặc béo ngậy chua ngọt thanh mát"
+      },
+      {
+        "num": 33,
+        "name": "Sinh Tố Xoài",
+        "price": 37000,
+        "image": "/images/menu/33_sinh_to_xoai.jpg",
+        "desc": "Xoài cát chín vàng xay sánh mịn thơm lừng ngào ngạt"
+      },
+      {
+        "num": 34,
+        "name": "Sinh Tố Bơ",
+        "price": 37000,
+        "image": "/images/menu/34_sinh_to_bo.jpg",
+        "desc": "Bơ sáp Đắk Lắk dẻo quánh, ngậy béo tự nhiên"
+      },
+      {
+        "num": 35,
+        "name": "Sinh Tố Dâu",
+        "price": 37000,
+        "image": "/images/menu/35_sinh_to_dau.jpg",
+        "desc": "Dâu Đà Lạt đỏ mọng tươi mát xay nhuyễn cùng sữa thơm"
+      }
+    ]
+  },
+  {
+    "category": "Sữa Tươi",
+    "sort_order": 5,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 36,
+        "name": "Sữa Tươi Trân Châu Đường Đen",
+        "price": 32000,
+        "image": "/images/menu/36_sua_tuoi_tran_chau.jpg",
+        "desc": "Sữa tươi nguyên chất Đà Lạt cùng trân châu đường đen dẻo thơm nồng"
+      },
+      {
+        "num": 37,
+        "name": "Sữa Tươi Việt Quất",
+        "price": 32000,
+        "image": "/images/menu/37_sua_tuoi_viet_quat.jpg",
+        "desc": "Sữa tươi thanh mát hòa quyện sốt việt quất chua ngọt dịu"
+      },
+      {
+        "num": 38,
+        "name": "Sữa Tươi Dâu",
+        "price": 32000,
+        "image": "/images/menu/38_sua_tuoi_dau.jpg",
+        "desc": "Sữa tươi béo nhẹ kết hợp sốt dâu tây ngọt thơm hấp dẫn"
+      },
+      {
+        "num": 39,
+        "name": "Sữa Tươi Dưa Lưới",
+        "price": 32000,
+        "image": "/images/menu/39_sua_tuoi_dua_luoi.jpg",
+        "desc": "Sữa tươi kết hợp hương vị dưa lưới thanh mát dịu ngọt"
+      },
+      {
+        "num": 40,
+        "name": "Sữa Tươi Xoài",
+        "price": 32000,
+        "image": "/images/menu/40_sua_tuoi_xoai.jpg",
+        "desc": "Vị xoài nhiệt đới sánh vàng hòa quyện sữa tươi thanh lành"
+      },
+      {
+        "num": 41,
+        "name": "Sữa Tươi Đậu Biếc",
+        "price": 32000,
+        "image": "/images/menu/41_sua_tuoi_dau_biec.jpg",
+        "desc": "Màu xanh hoa đậu biếc phân tầng bắt mắt cùng sữa tươi thanh mát"
+      },
+      {
+        "num": 42,
+        "name": "Sữa Tươi Trân Châu Caramel",
+        "price": 32000,
+        "image": "/images/menu/42_sua_tuoi_tran_chau.jpg",
+        "desc": "Caramel nướng thơm nức quyện cùng sữa tươi và trân châu dai mềm"
+      },
+      {
+        "num": 43,
+        "name": "Bơ Già Dừa Non",
+        "price": 37000,
+        "image": "/images/menu/43_bo_gia_dua_non.jpg",
+        "desc": "Sinh tố bơ sáp béo ngậy kèm cùi dừa non giòn bùi thanh mát"
+      },
+      {
+        "num": 44,
+        "name": "Xoài Già Dừa Non",
+        "price": 37000,
+        "image": "/images/menu/44_xoai_gia_dua_non.jpg",
+        "desc": "Xoài chín ngọt sắc ăn kèm dừa non sần sật bùi béo"
+      }
+    ]
+  },
+  {
+    "category": "Nước Ép",
+    "sort_order": 6,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 45,
+        "name": "Nước Ép Dưa Hấu Nha Đam",
+        "price": 32000,
+        "image": "/images/menu/45_nuoc_ep_dua_hau.jpg",
+        "desc": "Nước ép dưa hấu ngọt mát tự nhiên kèm thạch nha đam thanh lọc"
+      },
+      {
+        "num": 46,
+        "name": "Nước Ép Cam Nha Đam",
+        "price": 32000,
+        "image": "/images/menu/46_nuoc_ep_cam_nha.jpg",
+        "desc": "Cam tươi vắt giàu vitamin C kết hợp nha đam giòn tươi"
+      },
+      {
+        "num": 47,
+        "name": "Nước Ép Dứa Nha Đam",
+        "price": 32000,
+        "image": "/images/menu/47_nuoc_ep_dua_nha.jpg",
+        "desc": "Nước ép dứa thơm chua ngọt kèm topping nha đam giòn sần sật"
+      },
+      {
+        "num": 48,
+        "name": "Nước Ép Cam - Cà Rốt",
+        "price": 32000,
+        "image": "/images/menu/orange_carrot_juice_in_cup.jpg",
+        "desc": "Nước ép cam sành kết hợp cà rốt tươi ngon bổ dưỡng, sáng da"
+      },
+      {
+        "num": 49,
+        "name": "Nước Ép Dứa - Cà Rốt",
+        "price": 32000,
+        "image": "/images/menu/49_nuoc_ep_dua.jpg",
+        "desc": "Sự kết hợp thanh lọc cơ thể hoàn hảo từ dứa và cà rốt tươi"
+      },
+      {
+        "num": 50,
+        "name": "Nước Ép Táo - Ổi",
+        "price": 32000,
+        "image": "/images/menu/50_nuoc_ep_tao.jpg",
+        "desc": "Nước ép táo giòn ngọt cùng ổi hồng thơm lừng giàu vitamin"
+      },
+      {
+        "num": 51,
+        "name": "Nước Ép Táo - Lê",
+        "price": 32000,
+        "image": "/images/menu/51_nuoc_ep_tao.jpg",
+        "desc": "Hương vị thanh khiết, ngọt mát dịu dàng từ táo và lê tươi"
+      }
+    ]
+  },
+  {
+    "category": "Kem Tươi & Tráng Miệng",
+    "sort_order": 7,
+    "is_drink": false,
+    "items": [
+      {
+        "num": 52,
+        "name": "Kem Dừa Đà Lạt",
+        "price": 35000,
+        "image": "/images/menu/52_kem_dua_da_lat.jpg",
+        "desc": "Kem dừa béo ngậy phục vụ trong trái dừa non với lạc rang và dừa khô"
+      },
+      {
+        "num": 53,
+        "name": "Kem Thuyền 4 Vị",
+        "price": 45000,
+        "image": "/images/menu/four_flavor_ice_cream_in_boat.jpg",
+        "desc": "Thuyền kem 4 viên vị đặc biệt mát lạnh ăn kèm sốt socola và bánh quế"
+      },
+      {
+        "num": 54,
+        "name": "Kem Bơ Dừa Non",
+        "price": 35000,
+        "image": "/images/menu/avocado_ice_cream_in_coconut.jpg",
+        "desc": "Đặc sản Đà Lạt kem dừa mát lạnh phủ trên lớp sinh tố bơ sáp béo ngậy"
+      },
+      {
+        "num": 55,
+        "name": "Kem Xoài Dừa Non",
+        "price": 35000,
+        "image": "/images/menu/mango_ice_cream_in_coconut.jpg",
+        "desc": "Kem xoài chua ngọt tươi mới phủ sốt xoài và cùi dừa non"
+      },
+      {
+        "num": 56,
+        "name": "Kem Dừa Vị Sầu Riêng",
+        "price": 40000,
+        "image": "/images/menu/durian_coconut_ice_cream_serving.jpg",
+        "desc": "Kem dừa thơm nồng sầu riêng hảo hạng đậm đà béo ngậy"
+      },
+      {
+        "num": 57,
+        "name": "Kem Dừa Socola",
+        "price": 40000,
+        "image": "/images/menu/57_kem_dua_socola.jpg",
+        "desc": "Kem dừa thơm bùi phủ ngập sốt socola đắng ngọt quyến rũ"
+      },
+      {
+        "num": 58,
+        "name": "Kem Dâu",
+        "price": 35000,
+        "image": "/images/menu/58_kem_dau.jpg",
+        "desc": "Kem dâu tây chua chua ngọt ngọt tươi mát sảng khoái"
+      },
+      {
+        "num": 59,
+        "name": "Kem Matcha",
+        "price": 40000,
+        "image": "/images/menu/59_kem_matcha.jpg",
+        "desc": "Kem trà xanh matcha thanh mát thơm dịu chuẩn vị Nhật Bản"
+      }
+    ]
+  },
+  {
+    "category": "Cà Phê",
+    "sort_order": 8,
+    "is_drink": false,
+    "items": [
+      {
+        "num": 60,
+        "name": "Cà Phê Đen Đá",
+        "price": 22000,
+        "image": "/images/menu/60_ca_phe_den_da.jpg",
+        "desc": "Cà phê Robusta rang mộc pha phin truyền thống đậm đà tinh thần Việt"
+      },
+      {
+        "num": 61,
+        "name": "Cà Phê Đen Nóng",
+        "price": 22000,
+        "image": "/images/menu/61_ca_phe_den_nong.jpg",
+        "desc": "Cà phê đen nguyên chất pha nóng thơm nồng nàn đánh thức ngày mới"
+      },
+      {
+        "num": 62,
+        "name": "Cà Phê Sữa",
+        "price": 27000,
+        "image": "/images/menu/62_ca_phe_sua.jpg",
+        "desc": "Cà phê sữa nâu truyền thống hài hòa đắng béo ngọt ngào"
+      },
+      {
+        "num": 63,
+        "name": "Cà Phê Muối",
+        "price": 32000,
+        "image": "/images/menu/63_ca_phe_muoi.jpg",
+        "desc": "Vị đắng cà phê pha lớp kem muối mặn mòi béo ngậy độc đáo xứ Huế"
+      },
+      {
+        "num": 64,
+        "name": "Cà Phê Kem Trứng",
+        "price": 32000,
+        "image": "/images/menu/64_ca_phe_kem_trung.jpg",
+        "desc": "Lớp kem trứng đánh bông vàng óng mịn màng phủ trên cà phê đậm đặc"
+      },
+      {
+        "num": 65,
+        "name": "Bạc Xỉu 3 Tầng",
+        "price": 32000,
+        "image": "/images/menu/65_bac_xiu_3_tang.jpg",
+        "desc": "Phân tầng sữa đặc, sữa tươi và cà phê thơm béo dễ uống"
+      },
+      {
+        "num": 66,
+        "name": "Cà Phê Caramel",
+        "price": 32000,
+        "image": "/images/menu/66_ca_phe_caramel.jpg",
+        "desc": "Cà phê sữa quyện sốt caramel nướng thơm ngậy quyến rũ"
+      },
+      {
+        "num": 67,
+        "name": "Cacao Sữa Đá",
+        "price": 32000,
+        "image": "/images/menu/67_cacao_sua_da.jpg",
+        "desc": "Cacao nguyên chất pha sữa thơm béo mát lạnh sánh mịn"
+      }
+    ]
+  },
+  {
+    "category": "Soda",
+    "sort_order": 9,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 68,
+        "name": "Soda Dưa Hấu Yakult",
+        "price": 32000,
+        "image": "/images/menu/68_soda_dua_hau_yakult.jpg",
+        "desc": "Soda dưa hấu sủi bọt mát lạnh kết hợp men vi sinh Yakult sảng khoái"
+      },
+      {
+        "num": 69,
+        "name": "Soda Biển Xanh Yakult",
+        "price": 32000,
+        "image": "/images/menu/69_soda_bien_xanh_yakult.jpg",
+        "desc": "Sắc xanh đại dương mát mắt, vị ngọt mát cùng Yakult lên men"
+      },
+      {
+        "num": 70,
+        "name": "Soda Dâu Yakult",
+        "price": 32000,
+        "image": "/images/menu/70_soda_dau_yakult.jpg",
+        "desc": "Soda dâu tươi sủi bọt chua ngọt hòa quyện Yakult"
+      },
+      {
+        "num": 71,
+        "name": "Soda Việt Quất Yakult",
+        "price": 32000,
+        "image": "/images/menu/71_soda_viet_quat_yakult.jpg",
+        "desc": "Sốt việt quất thơm dịu, bọt soda tê lưỡi và vị Yakult thơm ngon"
+      },
+      {
+        "num": 72,
+        "name": "Soda Bạc Hà Yakult",
+        "price": 32000,
+        "image": "/images/menu/72_soda_bac_ha_yakult.jpg",
+        "desc": "Hương bạc hà the mát sảng khoái kết hợp Yakult chua nhẹ"
+      },
+      {
+        "num": 73,
+        "name": "Soda Dứa Yakult",
+        "price": 32000,
+        "image": "/images/menu/73_soda_dua_yakult.jpg",
+        "desc": "Hương vị dứa chua ngọt tự nhiên sủi bọt mát lạnh giải nhiệt"
+      }
+    ]
+  },
+  {
+    "category": "Sữa Chua",
+    "sort_order": 10,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 74,
+        "name": "Milo Dầm",
+        "price": 32000,
+        "image": "/images/menu/74_milo_dam.jpg",
+        "desc": "Milo cacao dầm sữa đặc phủ bột milo đậm đặc và trân châu giòn"
+      },
+      {
+        "num": 75,
+        "name": "Sữa Chua Đánh Đá",
+        "price": 30000,
+        "image": "/images/menu/75_sua_chua_danh_da.jpg",
+        "desc": "Sữa chua lên men tự nhiên đánh đá mát lạnh chua dịu thơm ngon"
+      },
+      {
+        "num": 76,
+        "name": "Sữa Chua Dâu",
+        "price": 32000,
+        "image": "/images/menu/76_sua_chua_dau.jpg",
+        "desc": "Sữa chua sánh mịn hòa quyện mứt dâu tây ngọt thơm hấp dẫn"
+      },
+      {
+        "num": 77,
+        "name": "Sữa Chua Việt Quất",
+        "price": 32000,
+        "image": "/images/menu/77_sua_chua_viet_quat.jpg",
+        "desc": "Sữa chua dầm sốt quả việt quất chua ngọt bổ dưỡng"
+      },
+      {
+        "num": 78,
+        "name": "Sữa Chua Dưa Lưới",
+        "price": 32000,
+        "image": "/images/menu/78_sua_chua_dua_luoi.jpg",
+        "desc": "Sữa chua dưa lưới mát lành thơm ngát vị trái cây tươi"
+      },
+      {
+        "num": 79,
+        "name": "Sữa Chua Cà Phê",
+        "price": 32000,
+        "image": "/images/menu/79_sua_chua_ca_phe.jpg",
+        "desc": "Vị chua thanh mát của sữa chua hòa trộn cốt cà phê đậm thơm"
+      },
+      {
+        "num": 80,
+        "name": "Sữa Chua Đào Yến Mạch",
+        "price": 35000,
+        "image": "/images/menu/80_sua_chua_dao_yen.jpg",
+        "desc": "Sữa chua kèm miếng đào giòn ngọt và yến mạch giòn bùi bổ dưỡng"
+      },
+      {
+        "num": 81,
+        "name": "Mãng Cầu Dầm Sữa Chua",
+        "price": 35000,
+        "image": "/images/menu/81_mang_cau_dam_sua.jpg",
+        "desc": "Thịt mãng cầu xiêm tươi dầm sữa chua và sữa đặc chua ngọt gây nghiện"
+      },
+      {
+        "num": 82,
+        "name": "Sữa Chua Lắc Chanh Leo",
+        "price": 32000,
+        "image": "/images/menu/82_sua_chua_lac_chanh.jpg",
+        "desc": "Sữa chua lắc cốt chanh leo tươi chua thanh thơm mát cực đã"
+      },
+      {
+        "num": 83,
+        "name": "Sữa Chua Xoài",
+        "price": 32000,
+        "image": "/images/menu/83_sua_chua_xoai.jpg",
+        "desc": "Sữa chua mịn màng ăn kèm sốt xoài chín ngọt thơm lừng"
+      }
+    ]
+  },
+  {
+    "category": "Latte",
+    "sort_order": 11,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 84,
+        "name": "Matcha Latte",
+        "price": 37000,
+        "image": "/images/menu/84_matcha_latte.jpg",
+        "desc": "Trà xanh matcha cao cấp hòa quyện sữa tươi thơm béo êm dịu"
+      },
+      {
+        "num": 85,
+        "name": "Matcha Latte Dâu",
+        "price": 37000,
+        "image": "/images/menu/85_matcha_latte_dau.jpg",
+        "desc": "Sự kết hợp quyến rũ giữa matcha đắng nhẹ và sốt dâu ngọt ngào"
+      },
+      {
+        "num": 86,
+        "name": "Cacao Latte Kem Trứng",
+        "price": 37000,
+        "image": "/images/menu/86_cacao_latte_kem_trung.jpg",
+        "desc": "Cacao sữa đậm đà phủ lớp kem trứng béo ngậy mềm mịn khó cưỡng"
+      },
+      {
+        "num": 87,
+        "name": "Chocolate Dâu",
+        "price": 37000,
+        "image": "/images/menu/87_chocolate_dau.jpg",
+        "desc": "Chocolate hảo hạng hòa quyện sốt dâu thơm nồng ngọt ngào"
+      }
+    ]
+  },
+  {
+    "category": "Đồ Uống Nóng",
+    "sort_order": 12,
+    "is_drink": true,
+    "items": [
+      {
+        "num": 88,
+        "name": "Cacao Sữa Nóng",
+        "price": 32000,
+        "image": "/images/menu/88_cacao_sua_nong.jpg",
+        "desc": "Ly cacao nóng hổi thơm nồng ấm áp sưởi ấm ngày lạnh"
+      },
+      {
+        "num": 89,
+        "name": "Bạc Xỉu Nóng",
+        "price": 32000,
+        "image": "/images/menu/89_bac_xiu_nong.jpg",
+        "desc": "Bạc xỉu nóng ngậy béo hương sữa quyện chút đắng cà phê"
+      },
+      {
+        "num": 90,
+        "name": "Trà Gừng Táo Đỏ",
+        "price": 32000,
+        "image": "/images/menu/90_tra_gung_tao_do.jpg",
+        "desc": "Trà thảo mộc gừng tươi ấm nồng nấu cùng táo đỏ dưỡng nhan ấm bụng"
+      },
+      {
+        "num": 91,
+        "name": "Trà Cam Quế Long Nhãn",
+        "price": 32000,
+        "image": "/images/menu/91_tra_cam_que_long.jpg",
+        "desc": "Hương quế nồng ấm, lát cam khô thanh lọc và long nhãn ngọt bùi"
+      },
+      {
+        "num": 92,
+        "name": "Trà Đào Cam Quế",
+        "price": 32000,
+        "image": "/images/menu/92_tra_dao_cam_que.jpg",
+        "desc": "Vị đào thơm ngọt kết hợp tinh dầu cam và thanh quế nướng thơm lừng"
+      }
+    ]
+  },
+  {
+    "category": "Đồ Ăn Vặt",
+    "sort_order": 13,
+    "is_drink": false,
+    "items": [
+      {
+        "num": 93,
+        "name": "Hướng Dương Mộc",
+        "price": 12000,
+        "image": "/images/menu/93_huong_duong_moc.jpg",
+        "desc": "Hạt hướng dương rang mộc tự nhiên giòn thơm bùi bùi",
+        "options": [
+          {
+            "group": "Kích cỡ gói",
+            "options": [
+              {
+                "name": "Gói nhỏ",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Gói lớn",
+                "delta": 5000,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 94,
+        "name": "Hướng Dương Dừa",
+        "price": 17000,
+        "image": "/images/menu/94_huong_duong_dua.jpg",
+        "desc": "Hạt hướng dương tẩm vị nước cốt dừa thơm ngọt ngậy béo"
+      },
+      {
+        "num": 95,
+        "name": "Ô Mai",
+        "price": 27000,
+        "image": "/images/menu/95_o_mai.jpg",
+        "desc": "Đĩa ô mai xí muội dẻo chua ngọt cay mặn đặc sản Hà Nội"
+      },
+      {
+        "num": 96,
+        "name": "Xí Muội Chua Cay",
+        "price": 27000,
+        "image": "/images/menu/96_xi_muoi_chua_cay.jpg",
+        "desc": "Xí muội mặn mà cay nồng kích thích vị giác ăn vặt"
+      },
+      {
+        "num": 97,
+        "name": "Xúc Xích Chiên",
+        "price": 12000,
+        "image": "/images/menu/97_xuc_xich.jpg",
+        "desc": "Xúc xích Đức rán thơm nức ăn kèm tương cà và tương ớt",
+        "options": [
+          {
+            "group": "Số lượng",
+            "options": [
+              {
+                "name": "1 cây",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "2 cây",
+                "delta": 8000,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 98,
+        "name": "Lạp Xưởng Nướng Đá",
+        "price": 17000,
+        "image": "/images/menu/98_lap_xuong.jpg",
+        "desc": "Lạp xưởng tươi nướng đá núi lửa giòn sần sật rắc bột ớt thơm lừng"
+      },
+      {
+        "num": 99,
+        "name": "Bò Viên Chiên",
+        "price": 30000,
+        "image": "/images/menu/99_bo_vien.jpg",
+        "desc": "Bò viên giòn dai thơm mùi tiêu chiên vàng chấm tương đen sốt cay"
+      },
+      {
+        "num": 100,
+        "name": "Cá Viên Chiên",
+        "price": 32000,
+        "image": "/images/menu/100_ca_vien.jpg",
+        "desc": "Đĩa cá viên tròn xoe chiên phồng giòn rụm chấm tương đậm đà"
+      },
+      {
+        "num": 101,
+        "name": "Tôm Viên Chiên",
+        "price": 32000,
+        "image": "/images/menu/101_tom_vien.jpg",
+        "desc": "Tôm viên tươi thơm ngọt tự nhiên chiên vàng ruộm thơm phức"
+      },
+      {
+        "num": 102,
+        "name": "Rau Củ Quả Viên",
+        "price": 32000,
+        "image": "/images/menu/102_rau_cu_qua_vien.jpg",
+        "desc": "Viên rau củ thanh đạm chiên giòn thơm ngon lạ miệng"
+      },
+      {
+        "num": 103,
+        "name": "Nem Chua Rán",
+        "price": 37000,
+        "image": "/images/menu/103_nem_chua_ran.jpg",
+        "desc": "Nem chua lăn bột xù chiên giòn rụm vỏ ngoài, bên trong dẻo dai thơm bùi"
+      },
+      {
+        "num": 104,
+        "name": "Phô Mai Que",
+        "price": 37000,
+        "image": "/images/menu/104_pho_mai_que.jpg",
+        "desc": "Phô mai que mozzarella chiên giòn tan kéo sợi thơm béo ngậy"
+      },
+      {
+        "num": 105,
+        "name": "Khoai Tây Lắc Phô Mai",
+        "price": 37000,
+        "image": "/images/menu/105_khoai_tay_lac_pho.jpg",
+        "desc": "Khoai tây chiên vàng giòn rụm lắc đẫm bột phô mai mặn béo"
+      },
+      {
+        "num": 106,
+        "name": "Ngô Chiên Bơ",
+        "price": 37000,
+        "image": "/images/menu/106_ngo_chien.jpg",
+        "desc": "Ngô ngọt tách hạt tẩm bột chiên bơ vàng giòn thơm lừng nức mũi"
+      },
+      {
+        "num": 107,
+        "name": "Khoai Lang Kén",
+        "price": 37000,
+        "image": "/images/menu/107_khoai_lang_ken.jpg",
+        "desc": "Khoai lang kén nước cốt dừa thơm nức, vỏ ngoài giòn trong mềm dẻo"
+      },
+      {
+        "num": 108,
+        "name": "Khoai Môn Lệ Phố",
+        "price": 37000,
+        "image": "/images/menu/108_khoai_mon_le_pho.jpg",
+        "desc": "Khoai môn nhân trứng sữa tan chảy ngọt bùi thơm nức tiếng"
+      },
+      {
+        "num": 109,
+        "name": "Đùi Gà KFC",
+        "price": 37000,
+        "image": "/images/menu/109_dui_ga_kfc.jpg",
+        "desc": "Đùi gà tẩm bột chiên xù giòn tan rụm, thịt gà mọng nước thơm ngọt",
+        "options": [
+          {
+            "group": "Khẩu phần",
+            "options": [
+              {
+                "name": "Phần tiêu chuẩn (37k)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Phần lớn (42k)",
+                "delta": 5000,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 110,
+        "name": "Cánh Gà KFC",
+        "price": 37000,
+        "image": "/images/menu/110_canh_ga_kfc.jpg",
+        "desc": "Cánh gà chiên giòn đậm đà sốt chấm đặc biệt",
+        "options": [
+          {
+            "group": "Khẩu phần",
+            "options": [
+              {
+                "name": "Phần tiêu chuẩn (37k)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Phần lớn (42k)",
+                "delta": 5000,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 111,
+        "name": "Má Đùi Gà KFC",
+        "price": 37000,
+        "image": "/images/menu/111_ma_dui_ga_kfc.jpg",
+        "desc": "Má đùi gà chiên xù nhiều nạc mềm ngon vỏ giòn rụm",
+        "options": [
+          {
+            "group": "Khẩu phần",
+            "options": [
+              {
+                "name": "Phần tiêu chuẩn (37k)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Phần lớn (42k)",
+                "delta": 5000,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 112,
+        "name": "Bò Khô Xé Sợi",
+        "price": 32000,
+        "image": "/images/menu/112_bo_kho.jpg",
+        "desc": "Thịt bò khô miếng xé sợi ướp ớt cay nồng vắt chanh chua tuyệt hảo"
+      },
+      {
+        "num": 113,
+        "name": "Gà Khô Lá Chanh",
+        "price": 32000,
+        "image": "/images/menu/113_ga_kho.jpg",
+        "desc": "Khô gà cay giòn thơm lừng mùi lá chanh thơm nức mũi"
+      },
+      {
+        "num": 114,
+        "name": "Mẹt Thập Cẩm",
+        "price": 52000,
+        "image": "/images/menu/114_met_thap_cam.jpg",
+        "desc": "Mẹt ăn vặt tổng hợp các món viên chiên, nem chua, xúc xích và khoai lắc",
+        "options": [
+          {
+            "group": "Cỡ mẹt",
+            "options": [
+              {
+                "name": "Mẹt Nhỏ (52k)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Mẹt Vừa (72k)",
+                "delta": 20000,
+                "default": false
+              },
+              {
+                "name": "Mẹt Lớn (102k)",
+                "delta": 50000,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 115,
+        "name": "Mỳ Cay Xúc Xích",
+        "price": 37000,
+        "image": "/images/menu/115_my_cay_xuc_xich.jpg",
+        "desc": "Mỳ cay chuẩn vị Hàn Quốc nước súp chua cay đậm đà kèm xúc xích",
+        "options": [
+          {
+            "group": "Cấp độ cay",
+            "options": [
+              {
+                "name": "Cấp 0 (Không cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 1 (Cay nhẹ)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Cấp 2 (Cay vừa)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 3 (Cay nồng)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 5 (Siêu cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 7 (Thử thách)",
+                "delta": 0,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 116,
+        "name": "Mỳ Cay Bò",
+        "price": 42000,
+        "image": "/images/menu/116_my_cay_bo.jpg",
+        "desc": "Mỳ cay Hàn Quốc sợi dai ngon ăn kèm thịt bò Mỹ mềm ngọt và nấm kim châm",
+        "options": [
+          {
+            "group": "Cấp độ cay",
+            "options": [
+              {
+                "name": "Cấp 0 (Không cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 1 (Cay nhẹ)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Cấp 2 (Cay vừa)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 3 (Cay nồng)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 5 (Siêu cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 7 (Thử thách)",
+                "delta": 0,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 117,
+        "name": "Mỳ Cay Hải Sản",
+        "price": 52000,
+        "image": "/images/menu/117_my_cay_hai_san.jpg",
+        "desc": "Tô mỳ cay đầy đặn tôm, mực tươi giòn cùng nước dùng kim chi cay nồng",
+        "options": [
+          {
+            "group": "Cấp độ cay",
+            "options": [
+              {
+                "name": "Cấp 0 (Không cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 1 (Cay nhẹ)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Cấp 2 (Cay vừa)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 3 (Cay nồng)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 5 (Siêu cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 7 (Thử thách)",
+                "delta": 0,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 118,
+        "name": "Mỳ Cay Thập Cẩm",
+        "price": 52000,
+        "image": "/images/menu/118_my_cay_thap_cam.jpg",
+        "desc": "Mỳ cay thập cẩm bò Mỹ, tôm mực hải sản, xúc xích và chả cá thơm ngon",
+        "options": [
+          {
+            "group": "Cấp độ cay",
+            "options": [
+              {
+                "name": "Cấp 0 (Không cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 1 (Cay nhẹ)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Cấp 2 (Cay vừa)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 3 (Cay nồng)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 5 (Siêu cay)",
+                "delta": 0,
+                "default": false
+              },
+              {
+                "name": "Cấp 7 (Thử thách)",
+                "delta": 0,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 119,
+        "name": "Pizza Thập Cẩm (Bò, Ngô, Xúc Xích)",
+        "price": 82000,
+        "image": "/images/menu/119_pizza_thap_cam_bo.jpg",
+        "desc": "Đế bánh nướng giòn rụm phủ đẫm sốt cà chua, thịt bò, xúc xích, ngô ngọt và phô mai kéo sợi"
+      },
+      {
+        "num": 120,
+        "name": "Pizza Xúc Xích Ngô",
+        "price": 82000,
+        "image": "/images/menu/120_pizza_xuc_xich_ngo.jpg",
+        "desc": "Pizza xúc xích nướng cùng ngô ngọt vàng ươm và lớp phô mai dày béo ngậy"
+      },
+      {
+        "num": 121,
+        "name": "Gà Viên Chiên Giòn",
+        "price": 45000,
+        "image": "/images/menu/121_ga_vien.jpg",
+        "desc": "Thịt gà viên popcorn tẩm bột chiên giòn rụm vừa ăn lắc chút muối ớt"
+      },
+      {
+        "num": 122,
+        "name": "Kimbap Chiên (Cơm Cuộn)",
+        "price": 45000,
+        "image": "/images/menu/122_kimbap_chien_com_cuon.jpg",
+        "desc": "Cơm cuộn rong biển nhân rau củ xúc xích tẩm bột xù chiên vàng",
+        "options": [
+          {
+            "group": "Khẩu phần",
+            "options": [
+              {
+                "name": "Phần Thường (45k)",
+                "delta": 0,
+                "default": true
+              },
+              {
+                "name": "Phần Đặc Biệt (65k)",
+                "delta": 20000,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "num": 123,
+        "name": "Nem Viên Phô Mai",
+        "price": 45000,
+        "image": "/images/menu/123_nem_vien_pho_mai.jpg",
+        "desc": "Viên nem thơm ngọt nhân phô mai dẻo chảy béo ngậy giòn tan"
+      },
+      {
+        "num": 124,
+        "name": "Cá Viên Hải Sản Sốt Mayoleo",
+        "price": 50000,
+        "image": "/images/menu/124_ca_vien_hai_san.jpg",
+        "desc": "Cá viên hải sản hảo hạng sốt béo ngậy mayo kết hợp chút chua cay đặc sắc"
+      }
+    ]
+  }
+]

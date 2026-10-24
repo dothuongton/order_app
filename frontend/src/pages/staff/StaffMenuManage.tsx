@@ -726,7 +726,7 @@ export const StaffMenuManage: React.FC = () => {
               onClick={() => { setSelectedCategoryFilter('all'); setIsReordering(false); }}
               className={`px-3 py-1.5 rounded-full font-bold transition whitespace-nowrap cursor-pointer ${
                 selectedCategoryFilter === 'all'
-                  ? 'bg-slate-900 text-white shadow-xs'
+                  ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -741,7 +741,7 @@ export const StaffMenuManage: React.FC = () => {
                   onClick={() => setSelectedCategoryFilter(c.id)}
                   className={`px-3 py-1.5 rounded-full font-bold transition whitespace-nowrap cursor-pointer ${
                     selectedCategoryFilter === c.id
-                      ? 'bg-orange-600 text-white shadow-xs'
+                      ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] shadow-xs'
                       : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                   }`}
                 >

@@ -31,7 +31,7 @@ export const QRModal: React.FC<QRModalProps> = ({ tableId, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-center space-y-4 animate-scale-in">
+      <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-center space-y-4 animate-scale-in staff-density-modal">
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <QrCode className="w-5 h-5 text-orange-600" />
@@ -64,7 +64,7 @@ export const QRModal: React.FC<QRModalProps> = ({ tableId, onClose }) => {
                 href={data.qrUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="flex-1 py-2.5 px-3 bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition min-h-[44px]"
+                className="flex-1 py-2.5 px-3 bg-[var(--brand-accent-tint)] hover:bg-[var(--brand-accent-strong)] text-[var(--brand-accent-dark)] font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition min-h-[44px]"
               >
                 <ExternalLink className="w-4 h-4" />
                 <span>Mở thử trang khách</span>
@@ -72,7 +72,7 @@ export const QRModal: React.FC<QRModalProps> = ({ tableId, onClose }) => {
               <a
                 href={data.dataUrl}
                 download={`QR_Ban_${data.tableNumber}.png`}
-                className="py-2.5 px-4 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition min-h-[44px]"
+                className="py-2.5 px-4 bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-[var(--brand-on-accent)] font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition min-h-[44px]"
               >
                 <Download className="w-4 h-4" />
                 <span>Tải ảnh</span>
