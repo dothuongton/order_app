@@ -187,7 +187,7 @@ export const GuestRequestModal: React.FC<GuestRequestModalProps> = ({
         {/* Header Bar */}
         <div className="p-5 pb-3 border-b border-slate-100 flex items-center justify-between">
           <div className="min-w-0 flex-1 pr-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-orange-600 uppercase tracking-wider truncate">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-teal-700 uppercase tracking-wider truncate">
               <span>{tenantName}</span>
               <span>•</span>
               <span>Bàn {tableNumber}</span>
@@ -287,7 +287,7 @@ export const GuestRequestModal: React.FC<GuestRequestModalProps> = ({
                     maxLength={80}
                     disabled={isSubmitting}
                     required
-                    className="w-full min-h-[44px] px-3.5 py-2.5 text-sm bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition disabled:opacity-50"
+                    className="w-full min-h-[44px] px-3.5 py-2.5 text-sm bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600 transition disabled:opacity-50"
                   />
                 </div>
               </div>
@@ -296,7 +296,7 @@ export const GuestRequestModal: React.FC<GuestRequestModalProps> = ({
                 <button
                   type="submit"
                   disabled={isSubmitting || !guestName.trim()}
-                  className="w-full min-h-[48px] px-4 py-3 bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-sm rounded-xl transition shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full min-h-[48px] px-4 py-3 bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-sm rounded-xl transition shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {isSubmitting ? (
                     <>

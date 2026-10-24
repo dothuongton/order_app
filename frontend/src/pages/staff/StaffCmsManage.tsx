@@ -12,16 +12,26 @@ import {
     AlertCircle, CheckCircle, Eye, ChevronRight
 } from 'lucide-react';
 
-export const StaffCmsManage: React.FC = () => {
+export interface StaffCmsManageProps {
+    initialSubTab?: 'branding' | 'banners' | 'promotions' | 'history';
+}
+
+export const StaffCmsManage: React.FC<StaffCmsManageProps> = ({ initialSubTab = 'branding' }) => {
     const { updateCurrentTenant } = useAuth();
-    const [subTab, setSubTab] = useState<'branding' | 'banners' | 'promotions' | 'history'>('branding');
+    const [subTab, setSubTab] = useState<'branding' | 'banners' | 'promotions' | 'history'>(initialSubTab);
     const [loading, setLoading] = useState<boolean>(true);
     const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+    useEffect(() => {
+        if (initialSubTab) {
+            setSubTab(initialSubTab);
+        }
+    }, [initialSubTab]);
 
     // Profile & Draft state
     const [shopProfile, setShopProfile] = useState<any>(null);
     const [draftTheme, setDraftTheme] = useState<CmsThemeConfig>({
-        primaryColor: '#ea580c',
+        primaryColor: '#0f766e',
         fontFamily: 'Inter',
         layout: 'classic',
         showBanner: true,

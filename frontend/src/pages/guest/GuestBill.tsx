@@ -165,7 +165,7 @@ export const GuestBill: React.FC = () => {
                       <span className="text-slate-800 font-medium truncate max-w-[190px]">
                         {line.itemName}
                         {line.variantName && (
-                          <span className="text-[10px] text-orange-600 font-bold ml-1">({line.variantName})</span>
+                          <span className="text-[10px] text-teal-700 font-bold ml-1">({line.variantName})</span>
                         )}
                       </span>
                     </div>
@@ -298,7 +298,7 @@ export const GuestBill: React.FC = () => {
               </span>
             </div>
             <div className="text-right">
-              <span className="text-2xl font-black text-orange-600">
+              <span className="text-2xl font-black text-teal-700">
                 {(receipt ? (receipt.totalAmount || 0) : (billSummary?.validBillTotal || 0)).toLocaleString('vi-VN')}đ
               </span>
             </div>
@@ -360,7 +360,7 @@ export const GuestBill: React.FC = () => {
           <button
             onClick={handleCheckoutClick}
             disabled={isRequestingCheckout}
-            className="min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-md active:scale-95 transition"
+            className="min-h-[48px] bg-teal-700 hover:bg-teal-800 active:bg-teal-900 disabled:opacity-50 text-white font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-md active:scale-95 transition"
           >
             <CreditCard className="w-4 h-4" />
             <span>
@@ -377,7 +377,7 @@ export const GuestBill: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl">
             <div className="flex items-center gap-2 mb-3">
-              <MessageSquare className="w-5 h-5 text-orange-600" />
+              <MessageSquare className="w-5 h-5 text-teal-700" />
               <h3 className="font-bold text-slate-900 text-base">Gọi nhân viên tới bàn</h3>
             </div>
             <p className="text-xs text-slate-500 mb-4">
@@ -387,7 +387,7 @@ export const GuestBill: React.FC = () => {
               value={assistanceNote}
               onChange={(e) => setAssistanceNote(e.target.value)}
               placeholder="Lời nhắn ngắn (tuỳ chọn)..."
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4"
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600 mb-4"
               rows={3}
               maxLength={100}
             />
@@ -401,7 +401,7 @@ export const GuestBill: React.FC = () => {
               <button
                 onClick={handleAssistanceSubmit}
                 disabled={isCallingStaff}
-                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-orange-600 text-white font-bold text-sm shadow-sm"
+                className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm shadow-sm"
               >
                 {isCallingStaff ? 'Đang gửi...' : 'Xác nhận gọi'}
               </button>

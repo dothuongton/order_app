@@ -7,7 +7,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f172a",
-  "theme_color": "#ea580c",
+  "theme_color": "#244f3c",
   "description": "Ứng dụng gọi món tại bàn và thông báo Web Push cho nhân viên v1.2",
   "icons": [
     {

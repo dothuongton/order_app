@@ -175,7 +175,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-3">
-          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <div className="w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="text-sm font-medium text-slate-500">Đang tải thực đơn bàn...</p>
         </div>
       </div>
@@ -209,7 +209,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
   }
 
   return (
-    <div style={{ '--brand-color': /^#[0-9a-fA-F]{6}$/.test(tenant?.activeThemeConfig?.primaryColor || '') ? tenant!.activeThemeConfig!.primaryColor : '#ea580c' } as React.CSSProperties} className="guest-storefront min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
+    <div style={{ '--brand-color': /^#[0-9a-fA-F]{6}$/.test(tenant?.activeThemeConfig?.primaryColor || '') ? tenant!.activeThemeConfig!.primaryColor : '#0f766e' } as React.CSSProperties} className="guest-storefront min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
       {/* Top Bar / Restaurant & Table Info */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -221,12 +221,12 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
               onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
             />
           ) : (
-            <div className="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center font-black text-sm shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-teal-700 text-white flex items-center justify-center font-black text-sm shrink-0">
               {tenant?.name?.[0] || '🍜'}
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <span className="text-[11px] font-bold text-orange-600 uppercase tracking-wider block truncate">
+            <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider block truncate">
               {tenant?.name || 'Nhà Hàng'}
             </span>
             <div className="flex items-center gap-2">
@@ -260,7 +260,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
         {orders.length > 0 && (
           <button
             onClick={() => setActiveTab('orders')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-700 font-bold text-xs rounded-xl border border-orange-200 active:bg-orange-100"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 text-teal-800 font-bold text-xs rounded-xl border border-teal-200 active:bg-teal-100"
           >
             <ClipboardList className="w-3.5 h-3.5" />
             <span>{orders.length} lần gọi</span>
@@ -308,15 +308,15 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
 
           {/* If guest dismissed modal and can request claim: Show top prompt with CTA to reopen modal */}
           {isRequestModalDismissed && canRequest && !isSessionClosed && (
-            <div className="mx-4 mt-3 p-3.5 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+            <div className="mx-4 mt-3 p-3.5 bg-teal-50 border border-teal-200 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
               <div className="flex items-center gap-2 min-w-0">
-                <Eye className="w-4 h-4 text-orange-600 shrink-0" />
-                <span className="text-xs text-orange-950 font-medium truncate">Bạn đang ở chế độ xem thực đơn</span>
+                <Eye className="w-4 h-4 text-teal-700 shrink-0" />
+                <span className="text-xs text-teal-950 font-medium truncate">Bạn đang ở chế độ xem thực đơn</span>
               </div>
               <button
                 ref={requestTriggerRef}
                 onClick={() => setIsRequestModalDismissed(false)}
-                className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl shrink-0 transition shadow-xs cursor-pointer"
+                className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-xl shrink-0 transition shadow-xs cursor-pointer"
               >
                 {deviceState === 'VIEWER' ? 'Yêu cầu đổi máy' : 'Yêu cầu mở bàn'}
               </button>
@@ -381,13 +381,13 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
             className="pointer-events-auto w-full min-h-[52px] bg-slate-900 hover:bg-black text-white font-bold rounded-2xl p-3.5 shadow-2xl flex items-center justify-between active:scale-[0.98] transition border border-slate-700"
           >
             <div className="flex items-center gap-2.5">
-              <span className="w-7 h-7 rounded-full bg-orange-600 text-white text-xs flex items-center justify-center font-black">
+              <span className="w-7 h-7 rounded-full bg-teal-600 text-white text-xs flex items-center justify-center font-black">
                 {cartCount}
               </span>
               <span className="text-sm font-semibold">Xem lần gọi mới</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-extrabold text-orange-400">
+              <span className="text-sm font-extrabold text-teal-400">
                 {cartSubtotal.toLocaleString('vi-VN')}đ
               </span>
               <ShoppingBag className="w-4 h-4 text-slate-300" />
@@ -401,7 +401,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
         <button
           onClick={() => setActiveTab('menu')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-            activeTab === 'menu' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'menu' ? 'text-teal-700 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
           <UtensilsCrossed className="w-5 h-5" />
@@ -411,20 +411,20 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
         <button
           onClick={() => setActiveTab('orders')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative ${
-            activeTab === 'orders' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'orders' ? 'text-teal-700 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
           <ClipboardList className="w-5 h-5" />
           <span className="text-[11px] mt-1">Đơn đã gọi</span>
           {orders.length > 0 && (
-            <span className="absolute top-1.5 right-6 w-2 h-2 rounded-full bg-orange-600"></span>
+            <span className="absolute top-1.5 right-6 w-2 h-2 rounded-full bg-teal-600"></span>
           )}
         </button>
 
         <button
           onClick={() => setActiveTab('bill')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
-            activeTab === 'bill' ? 'text-orange-600 font-bold' : 'text-slate-500 font-medium'
+            activeTab === 'bill' ? 'text-teal-700 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
           <Receipt className="w-5 h-5" />
