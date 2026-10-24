@@ -186,6 +186,7 @@ export interface TableActiveItem {
   status: string;
   quantity: number;
   cancelReason?: string;
+  createdAt?: string;
 }
 
 export interface StaffTable {

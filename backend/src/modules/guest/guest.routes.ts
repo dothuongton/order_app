@@ -27,6 +27,38 @@ guestRouter.get('/public/tables/:qrId/menu', async (req: Request, res: Response)
     }
 });
 
+// 1d. Public store lookup by slug (with backwards compatibility for pho-co -> ola-ngon-ngot)
+guestRouter.get('/public/stores/:slug', async (req: Request, res: Response) => {
+    try {
+        const { slug } = req.params;
+        const tenantRes = await query(`
+            SELECT id, slug, name, currency, timezone
+            FROM tenants
+            WHERE slug = $1 OR ($1 = 'pho-co' AND slug = 'ola-ngon-ngot')
+        `, [slug]);
+
+        if (tenantRes.rows.length === 0) {
+            return res.status(404).json({ error: 'STORE_NOT_FOUND', message: 'Không tìm thấy thông tin quán' });
+        }
+
+        const tenant = tenantRes.rows[0];
+        const tableRes = await query(`
+            SELECT public_qr_id, table_number
+            FROM tables
+            WHERE tenant_id = $1 AND is_enabled = true
+            ORDER BY table_number ASC
+            LIMIT 1
+        `, [tenant.id]);
+
+        return res.json({
+            tenant,
+            defaultQrId: tableRes.rows[0]?.public_qr_id || 'qr-phoco-a01'
+        });
+    } catch (err: any) {
+        return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+    }
+});
+
 // 1b. Gaeru Flow - Request Table Open (P1)
 guestRouter.post('/public/tables/:qrId/request-open', async (req: Request, res: Response) => {
     try {
