@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
+import bcrypt from 'bcryptjs';
 import { app } from '../app.js';
 import { query } from '../db/pool.js';
 import { seed } from '../db/seed.js';
@@ -38,6 +39,13 @@ describe('Staff Auth Profile Update API (PATCH /api/v1/auth/profile)', () => {
     });
 
     afterAll(async () => {
+        // Restore admin@phoco.vn password and profile to ensure other test suites are not polluted
+        try {
+            const hash = await bcrypt.hash('123456', 10);
+            await query(`UPDATE users SET password_hash = $1, full_name = 'Quản lý' WHERE email = 'admin@phoco.vn'`, [hash]);
+        } catch {
+            // Ignore teardown query error if DB already closed
+        }
         await new Promise<void>((resolve) => server.close(() => resolve()));
     });
 
@@ -178,6 +186,17 @@ describe('Staff Auth Profile Update API (PATCH /api/v1/auth/profile)', () => {
                 })
             });
             expect(newLoginRes.status).toBe(200);
+
+            // Revert password back so other tests aren't polluted
+            const revertRes = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${staffToken}`
+                },
+                body: JSON.stringify({ currentPassword: 'newPassword123', newPassword: '123456' })
+            });
+            expect(revertRes.status).toBe(200);
         });
     });
 });
