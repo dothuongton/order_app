@@ -172,6 +172,43 @@ authRouter.patch('/profile', authenticateStaff, async (req: Request, res: Respon
     }
 });
 
+authRouter.patch('/change-password', authenticateStaff, async (req: Request, res: Response) => {
+    try {
+        const userId = req.staff?.id;
+        if (!userId) {
+            return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Chưa đăng nhập' });
+        }
+        const { currentPassword, newPassword } = req.body || {};
+        if (typeof currentPassword !== 'string' || !currentPassword) {
+            return res.status(400).json({ error: 'INVALID_INPUT', message: 'Vui lòng nhập mật khẩu hiện tại' });
+        }
+        if (typeof newPassword !== 'string' || newPassword.length < 6) {
+            return res.status(400).json({ error: 'INVALID_INPUT', message: 'Mật khẩu mới phải có tối thiểu 6 ký tự' });
+        }
+        if (Buffer.byteLength(newPassword) > 72) {
+            return res.status(400).json({ error: 'INVALID_INPUT', message: 'Mật khẩu mới quá dài (tối đa 72 bytes)' });
+        }
+
+        const userRes = await query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length === 0) {
+            return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'Không tìm thấy người dùng' });
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, userRes.rows[0].password_hash);
+        if (!isMatch) {
+            return res.status(400).json({ error: 'WRONG_PASSWORD', message: 'Mật khẩu hiện tại không chính xác' });
+        }
+
+        const newHash = await bcrypt.hash(newPassword, 10);
+        await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [newHash, userId]);
+
+        return res.json({ success: true, message: 'Đổi mật khẩu thành công' });
+    } catch (err: any) {
+        console.error('Change password error:', err);
+        return res.status(500).json({ error: 'SERVER_ERROR', message: 'Lỗi máy chủ khi đổi mật khẩu' });
+    }
+});
+
 authRouter.post('/logout', async (req: Request, res: Response) => {
     try {
         const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined;

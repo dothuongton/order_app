@@ -26,6 +26,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     orderingMode,
     tableStatus,
     deviceState,
+    claimedGuestName,
     pendingRequest,
     canOrder,
     canRequest,
@@ -344,12 +345,20 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
 
           {/* Read-Only Viewer Banner (Another device holds claim or request is pending from another device) */}
           {deviceState === 'VIEWER' && !canRequest && !isSessionClosed && (
-            <div className="mx-4 mt-3 p-3.5 bg-slate-100 border border-slate-200 rounded-2xl flex items-center gap-2.5 text-xs text-slate-700 shadow-2xs">
-              <AlertCircle className="w-4 h-4 text-slate-500 shrink-0" />
-              <div>
-                {tableStatus === 'PENDING'
-                  ? 'Bàn đang có yêu cầu mở bàn chờ nhân viên duyệt. Bạn đang ở chế độ xem thực đơn.'
-                  : 'Bàn này đang được đặt món bởi thiết bị khác. Bạn đang ở chế độ xem thực đơn.'}
+            <div className="mx-4 mt-3 p-3.5 bg-teal-50 border border-teal-200/90 rounded-2xl flex items-start gap-2.5 text-xs text-teal-950 shadow-2xs">
+              <Eye className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed">
+                {tableStatus === 'PENDING' ? (
+                  <span>Bàn đang có yêu cầu mở bàn chờ nhân viên duyệt. Bạn đang ở chế độ xem thực đơn.</span>
+                ) : (
+                  <span>
+                    Bàn <strong className="font-extrabold text-teal-900">{table?.tableNumber || '--'}</strong> {claimedGuestName ? (
+                      <>({claimedGuestName})</>
+                    ) : null} đang gọi món, hãy đọc tên món để {claimedGuestName ? (
+                      <strong className="font-extrabold text-teal-900">{claimedGuestName}</strong>
+                    ) : 'người đặt'} gọi món nhé!
+                  </span>
+                )}
               </div>
             </div>
           )}

@@ -50,6 +50,7 @@ interface GuestContextType {
   orderingMode: 'multi_device' | 'approved_single_device';
   tableStatus: 'VACANT' | 'PENDING' | 'OCCUPIED';
   deviceState: 'IDLE' | 'REQUESTER' | 'CLAIMED' | 'VIEWER';
+  claimedGuestName: string | null;
   pendingRequest: {
     requestId: string;
     guestName: string;
@@ -178,6 +179,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [orderingMode, setOrderingMode] = useState<'multi_device' | 'approved_single_device'>('multi_device');
   const [tableStatus, setTableStatus] = useState<'VACANT' | 'PENDING' | 'OCCUPIED'>('VACANT');
   const [deviceState, setDeviceState] = useState<'IDLE' | 'REQUESTER' | 'CLAIMED' | 'VIEWER'>('IDLE');
+  const [claimedGuestName, setClaimedGuestName] = useState<string | null>(null);
   const [pendingRequest, setPendingRequest] = useState<any>(null);
   const [canOrder, setCanOrder] = useState<boolean>(true);
   const [canRequest, setCanRequest] = useState<boolean>(false);
@@ -344,6 +346,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (data.table.device_state || data.table.deviceState) {
             setDeviceState(data.table.device_state || data.table.deviceState);
           }
+          setClaimedGuestName(data.table.claimedGuestName || data.table.claimed_guest_name || null);
           setPendingRequest(data.table.request || null);
           setCanOrder(Boolean(data.table.can_order ?? data.table.canOrder ?? true));
           setCanRequest(Boolean(data.table.can_request ?? data.table.canRequest ?? false));
@@ -915,6 +918,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       orderingMode,
       tableStatus,
       deviceState,
+      claimedGuestName,
       pendingRequest,
       canOrder,
       canRequest,

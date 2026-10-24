@@ -101,4 +101,83 @@ describe('Staff Auth Profile Update API (PATCH /api/v1/auth/profile)', () => {
         const meJson: any = await meRes.json();
         expect(meJson.user.fullName).toBe('Nguyễn Văn Quản Lý Mới');
     });
+
+    describe('PATCH /api/v1/auth/change-password', () => {
+        it('rejects unauthenticated requests with 401', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword: '123', newPassword: '456' })
+            });
+
+            expect(res.status).toBe(401);
+        });
+
+        it('rejects wrong current password with 400', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${staffToken}`
+                },
+                body: JSON.stringify({ currentPassword: 'wrong-password', newPassword: 'newPassword123' })
+            });
+
+            expect(res.status).toBe(400);
+            const json: any = await res.json();
+            expect(json.error).toBe('WRONG_PASSWORD');
+        });
+
+        it('rejects new password under 6 characters with 400', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${staffToken}`
+                },
+                body: JSON.stringify({ currentPassword: '123456', newPassword: '123' })
+            });
+
+            expect(res.status).toBe(400);
+            const json: any = await res.json();
+            expect(json.error).toBe('INVALID_INPUT');
+        });
+
+        it('successfully changes password and allows login with new password', async () => {
+            const res = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${staffToken}`
+                },
+                body: JSON.stringify({ currentPassword: '123456', newPassword: 'newPassword123' })
+            });
+
+            expect(res.status).toBe(200);
+            const json: any = await res.json();
+            expect(json.success).toBe(true);
+
+            // Old password should now fail
+            const oldLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: 'admin@phoco.vn',
+                    password: '123456'
+                })
+            });
+            expect(oldLoginRes.status).toBe(401);
+
+            // New password should succeed
+            const newLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: 'admin@phoco.vn',
+                    password: 'newPassword123'
+                })
+            });
+            expect(newLoginRes.status).toBe(200);
+        });
+    });
 });

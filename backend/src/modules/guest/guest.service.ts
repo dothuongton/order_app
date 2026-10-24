@@ -397,7 +397,9 @@ export class GuestService {
                 can_order: canOrder,
                 canRequest,
                 can_request: canRequest,
-                request: requesterInfo
+                request: requesterInfo,
+                claimedGuestName: (activeSession && activeSession.status === 'OPEN') ? (activeSession.requester_guest_name || null) : null,
+                claimed_guest_name: (activeSession && activeSession.status === 'OPEN') ? (activeSession.requester_guest_name || null) : null
             },
             session: (activeSession && (deviceState === 'CLAIMED' || config.orderingMode === 'multi_device')) ? {
                 id: activeSession.id,

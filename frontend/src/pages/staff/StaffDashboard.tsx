@@ -17,8 +17,10 @@ import {
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
   Smartphone, BellRing, Search, ShieldAlert, Palette, Settings, AlertTriangle,
   ChevronRight, ArrowLeft, UserCheck, Sliders, Radio, Tag, Image as ImageIcon,
-  Edit3, User, Loader2
+  Edit3, User, Loader2, Layers, KeyRound
 } from 'lucide-react';
+import { StaffChangePasswordModal } from './StaffChangePasswordModal.js';
+import { TableManageModal } from './TableManageModal.js';
 
 export const StaffDashboard: React.FC = () => {
   const { user, currentTenant, logout, hasPermission, updateUserProfile } = useAuth();
@@ -39,13 +41,15 @@ export const StaffDashboard: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'settings' | 'reports' | 'menu' | 'cms'>('tables');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'served'>('all');
-  const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'serving' | 'checkout' | 'zero' | 'empty'>('all');
+  const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'pending' | 'checkout' | 'serving' | 'assistance' | 'empty' | 'zero'>('all');
   const [tableSearch, setTableSearch] = useState<string>('');
   const [tables, setTables] = useState<StaffTable[]>([]);
   const [openRequests, setOpenRequests] = useState<ServiceRequest[]>([]);
   const [selectedTable, setSelectedTable] = useState<StaffTable | null>(null);
   const [selectedQrTableId, setSelectedQrTableId] = useState<string | null>(null);
   const [showPushModal, setShowPushModal] = useState<boolean>(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState<boolean>(false);
+  const [showTableManageModal, setShowTableManageModal] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
   const { state: pushState, isSubscribed: isPushSubscribed } = usePush();
 
@@ -454,15 +458,18 @@ export const StaffDashboard: React.FC = () => {
   };
 
   const pendingOrdersCount = tables.reduce((sum, t) => sum + (t.counts?.pending || 0), 0);
-  const checkoutRequestsCount = openRequests.filter(r => r.type === 'CHECKOUT').length;
+  const countPending = pendingRequests.length;
+  const countCheckout = useMemo(() => {
+    return tables.filter(t => t.hasCheckout || openRequests.some(r => r.table_id === t.table_id && r.type === 'CHECKOUT')).length;
+  }, [tables, openRequests]);
 
   const countServing = useMemo(() => {
     return tables.filter(t => t.active_session_id && ((t.counts?.pending || 0) + (t.counts?.accepted || 0) + (t.counts?.served || 0) > 0)).length;
   }, [tables]);
 
-  const countCheckout = useMemo(() => {
-    return tables.filter(t => t.hasCheckout).length;
-  }, [tables]);
+  const countAssistance = useMemo(() => {
+    return openRequests.filter(r => r.type === 'ASSISTANCE').length;
+  }, [openRequests]);
 
   const countZero = useMemo(() => {
     return tables.filter(t => t.active_session_id && ((t.counts?.pending || 0) + (t.counts?.accepted || 0) + (t.counts?.served || 0) === 0)).length;
@@ -484,13 +491,19 @@ export const StaffDashboard: React.FC = () => {
         if (!table.table_number.toLowerCase().includes(q)) return false;
       }
 
-      // 2. Status Tab Filter
+      // 2. Status Tab Filter (6 Cards matching media_1792817203178_71b41676)
+      if (tableStatusFilter === 'pending') {
+        return pendingRequests.some(r => r.table_id === table.table_id);
+      }
+      if (tableStatusFilter === 'checkout') {
+        return table.hasCheckout || openRequests.some(r => r.table_id === table.table_id && r.type === 'CHECKOUT');
+      }
       if (tableStatusFilter === 'serving') {
         const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
         return table.active_session_id && totalItems > 0;
       }
-      if (tableStatusFilter === 'checkout') {
-        return table.hasCheckout;
+      if (tableStatusFilter === 'assistance') {
+        return table.hasAssistance || openRequests.some(r => r.table_id === table.table_id && r.type === 'ASSISTANCE');
       }
       if (tableStatusFilter === 'zero') {
         const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
@@ -938,69 +951,131 @@ export const StaffDashboard: React.FC = () => {
                 )}
               </div>
 
-              {/* 3 Large Stat Cards (R5 Gaeru Style) */}
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              {/* 6 Large Stat Cards (Matching Image media_1792817203178_71b41676) */}
+              <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                {/* 1. Tất cả */}
                 <button
                   type="button"
                   onClick={() => setTableStatusFilter('all')}
-                  className={`p-3 sm:p-4 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
                     tableStatusFilter === 'all'
-                      ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] border-[var(--brand-accent)] shadow-md ring-2 ring-[var(--brand-accent)]/20'
-                      : 'bg-white text-[var(--brand-text)] border-[var(--brand-line)] hover:bg-[var(--brand-surface-soft)] shadow-xs'
+                      ? 'bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
                   }`}
                   title="Hiển thị tất cả bàn"
                 >
-                  <span className="text-xl sm:text-2xl font-black leading-tight">
+                  <span className="text-xl sm:text-2xl font-bold leading-tight">
                     {tables.length}
                   </span>
-                  <span className={`text-[11px] sm:text-xs font-bold mt-1 ${
-                    tableStatusFilter === 'all' ? 'text-[var(--brand-on-accent)]/80' : 'text-slate-500'
+                  <span className={`text-xs sm:text-sm font-medium mt-1 ${
+                    tableStatusFilter === 'all' ? 'text-white' : 'text-slate-700'
                   }`}>
-                    Tất cả bàn
+                    Tất cả
                   </span>
                 </button>
 
+                {/* 2. Chờ duyệt */}
+                <button
+                  type="button"
+                  onClick={() => setTableStatusFilter(tableStatusFilter === 'pending' ? 'all' : 'pending')}
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                    tableStatusFilter === 'pending'
+                      ? 'bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title="Lọc các bàn đang chờ duyệt mở bàn"
+                >
+                  <span className="text-xl sm:text-2xl font-bold leading-tight">
+                    {countPending}
+                  </span>
+                  <span className={`text-xs sm:text-sm font-medium mt-1 ${
+                    tableStatusFilter === 'pending' ? 'text-white' : 'text-slate-700'
+                  }`}>
+                    Chờ duyệt
+                  </span>
+                </button>
+
+                {/* 3. Yêu cầu thanh toán */}
+                <button
+                  type="button"
+                  onClick={() => setTableStatusFilter(tableStatusFilter === 'checkout' ? 'all' : 'checkout')}
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                    tableStatusFilter === 'checkout'
+                      ? 'bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title="Lọc các bàn yêu cầu thanh toán"
+                >
+                  <span className="text-xl sm:text-2xl font-bold leading-tight">
+                    {countCheckout}
+                  </span>
+                  <span className={`text-xs sm:text-sm font-medium mt-1 leading-tight ${
+                    tableStatusFilter === 'checkout' ? 'text-white' : 'text-slate-700'
+                  }`}>
+                    Yêu cầu thanh toán
+                  </span>
+                </button>
+
+                {/* 4. Đang phục vụ */}
                 <button
                   type="button"
                   onClick={() => setTableStatusFilter(tableStatusFilter === 'serving' ? 'all' : 'serving')}
-                  className={`p-3 sm:p-4 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
                     tableStatusFilter === 'serving'
-                      ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] border-[var(--brand-accent)] shadow-md ring-2 ring-[var(--brand-accent)]/20'
-                      : 'bg-white text-[var(--brand-text)] border-[var(--brand-line)] hover:bg-[var(--brand-surface-soft)] shadow-xs'
+                      ? 'bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
                   }`}
-                  title="Lọc các bàn đang có khách gọi món"
+                  title="Lọc các bàn đang phục vụ món"
                 >
-                  <span className={`text-xl sm:text-2xl font-black leading-tight ${
-                    tableStatusFilter === 'serving' ? 'text-[var(--brand-on-accent)]' : 'text-[var(--brand-text)]'
-                  }`}>
+                  <span className="text-xl sm:text-2xl font-bold leading-tight">
                     {countServing}
                   </span>
-                  <span className={`text-[11px] sm:text-xs font-bold mt-1 ${
-                    tableStatusFilter === 'serving' ? 'text-[var(--brand-on-accent)]/80' : 'text-slate-500'
+                  <span className={`text-xs sm:text-sm font-medium mt-1 ${
+                    tableStatusFilter === 'serving' ? 'text-white' : 'text-slate-700'
                   }`}>
-                    Đang dùng
+                    Đang phục vụ
                   </span>
                 </button>
 
+                {/* 5. Cần hỗ trợ */}
+                <button
+                  type="button"
+                  onClick={() => setTableStatusFilter(tableStatusFilter === 'assistance' ? 'all' : 'assistance')}
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                    tableStatusFilter === 'assistance'
+                      ? 'bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title="Lọc các bàn đang gọi nhân viên hỗ trợ"
+                >
+                  <span className="text-xl sm:text-2xl font-bold leading-tight">
+                    {countAssistance}
+                  </span>
+                  <span className={`text-xs sm:text-sm font-medium mt-1 ${
+                    tableStatusFilter === 'assistance' ? 'text-white' : 'text-slate-700'
+                  }`}>
+                    Cần hỗ trợ
+                  </span>
+                </button>
+
+                {/* 6. Trống */}
                 <button
                   type="button"
                   onClick={() => setTableStatusFilter(tableStatusFilter === 'empty' ? 'all' : 'empty')}
-                  className={`p-3 sm:p-4 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
                     tableStatusFilter === 'empty'
-                      ? 'bg-[var(--brand-accent)] text-[var(--brand-on-accent)] border-[var(--brand-accent)] shadow-md ring-2 ring-[var(--brand-accent)]/20'
-                      : 'bg-white text-[var(--brand-text)] border-[var(--brand-line)] hover:bg-[var(--brand-surface-soft)] shadow-xs'
+                      ? 'bg-[var(--brand-accent)] text-white border-[var(--brand-accent)] shadow-sm'
+                      : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
                   }`}
                   title="Lọc các bàn trống sẵn sàng đón khách"
                 >
-                  <span className={`text-xl sm:text-2xl font-black leading-tight ${
-                    tableStatusFilter === 'empty' ? 'text-[var(--brand-on-accent)]' : 'text-[var(--brand-text)]'
-                  }`}>
+                  <span className="text-xl sm:text-2xl font-bold leading-tight">
                     {countEmpty}
                   </span>
-                  <span className={`text-[11px] sm:text-xs font-bold mt-1 ${
-                    tableStatusFilter === 'empty' ? 'text-[var(--brand-on-accent)]/80' : 'text-slate-500'
+                  <span className={`text-xs sm:text-sm font-medium mt-1 ${
+                    tableStatusFilter === 'empty' ? 'text-white' : 'text-slate-700'
                   }`}>
-                    Bàn trống
+                    Trống
                   </span>
                 </button>
               </div>
@@ -1812,7 +1887,32 @@ export const StaffDashboard: React.FC = () => {
                 </button>
               )}
 
-              {/* Row 6: Web Push Notification Settings */}
+              {/* Row 6: Quản lý bàn (Thêm, Sửa, Xóa bàn) */}
+              <button
+                type="button"
+                onClick={() => setShowTableManageModal(true)}
+                className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition text-left cursor-pointer group"
+              >
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 text-sm">Quản lý bàn</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                        {tables.length} bàn
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5 truncate">
+                      Thêm bàn mới, chỉnh sửa số bàn, sức chứa hoặc xóa bàn
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
+              </button>
+
+              {/* Row 7: Web Push Notification Settings */}
               <button
                 type="button"
                 onClick={() => setShowPushModal(true)}
@@ -1824,7 +1924,7 @@ export const StaffDashboard: React.FC = () => {
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm">Thông báo đẩy (PWA Push)</span>
+                      <span className="font-bold text-slate-900 text-sm">Thông báo đẩy</span>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         pushState === 'granted' && isPushSubscribed
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -1841,7 +1941,7 @@ export const StaffDashboard: React.FC = () => {
                 <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
               </button>
 
-              {/* Row 7: Âm thanh thông báo */}
+              {/* Row 8: Âm thanh thông báo */}
               <button
                 type="button"
                 onClick={cycleSoundMode}
@@ -1874,8 +1974,8 @@ export const StaffDashboard: React.FC = () => {
                 <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition shrink-0 ml-2" />
               </button>
 
-              {/* Row 8: Tài khoản & Phiên làm việc + Đổi tên + Đăng xuất */}
-              <div className="p-4 flex items-center justify-between">
+              {/* Row 9: Tài khoản & Phiên làm việc + Đổi tên + Đổi mật khẩu */}
+              <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3.5 min-w-0">
                   <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 shadow-xs">
                     <UserCheck className="w-5 h-5" />
@@ -1887,7 +1987,7 @@ export const StaffDashboard: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 ml-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={handleOpenProfileModal}
@@ -1899,13 +1999,26 @@ export const StaffDashboard: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={logout}
-                    className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    onClick={() => setShowChangePasswordModal(true)}
+                    className="px-3 py-2 rounded-xl bg-[var(--brand-accent-tint)] hover:opacity-90 text-[var(--brand-accent-text)] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    title="Đổi mật khẩu tài khoản"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Đăng xuất</span>
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>Đổi mật khẩu</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Row 10: Nút đăng xuất nằm ở hàng riêng dưới cùng */}
+              <div className="p-4 bg-slate-50/50">
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="w-full py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-[0.99]"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Đăng xuất khỏi hệ thống</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2319,6 +2432,20 @@ export const StaffDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Staff Change Password Modal */}
+      <StaffChangePasswordModal
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+      />
+
+      {/* Table Manage Modal (Thêm, Sửa, Xóa bàn) */}
+      <TableManageModal
+        isOpen={showTableManageModal}
+        onClose={() => setShowTableManageModal(false)}
+        tables={tables}
+        onRefresh={fetchDashboard}
+      />
     </div>
   );
 };

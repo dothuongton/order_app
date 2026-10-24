@@ -1,12 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext.js';
-import { Lock, Mail, Store, UserCheck, ArrowRight } from 'lucide-react';
+import { Lock, Mail, Store, UserCheck, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { getStaffThemeCssVars } from '../../lib/theme.js';
 
 export const StaffLogin: React.FC = () => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -15,6 +17,20 @@ export const StaffLogin: React.FC = () => {
     return getStaffThemeCssVars(savedTheme || undefined, 'comfortable');
   }, [savedTheme]);
 
+  useEffect(() => {
+    try {
+      const savedEmail = localStorage.getItem('saved_staff_email');
+      const savedPass = localStorage.getItem('saved_staff_password');
+      if (savedEmail && savedPass) {
+        setEmail(savedEmail);
+        setPassword(savedPass);
+        setRememberPassword(true);
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
+
   const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!email || !password) return;
@@ -22,6 +38,13 @@ export const StaffLogin: React.FC = () => {
     setErrorMessage(null);
     try {
       await login(email, password);
+      if (rememberPassword) {
+        localStorage.setItem('saved_staff_email', email);
+        localStorage.setItem('saved_staff_password', password);
+      } else {
+        localStorage.removeItem('saved_staff_email');
+        localStorage.removeItem('saved_staff_password');
+      }
     } catch (err: any) {
       setErrorMessage(err.message || 'Email hoặc mật khẩu không chính xác');
     } finally {
@@ -80,16 +103,36 @@ export const StaffLogin: React.FC = () => {
               Mật khẩu
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-accent)]"
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-accent)]"
                 required
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+                title={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
+          </div>
+
+          <div className="flex items-center justify-between text-xs pt-0.5">
+            <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-600 select-none">
+              <input
+                type="checkbox"
+                checked={rememberPassword}
+                onChange={(e) => setRememberPassword(e.target.checked)}
+                className="rounded text-[var(--brand-accent)] focus:ring-[var(--brand-accent)]"
+              />
+              <span>Lưu mật khẩu trên thiết bị</span>
+            </label>
           </div>
 
           <button
