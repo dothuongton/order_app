@@ -6,7 +6,6 @@ import { ReceiptDetailModal } from './ReceiptDetailModal.js';
 export const isSessionCancelled = (s: any): boolean => {
   if (s.bill_status === 'CANCELLED') return true;
   if (s.close_reason && s.close_reason !== 'CONFIRMED_SETTLED') return true;
-  if (Number(s.confirmed_amount || 0) === 0) return true;
   return false;
 };
 
@@ -25,6 +24,21 @@ export const formatCancelReason = (reason?: string | null): string => {
   }
   const cleaned = trimmed.replace(/^(SESSION_CLOSED_|WITHOUT_CHARGE_?)/i, '');
   return cleaned ? `Đã hủy: ${cleaned}` : 'Đã hủy';
+};
+
+export const getSessionReportStatus = (session: any): { kind: 'cancelled' | 'zero'; label: string } | null => {
+  if (isSessionCancelled(session)) {
+    return { kind: 'cancelled', label: formatCancelReason(session.close_reason) };
+  }
+  if (Number(session.confirmed_amount || 0) === 0) {
+    return {
+      kind: 'zero',
+      label: session.bill_status === 'CONFIRMED'
+        ? 'Đã chốt 0đ · Không có món phục vụ'
+        : '0đ · Lý do chưa được ghi nhận'
+    };
+  }
+  return null;
 };
 
 export const StaffReports: React.FC = () => {
@@ -119,15 +133,15 @@ export const StaffReports: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-emerald-600" />
-            <h4 className="font-bold text-sm text-slate-900">Phiên đã thanh toán gần đây</h4>
+            <h4 className="font-bold text-sm text-slate-900">Phiên đã kết thúc gần đây</h4>
           </div>
           <span className="text-[11px] text-slate-400 font-medium">Bấm vào để xem hóa đơn</span>
         </div>
 
         <div className="divide-y divide-slate-100">
           {(data?.recentSettledSessions || []).map((s: any, idx: number) => {
-            const isCancelled = isSessionCancelled(s);
-            const cancelLabel = isCancelled ? formatCancelReason(s.close_reason) : '';
+            const status = getSessionReportStatus(s);
+            const isCancelled = status?.kind === 'cancelled';
 
             return (
               <div
@@ -139,7 +153,9 @@ export const StaffReports: React.FC = () => {
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition ${
                     isCancelled
                       ? 'bg-rose-50 text-rose-600'
-                      : 'bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white'
+                      : status
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white'
                   }`}>
                     {isCancelled ? <XCircle className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
                   </div>
@@ -148,11 +164,16 @@ export const StaffReports: React.FC = () => {
                       <span className="font-bold text-slate-900 text-sm">Bàn {s.table_number}</span>
                       <span className="text-[10px] text-slate-400">#{s.session_id.slice(0, 6)}</span>
 
-                      {isCancelled && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                          <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
-                          <span>{cancelLabel}</span>
+                      {status && (
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          isCancelled ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-800 border-amber-200'
+                        }`}>
+                          {isCancelled && <XCircle className="w-3 h-3 text-rose-600 shrink-0" />}
+                          <span>{status.label}</span>
                         </span>
+                      )}
+                      {s.opening_guest_name && (
+                        <span className="text-[10px] text-slate-600 font-medium">Khách mở bàn: {s.opening_guest_name}</span>
                       )}
                     </div>
                     <span className="text-slate-400 block text-[11px] mt-0.5">
@@ -165,7 +186,9 @@ export const StaffReports: React.FC = () => {
                   <span className={`font-extrabold text-sm transition ${
                     isCancelled
                       ? 'text-rose-600/80 font-bold'
-                      : 'text-emerald-700 group-hover:text-[var(--brand-accent-text)]'
+                      : status
+                        ? 'text-amber-700'
+                        : 'text-emerald-700 group-hover:text-[var(--brand-accent-text)]'
                   }`}>
                     {Number(s.confirmed_amount).toLocaleString('vi-VN')}đ
                   </span>

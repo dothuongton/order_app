@@ -501,6 +501,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
               )}
               {billSummary && (
                 <div className="space-y-4">
+                  {billSummary.openingGuestName && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
+                      Người yêu cầu mở bàn: <strong className="font-bold text-slate-900">{billSummary.openingGuestName}</strong>
+                    </div>
+                  )}
                   {/* Itemized Bill Breakdown */}
                   <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs divide-y divide-slate-100 overflow-hidden">
                     <div className="p-3.5 bg-slate-50 flex items-center justify-between">

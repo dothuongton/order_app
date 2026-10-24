@@ -109,6 +109,21 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
         const openData: any = await openRes.json();
         const sessionId = openData.sessionId;
 
+        const menuItem = (await query(`SELECT id, name, price FROM menu_items WHERE tenant_id = $1 ORDER BY id LIMIT 1`, [tenantId])).rows[0];
+        const order = (await query(`
+            INSERT INTO orders (tenant_id, session_id, order_number, source, idempotency_key)
+            VALUES ($1, $2, 1, 'GUEST', $3) RETURNING id
+        `, [tenantId, sessionId, `zero-receipt-${sessionId}`])).rows[0];
+        const item = (await query(`
+            INSERT INTO order_items (tenant_id, order_id, menu_item_id, quantity, snapshot_name, snapshot_price)
+            VALUES ($1, $2, $3, 1, $4, $5) RETURNING id
+        `, [tenantId, order.id, menuItem.id, menuItem.name, menuItem.price])).rows[0];
+        await query(`
+            INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
+            VALUES ($1, $2, 'PENDING', 1)
+        `, [tenantId, item.id]);
+        await query(`UPDATE table_sessions SET requester_guest_name = 'Nguyễn An' WHERE id = $1`, [sessionId]);
+
         // Close session without charge with reason 'Khách đặt ảo'
         const closeRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/close-without-charge`, {
             method: 'POST',
@@ -123,10 +138,11 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
         expect(closeData.sessionId).toBe(sessionId);
 
         // Verify session status in DB
-        const dbCheck = await query(`SELECT status, close_reason, claimed_device_hash FROM table_sessions WHERE id = $1`, [sessionId]);
+        const dbCheck = await query(`SELECT status, close_reason, claimed_device_hash, requester_guest_name FROM table_sessions WHERE id = $1`, [sessionId]);
         expect(dbCheck.rows[0].status).toBe('CLOSED');
         expect(dbCheck.rows[0].close_reason).toBe('Khách đặt ảo');
         expect(dbCheck.rows[0].claimed_device_hash).toBeNull();
+        expect(dbCheck.rows[0].requester_guest_name).toBe('Nguyễn An');
 
         // Verify bill in DB
         const billCheck = await query(`SELECT status, total_amount FROM bills WHERE session_id = $1`, [sessionId]);
@@ -144,6 +160,40 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
         expect(Number(releasedSession.confirmed_amount)).toBe(0);
         expect(releasedSession.close_reason).toBe('Khách đặt ảo');
         expect(releasedSession.bill_status).toBe('CANCELLED');
+        expect(releasedSession.opening_guest_name).toBe('Nguyễn An');
+
+        const billRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/bill-summary`, {
+            headers: { Authorization: `Bearer ${staffToken}` }
+        });
+        expect(billRes.status).toBe(200);
+        const billData: any = await billRes.json();
+        expect(billData.openingGuestName).toBe('Nguyễn An');
+        expect(billData.validBillTotal).toBe(0);
+        expect(billData.rounds.flatMap((round: any) => round.items)).toEqual(expect.arrayContaining([
+            expect.objectContaining({ name: menuItem.name, status: 'CANCELLED', cancelReason: 'Khách đặt ảo' })
+        ]));
+
+        const emptyOpenRes = await fetch(`${baseUrl}/api/v1/staff/tables/${table.id}/open`, {
+            method: 'POST', headers: { Authorization: `Bearer ${staffToken}` }
+        });
+        expect(emptyOpenRes.status).toBe(201);
+        const emptySessionId = (await emptyOpenRes.json() as any).sessionId;
+        const managerId = (await query(`SELECT id FROM users WHERE email = 'admin@phoco.vn' LIMIT 1`)).rows[0].id;
+        await StaffService.confirmPaymentAndCloseSession(tenantId, emptySessionId, 1, managerId);
+
+        const zeroReportsRes = await fetch(`${baseUrl}/api/v1/staff/reports/summary`, {
+            headers: { Authorization: `Bearer ${staffToken}` }
+        });
+        expect(zeroReportsRes.status).toBe(200);
+        const zeroReportsData: any = await zeroReportsRes.json();
+        expect(zeroReportsData.recentSettledSessions).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                session_id: emptySessionId,
+                confirmed_amount: '0',
+                close_reason: 'CONFIRMED_SETTLED',
+                bill_status: 'CONFIRMED'
+            })
+        ]));
     });
 
     it('authenticates a reports summary request only once', async () => {

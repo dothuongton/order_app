@@ -1350,11 +1350,11 @@ export class StaffService {
                 `, [tenantId, sessionId]);
             }
 
-            // Close session & clear claim
+            // Preserve the guest name for the staff receipt; clear device claim material.
             await client.query(`
                 UPDATE table_sessions
                 SET status = 'CLOSED', closed_by = $1, closed_at = NOW(), close_reason = $2,
-                    claimed_device_hash = NULL, requester_device_hash = NULL, requester_guest_name = NULL,
+                    claimed_device_hash = NULL, requester_device_hash = NULL,
                     updated_at = NOW()
                 WHERE id = $3
             `, [userId, reason || 'WITHOUT_CHARGE', sessionId]);
