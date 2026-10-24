@@ -102,7 +102,8 @@ export class StaffService {
                 note: r.note,
                 status: r.status,
                 quantity: r.quantity,
-                cancelReason: r.cancel_reason
+                cancelReason: r.cancel_reason,
+                createdAt: r.created_at
             });
         });
 

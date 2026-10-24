@@ -40,7 +40,7 @@ export const StaffDashboard: React.FC = () => {
   } = useNotification();
 
   const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'settings' | 'reports' | 'menu' | 'cms'>('tables');
-  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'served'>('all');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'served'>('pending');
   const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'pending' | 'checkout' | 'serving' | 'assistance' | 'empty' | 'zero'>('all');
   const [tableSearch, setTableSearch] = useState<string>('');
   const [tables, setTables] = useState<StaffTable[]>([]);
@@ -729,7 +729,7 @@ export const StaffDashboard: React.FC = () => {
               }`}
               title={`Thông báo đẩy PWA: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'server_disabled' ? 'Chưa bật trên máy chủ' : pushState === 'key_mismatch' ? 'Cần cập nhật khóa' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
             >
-              <Radio className="w-4 h-4 text-[var(--brand-accent-text)]" />
+              <BellRing className="w-4 h-4 text-[var(--brand-accent-text)]" />
               {pushState === 'granted' && isPushSubscribed && (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white"></span>
               )}
@@ -1351,7 +1351,7 @@ export const StaffDashboard: React.FC = () => {
                       : 'text-slate-600 hover:text-blue-700'
                   }`}
                 >
-                  <span className="truncate">Phục vụ</span>
+                  <span className="truncate">Chờ phục vụ</span>
                   <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     orderStatusFilter === 'accepted'
                       ? 'bg-blue-800 text-white'
@@ -1495,9 +1495,24 @@ export const StaffDashboard: React.FC = () => {
                                   item.status === 'SERVED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800'
                                 }`}>
                                   {item.status === 'PENDING' ? 'Chờ nhận' :
-                                   item.status === 'ACCEPTED' ? 'Cần phục vụ' :
+                                   item.status === 'ACCEPTED' ? 'Chờ phục vụ' :
                                    item.status === 'SERVED' ? 'Đã phục vụ' : 'Đã hủy'}
                                 </span>
+                              </div>
+
+                              {/* Row 1b: Order Round & Time */}
+                              <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-bold">
+                                  Lượt #{item.orderNumber}
+                                </span>
+                                {item.createdAt && (
+                                  <span className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
+                                    <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span>
+                                      {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </span>
+                                )}
                               </div>
 
                               {/* Row 2: Customer Note (if any) */}
@@ -1560,12 +1575,18 @@ export const StaffDashboard: React.FC = () => {
 
                       {/* Footer Actions */}
                       <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                        <span className="text-slate-400">
-                          {items.length} món • Lượt gọi #{items[items.length - 1]?.orderNumber || 1}
+                        <span className="text-slate-400 flex items-center gap-1.5 flex-wrap">
+                          <span>{items.length} món • Lượt #{items[items.length - 1]?.orderNumber || 1}</span>
+                          {items[items.length - 1]?.createdAt && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span>{new Date(items[items.length - 1].createdAt!).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
+                            </span>
+                          )}
                         </span>
                         <button
                           onClick={() => setSelectedTable(table)}
-                          className="font-bold text-[var(--brand-accent-text)] hover:underline flex items-center gap-1"
+                          className="font-bold text-[var(--brand-accent-text)] hover:underline flex items-center gap-1 shrink-0"
                         >
                           <span>Xem hóa đơn & Chốt bill &rarr;</span>
                         </button>
@@ -1920,7 +1941,7 @@ export const StaffDashboard: React.FC = () => {
               >
                 <div className="flex items-center gap-3.5 min-w-0">
                   <div className="w-10 h-10 rounded-2xl bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center shrink-0 group-hover:scale-105 transition shadow-xs">
-                    <Radio className="w-5 h-5" />
+                    <BellRing className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">

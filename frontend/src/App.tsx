@@ -78,6 +78,18 @@ export function App() {
     );
   }
 
+  // 1b. Store Slug Link: /ola-ngon-ngot or legacy /pho-co -> Directly view store table A01
+  const isOlaSlug = /^\/(ola-ngon-ngot|pho-co)\/?$/.test(currentPath);
+  if (isOlaSlug) {
+    return (
+      <NotificationProvider>
+        <GuestProvider>
+          <GuestLanding qrId="qr-phoco-a01" />
+        </GuestProvider>
+      </NotificationProvider>
+    );
+  }
+
   // 2. Staff Portal: /staff
   if (currentPath === '/staff' || currentPath.startsWith('/staff/')) {
     return (

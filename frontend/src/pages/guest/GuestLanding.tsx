@@ -5,7 +5,7 @@ import { GuestOrders } from './GuestOrders.js';
 import { GuestBill } from './GuestBill.js';
 import { CartDrawer } from '../../components/CartDrawer.js';
 import { GuestRequestModal } from '../../components/GuestRequestModal.js';
-import { UtensilsCrossed, ClipboardList, Receipt, ShoppingBag, AlertCircle, Sparkles, WifiOff, Clock, UserCheck, Shield, Eye } from 'lucide-react';
+import { UtensilsCrossed, ClipboardList, Receipt, Bell, ShoppingBag, AlertCircle, Sparkles, WifiOff, Clock, UserCheck, Shield, Eye } from 'lucide-react';
 
 interface GuestLandingProps {
   qrId: string;
@@ -457,12 +457,19 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
 
         <button
           onClick={() => setActiveTab('bill')}
-          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition ${
+          className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative ${
             activeTab === 'bill' ? 'text-teal-700 font-bold' : 'text-slate-500 font-medium'
           }`}
         >
-          <Receipt className="w-5 h-5" />
-          <span className="text-[11px] mt-1">Tổng bill</span>
+          <div className="relative">
+            <Bell className="w-5 h-5" />
+            {activeServiceRequests.length > 0 && (
+              <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-black flex items-center justify-center leading-none">
+                {activeServiceRequests.length}
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] mt-1">Hỗ trợ</span>
         </button>
       </nav>
 

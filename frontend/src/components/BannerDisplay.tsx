@@ -82,41 +82,66 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
     const cta = banner.cta_link || banner.ctaLink;
     const hasCta = cta && /^(https?:\/\/|\/(?!\/))/.test(cta);
 
-    return (
-      <div className="relative w-full h-full">
-        {img ? (
+    if (img) {
+      const content = (
+        <div className="relative w-full h-full">
           <img
             src={img}
-            alt={banner.title}
+            alt={banner.title || 'Banner'}
             className="w-full h-full object-cover"
             loading="lazy"
           />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-600 via-amber-600 to-orange-700" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-4 flex flex-col justify-end">
-          <h2 className="font-extrabold text-white text-sm sm:text-base leading-snug drop-shadow-sm">
-            {banner.title}
-          </h2>
-          {banner.description && (
-            <p className="mt-1 text-xs text-slate-200 line-clamp-2 drop-shadow-sm">
-              {banner.description}
-            </p>
-          )}
           {hasCta && (
-            <div className="mt-2.5">
-              <a
-                href={cta}
-                target={cta.startsWith('http') ? '_blank' : undefined}
-                rel={cta.startsWith('http') ? 'noopener noreferrer' : undefined}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs shadow-sm transition active:scale-95"
-              >
+            <div className="absolute bottom-3 right-3 z-10">
+              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs transition active:scale-95 shadow-xs">
                 <span>Xem chi tiết</span>
                 <span aria-hidden="true">&rarr;</span>
-              </a>
+              </span>
             </div>
           )}
         </div>
+      );
+
+      if (hasCta) {
+        return (
+          <a
+            href={cta}
+            target={cta.startsWith('http') ? '_blank' : undefined}
+            rel={cta.startsWith('http') ? 'noopener noreferrer' : undefined}
+            className="block w-full h-full cursor-pointer"
+          >
+            {content}
+          </a>
+        );
+      }
+
+      return content;
+    }
+
+    // Fallback when no image is uploaded
+    return (
+      <div className="relative w-full h-full bg-gradient-to-br from-orange-600 via-amber-600 to-orange-700 p-4 flex flex-col justify-end">
+        <h2 className="font-extrabold text-white text-sm sm:text-base leading-snug">
+          {banner.title}
+        </h2>
+        {banner.description && (
+          <p className="mt-1 text-xs text-slate-100 line-clamp-2">
+            {banner.description}
+          </p>
+        )}
+        {hasCta && (
+          <div className="mt-2.5">
+            <a
+              href={cta}
+              target={cta.startsWith('http') ? '_blank' : undefined}
+              rel={cta.startsWith('http') ? 'noopener noreferrer' : undefined}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white text-orange-700 font-bold text-xs transition active:scale-95"
+            >
+              <span>Xem chi tiết</span>
+              <span aria-hidden="true">&rarr;</span>
+            </a>
+          </div>
+        )}
       </div>
     );
   };
@@ -125,7 +150,7 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
   if (displayMode === 'slide' && activeBanners.length > 1) {
     return (
       <div
-        className={`relative rounded-2xl overflow-hidden aspect-[16/9] w-full bg-slate-900 border border-slate-200/50 shadow-sm select-none group ${className}`}
+        className={`relative rounded-2xl overflow-hidden aspect-[16/9] w-full bg-slate-100 border border-slate-200/60 select-none group ${className}`}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -147,7 +172,7 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
           type="button"
           onClick={handlePrev}
           aria-label="Banner trước"
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-xs transition sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer shadow-md"
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center backdrop-blur-xs transition sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
@@ -155,7 +180,7 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
           type="button"
           onClick={handleNext}
           aria-label="Banner kế tiếp"
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/45 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-xs transition sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer shadow-md"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center backdrop-blur-xs transition sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
         >
           <ChevronRight className="w-5 h-5" />
         </button>
@@ -170,8 +195,8 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
               aria-label={`Chuyển tới banner ${idx + 1}`}
               className={`h-1.5 rounded-full transition-all cursor-pointer ${
                 currentIndex === idx
-                  ? 'w-5 bg-white shadow-sm'
-                  : 'w-1.5 bg-white/45 hover:bg-white/75'
+                  ? 'w-5 bg-white'
+                  : 'w-1.5 bg-white/50 hover:bg-white/80'
               }`}
             />
           ))}
@@ -186,7 +211,7 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
       {activeBanners.map((banner, idx) => (
         <article
           key={banner.id || idx}
-          className="relative rounded-2xl overflow-hidden aspect-[16/9] w-full bg-slate-900 border border-slate-200/50 shadow-sm"
+          className="relative rounded-2xl overflow-hidden aspect-[16/9] w-full bg-slate-100 border border-slate-200/60"
         >
           {renderBannerContent(banner)}
         </article>

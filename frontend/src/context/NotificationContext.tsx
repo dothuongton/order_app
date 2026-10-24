@@ -45,6 +45,14 @@ const NotificationContext = createContext<NotificationContextType | null>(null);
 // Global persistent AudioContext singleton
 let globalAudioCtx: AudioContext | null = null;
 
+// Audio & Speech guard: strictly limit sound/speech to staff routes, never play in superadmin (/admin)
+function isSoundAllowed(): boolean {
+  if (typeof window === 'undefined') return false;
+  const pathname = window.location.pathname;
+  if (pathname.startsWith('/admin')) return false;
+  return pathname.startsWith('/staff');
+}
+
 function getOrCreateAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
   if (!globalAudioCtx) {
@@ -233,6 +241,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Speech synthesis helper in Vietnamese with robust voice detection & Blink/WebKit unfreeze
   const speakVietnamese = useCallback((text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!isSoundAllowed()) return;
     try {
       // 1. Unfreeze if paused
       if (window.speechSynthesis.paused) {
@@ -340,6 +349,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Pure chime tone helpers (Dual HTML5 Audio + WebAudio harmonic notes)
   const playOrderSoundTone = useCallback(() => {
+    if (!isSoundAllowed()) return;
     // 1. Play pre-loaded HTML5 Audio element
     if (orderAudioRef.current) {
       try {
@@ -369,6 +379,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [playHarmonicNote]);
 
   const playAlertSoundTone = useCallback(() => {
+    if (!isSoundAllowed()) return;
     // 1. Play pre-loaded HTML5 Audio element
     if (alertAudioRef.current) {
       try {
@@ -511,6 +522,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // 1. New Order Notification (Dual Chime + Voice)
   const playOrderSound = useCallback((tableName?: string, eventId?: string) => {
+    if (!isSoundAllowed()) return;
     if (eventId && !shouldProcessEvent(eventId)) return;
     if (soundMode === 'off') return;
 
@@ -528,6 +540,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // 2. Service Request Notification (Dual Chime + Voice)
   const playAlertSound = useCallback((tableName?: string, requestType?: 'CHECKOUT' | 'ASSISTANCE', eventId?: string) => {
+    if (!isSoundAllowed()) return;
     if (eventId && !shouldProcessEvent(eventId)) return;
     if (soundMode === 'off') return;
 
@@ -548,6 +561,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // 3. Success Sound
   const playSuccessSound = useCallback(() => {
+    if (!isSoundAllowed()) return;
     if (soundMode === 'off') return;
     try {
       const ctx = getOrCreateAudioContext();
@@ -589,6 +603,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Test sound function
   const testSound = useCallback(() => {
+    if (!isSoundAllowed()) return;
     unlockAudio();
     if (soundMode === 'voice') {
       playOrderSoundTone();
