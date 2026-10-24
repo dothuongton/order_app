@@ -142,6 +142,24 @@ export const StaffDashboard: React.FC = () => {
     }
   }, []);
 
+  const dashboardRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshPendingRequestsRef = useRef(false);
+  const scheduleDashboardRefresh = useCallback((includePendingRequests = false) => {
+    refreshPendingRequestsRef.current ||= includePendingRequests;
+    if (dashboardRefreshTimerRef.current) clearTimeout(dashboardRefreshTimerRef.current);
+    dashboardRefreshTimerRef.current = setTimeout(() => {
+      dashboardRefreshTimerRef.current = null;
+      const refreshPendingRequests = refreshPendingRequestsRef.current;
+      refreshPendingRequestsRef.current = false;
+      fetchDashboard();
+      if (refreshPendingRequests) fetchPendingRequests();
+    }, 150);
+  }, [fetchDashboard, fetchPendingRequests]);
+
+  useEffect(() => () => {
+    if (dashboardRefreshTimerRef.current) clearTimeout(dashboardRefreshTimerRef.current);
+  }, []);
+
   useEffect(() => {
     fetchDashboard();
     fetchPendingRequests();
@@ -151,8 +169,7 @@ export const StaffDashboard: React.FC = () => {
     try {
       await request(`/staff/tables/${tableId}/approve-request`, { method: 'POST' });
       showToast({ title: 'Đã duyệt mở bàn thành công', type: 'success', duration: 3000 });
-      fetchDashboard();
-      fetchPendingRequests();
+      scheduleDashboardRefresh(true);
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi duyệt mở bàn', type: 'error' });
     }
@@ -162,8 +179,7 @@ export const StaffDashboard: React.FC = () => {
     try {
       await request(`/staff/tables/${tableId}/reject-request`, { method: 'POST' });
       showToast({ title: 'Đã từ chối yêu cầu mở bàn', type: 'info', duration: 3000 });
-      fetchDashboard();
-      fetchPendingRequests();
+      scheduleDashboardRefresh(true);
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi từ chối mở bàn', type: 'error' });
     }
@@ -204,13 +220,8 @@ export const StaffDashboard: React.FC = () => {
     joinRoom();
     socket.on('connect', joinRoom);
 
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleRefresh = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        fetchDashboard();
-        fetchPendingRequests();
-      }, 150);
+      scheduleDashboardRefresh(true);
     };
 
     const handleOrderCreated = (payload: any) => {
@@ -252,7 +263,8 @@ export const StaffDashboard: React.FC = () => {
     const handleTableRequested = (payload: any) => {
       scheduleRefresh();
       const tableName = payload?.tableNumber ? `Bàn ${payload.tableNumber}` : 'Bàn';
-      playAlertSound(tableName, 'ASSISTANCE');
+      const requestId = payload?.requestId || payload?.sessionId;
+      playAlertSound(tableName, 'OPEN_TABLE', requestId ? `open-table-${requestId}` : undefined);
       showToast({
         title: `✨ Yêu cầu mở ${tableName}`,
         message: `Khách "${payload?.guestName || 'Khách'}" vừa yêu cầu mở bàn`,
@@ -281,7 +293,6 @@ export const StaffDashboard: React.FC = () => {
     }, 20000);
 
     return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
       socket.emit('leave_staff_room');
       socket.off('connect', joinRoom);
       socket.off('reconnect', joinRoom);
@@ -296,7 +307,7 @@ export const StaffDashboard: React.FC = () => {
       socket.off('table_session:rejected', handleUpdate);
       clearInterval(interval);
     };
-  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard, fetchPendingRequests]);
+  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard, fetchPendingRequests, scheduleDashboardRefresh]);
 
   // Permission safeguard: automatically switch to tables tab if current tab is locked for current role
   useEffect(() => {
@@ -316,7 +327,7 @@ export const StaffDashboard: React.FC = () => {
     try {
       await request(`/staff/tables/${tableId}/open`, { method: 'POST' });
       showToast({ title: 'Đã mở bàn thành công', type: 'success', duration: 2500 });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi mở phiên bàn', type: 'error' });
     }
@@ -334,7 +345,7 @@ export const StaffDashboard: React.FC = () => {
         type: 'success',
         duration: 2500
       });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi đóng phiên 0đ', type: 'error' });
     }
@@ -345,7 +356,7 @@ export const StaffDashboard: React.FC = () => {
     try {
       await request(`/staff/sessions/${sessionId}/accept-all`, { method: 'POST' });
       showToast({ title: 'Đã tiếp nhận tất cả món', type: 'success', duration: 3000 });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi tiếp nhận món', type: 'error' });
     }
@@ -355,7 +366,7 @@ export const StaffDashboard: React.FC = () => {
     try {
       await request(`/staff/sessions/${sessionId}/serve-all`, { method: 'POST' });
       showToast({ title: 'Đã đánh dấu phục vụ tất cả món', type: 'success', duration: 3000 });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi phục vụ', type: 'error' });
     }
@@ -367,7 +378,7 @@ export const StaffDashboard: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ quantity })
       });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi nhận món', type: 'error' });
     }
@@ -379,7 +390,7 @@ export const StaffDashboard: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ quantity })
       });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi phục vụ', type: 'error' });
     }
@@ -403,7 +414,7 @@ export const StaffDashboard: React.FC = () => {
         duration: 3500
       });
       setCancelModalItem(null);
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({ title: err.message || 'Lỗi hủy món', type: 'error' });
     }
@@ -429,7 +440,7 @@ export const StaffDashboard: React.FC = () => {
       setShowAddTableModal(false);
       setNewTableNumber('');
       setNewTableCapacity(4);
-      await fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       showToast({
         title: 'Lỗi tạo bàn',
@@ -445,7 +456,7 @@ export const StaffDashboard: React.FC = () => {
   const handleAcceptRequest = async (id: string) => {
     try {
       await request(`/staff/service-requests/${id}/accept`, { method: 'POST' });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       alert(err.message || 'Lỗi tiếp nhận');
     }
@@ -454,7 +465,7 @@ export const StaffDashboard: React.FC = () => {
   const handleCompleteRequest = async (id: string) => {
     try {
       await request(`/staff/service-requests/${id}/complete`, { method: 'POST' });
-      fetchDashboard();
+      scheduleDashboardRefresh();
     } catch (err: any) {
       alert(err.message || 'Lỗi hoàn tất');
     }
@@ -2168,7 +2179,7 @@ export const StaffDashboard: React.FC = () => {
       <TableDetailModal
         table={selectedTable}
         onClose={() => setSelectedTable(null)}
-        onRefresh={fetchDashboard}
+        onRefresh={scheduleDashboardRefresh}
       />
 
       {/* QR Code Modal */}
@@ -2459,7 +2470,7 @@ export const StaffDashboard: React.FC = () => {
         isOpen={showTableManageModal}
         onClose={() => setShowTableManageModal(false)}
         tables={tables}
-        onRefresh={fetchDashboard}
+        onRefresh={scheduleDashboardRefresh}
       />
     </div>
   );
