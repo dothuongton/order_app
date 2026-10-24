@@ -13,7 +13,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
         const staff = req.staff!;
 
         // 1. Confirmed manual settlement summary
-        const confirmedRes = await query(`
+        const confirmedQuery = query(`
             SELECT 
                 COUNT(DISTINCT ts.id) as confirmed_sessions_count,
                 COALESCE(SUM(COALESCE(msc.amount, b.total_amount, 0)), 0) as total_confirmed_amount
@@ -25,12 +25,8 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
               AND COALESCE(msc.amount, b.total_amount, 0) > 0
         `, [staff.tenantId]);
 
-        const confirmedSessionsCount = parseInt(confirmedRes.rows[0].confirmed_sessions_count, 10);
-        const totalConfirmedAmount = Number(confirmedRes.rows[0].total_confirmed_amount);
-        const averageOrderValue = confirmedSessionsCount > 0 ? Math.round(totalConfirmedAmount / confirmedSessionsCount) : 0;
-
         // 2. Count served items across all served parts in this restaurant (with net settlement discount reconciliation)
-        const servedItemsRes = await query(`
+        const servedItemsQuery = query(`
             WITH confirmed_lines AS (
                 SELECT 
                     bl.item_name,
@@ -72,7 +68,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
         `, [staff.tenantId]);
 
         // 3. Open sessions currently in progress
-        const openSessionsRes = await query(`
+        const openSessionsQuery = query(`
             SELECT 
                 COUNT(ts.id) as open_sessions_count
             FROM table_sessions ts
@@ -80,7 +76,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
         `, [staff.tenantId]);
 
         // 4. Recent settled & released sessions
-        const recentSettledRes = await query(`
+        const recentSettledQuery = query(`
             SELECT 
                 ts.id as session_id,
                 t.table_number,
@@ -105,6 +101,17 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             ORDER BY COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) DESC
             LIMIT 50
         `, [staff.tenantId]);
+
+        const [confirmedRes, servedItemsRes, openSessionsRes, recentSettledRes] = await Promise.all([
+            confirmedQuery,
+            servedItemsQuery,
+            openSessionsQuery,
+            recentSettledQuery
+        ]);
+
+        const confirmedSessionsCount = parseInt(confirmedRes.rows[0].confirmed_sessions_count, 10);
+        const totalConfirmedAmount = Number(confirmedRes.rows[0].total_confirmed_amount);
+        const averageOrderValue = confirmedSessionsCount > 0 ? Math.round(totalConfirmedAmount / confirmedSessionsCount) : 0;
 
         return res.json({
             metrics: {

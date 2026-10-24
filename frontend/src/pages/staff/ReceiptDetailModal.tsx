@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { request } from '../../api/client.js';
 import { BillSummary } from '../../types/index.js';
-import { X, Printer, Receipt, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import { X, Printer, Receipt, XCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { isSessionCancelled, formatCancelReason } from './StaffReports.js';
 
@@ -115,21 +115,15 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                     <span>Thu ngân:</span>
                     <span>{session.confirmed_by_name}</span>
                   </div>
-                  {/* Trạng thái đơn hàng */}
-                  <div className="flex justify-between items-center pt-0.5 font-sans">
-                    <span className="text-slate-600">Trạng thái:</span>
-                    {isCancelled ? (
+                  {isCancelled && (
+                    <div className="flex justify-between items-center pt-0.5 font-sans">
+                      <span className="text-slate-600">Trạng thái:</span>
                       <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
                         <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
                         <span>{formatCancelReason(session.close_reason)}</span>
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                        <span>Xong</span>
-                      </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                   {session.settlement_note && (
                     <div className="flex justify-between text-amber-700 pt-0.5">
                       <span>Ghi chú:</span>
@@ -186,19 +180,14 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                     {Number(session.confirmed_amount).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
-                <div className="flex items-center justify-center gap-1.5 text-[11px] font-sans font-bold pt-1">
-                  {isCancelled ? (
+                {isCancelled && (
+                  <div className="flex items-center justify-center gap-1.5 text-[11px] font-sans font-bold pt-1">
                     <span className="text-rose-600 flex items-center gap-1">
                       <XCircle className="w-3.5 h-3.5" />
                       <span>{formatCancelReason(session.close_reason).toUpperCase()}</span>
                     </span>
-                  ) : (
-                    <span className="text-emerald-700 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>ĐÃ THANH TOÁN THÀNH CÔNG (XONG)</span>
-                    </span>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Receipt Footer */}

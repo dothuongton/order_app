@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { request } from '../../api/client.js';
-import { BarChart3, TrendingUp, Utensils, CheckCircle, RefreshCw, Receipt, ChevronRight, CheckCircle2, XCircle } from 'lucide-react';
+import { BarChart3, TrendingUp, Utensils, CheckCircle, RefreshCw, Receipt, ChevronRight, XCircle } from 'lucide-react';
 import { ReceiptDetailModal } from './ReceiptDetailModal.js';
 
 export const isSessionCancelled = (s: any): boolean => {
@@ -49,8 +49,6 @@ export const StaffReports: React.FC = () => {
 
   useEffect(() => {
     fetchReports();
-    const interval = setInterval(fetchReports, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   if (isLoading && !data) {
@@ -150,17 +148,10 @@ export const StaffReports: React.FC = () => {
                       <span className="font-bold text-slate-900 text-sm">Bàn {s.table_number}</span>
                       <span className="text-[10px] text-slate-400">#{s.session_id.slice(0, 6)}</span>
 
-                      {/* Only cancelled orders get red badge */}
-                      {isCancelled ? (
+                      {isCancelled && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
                           <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
                           <span>{cancelLabel}</span>
-                        </span>
-                      ) : (
-                        /* Successfully paid orders get green "Xong" badge */
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                          <span>Xong</span>
                         </span>
                       )}
                     </div>
