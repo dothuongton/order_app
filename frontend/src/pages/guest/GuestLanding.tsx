@@ -18,6 +18,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     session,
     cart,
     orders,
+    activeServiceRequests,
     loadTableMenu,
     joinSession,
     isLoading,
@@ -268,6 +269,30 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
           </button>
         )}
       </header>
+
+      {/* Real-time Banner when staff accepts support/payment */}
+      {(() => {
+        const acceptedReq = activeServiceRequests?.find(r => r.status === 'ACCEPTED');
+        if (!acceptedReq) return null;
+        return (
+          <div
+            onClick={() => setActiveTab('bill')}
+            className="bg-emerald-600 text-white px-4 py-2.5 text-xs font-semibold flex items-center justify-between cursor-pointer hover:bg-emerald-700 transition shadow-sm animate-in fade-in"
+          >
+            <div className="flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-emerald-100 shrink-0" />
+              <span>
+                {acceptedReq.type === 'CHECKOUT'
+                  ? 'Nhân viên đã tiếp nhận yêu cầu thanh toán và đang tới bàn!'
+                  : 'Nhân viên đã tiếp nhận yêu cầu hỗ trợ và đang đến bàn!'}
+              </span>
+            </div>
+            <span className="text-[10px] bg-emerald-800 text-emerald-100 font-bold px-2 py-0.5 rounded-full shrink-0 ml-2">
+              Chi tiết
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Connection Warning Banner (Mất kết nối) */}
       {!isOnline && (

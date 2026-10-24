@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useGuest } from '../../context/GuestContext.js';
 import { MenuItem } from '../../types/index.js';
 import { BannerDisplay } from '../../components/BannerDisplay.js';
@@ -18,7 +18,8 @@ export const GuestMenu: React.FC = () => {
   const theme = tenant?.activeThemeConfig || {};
   const layout = theme.layout || tenant?.activeTemplateId || 'classic';
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchInput, setSearchInput] = useState<string>('');
+  const [debouncedQuery, setDebouncedQuery] = useState<string>('');
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
   const [selectedGroupOptions, setSelectedGroupOptions] = useState<Record<string, any>>({});
@@ -26,25 +27,42 @@ export const GuestMenu: React.FC = () => {
   const [quantity, setQuantity] = useState<number>(1);
   const [note, setNote] = useState<string>('');
 
+  // Debounce search input to avoid heavy recalculations and image re-requests on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchInput);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Pre-normalize menu item names and descriptions once when menuItems change
+  const indexedItems = useMemo(() => {
+    return menuItems.map(item => ({
+      item,
+      normName: normalizeSearch(item.name),
+      normDesc: item.description ? normalizeSearch(item.description) : ''
+    }));
+  }, [menuItems]);
+
   // Available items always appear first; out-of-stock items (Hết món) are pushed to the bottom
   const filteredItems = useMemo(() => {
-    let raw = selectedCategory === 'all'
-      ? menuItems
-      : menuItems.filter(item => item.category_id === selectedCategory);
+    const trimmed = debouncedQuery.trim();
+    const q = trimmed ? normalizeSearch(trimmed) : '';
 
-    if (searchQuery.trim()) {
-      const q = normalizeSearch(searchQuery.trim());
-      raw = raw.filter(item =>
-        normalizeSearch(item.name).includes(q) ||
-        (item.description && normalizeSearch(item.description).includes(q))
-      );
+    let list = indexedItems;
+    if (selectedCategory !== 'all') {
+      list = list.filter(({ item }) => item.category_id === selectedCategory);
+    }
+    if (q) {
+      list = list.filter(({ normName, normDesc }) => normName.includes(q) || normDesc.includes(q));
     }
 
-    return [...raw].sort((a, b) => {
+    const items = list.map(entry => entry.item);
+    return items.sort((a, b) => {
       if (a.is_available === b.is_available) return 0;
       return a.is_available ? -1 : 1;
     });
-  }, [selectedCategory, menuItems, searchQuery]);
+  }, [indexedItems, selectedCategory, debouncedQuery]);
 
   const handleOpenCustomize = (item: MenuItem) => {
     if (!item.is_available || !session || isSessionClosed) return;
@@ -198,13 +216,14 @@ export const GuestMenu: React.FC = () => {
           <input
             type="text"
             placeholder="Tìm kiếm món ăn, đồ uống..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="w-full bg-white border border-slate-200/90 rounded-2xl pl-10 pr-9 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-700/30 focus:border-teal-700 shadow-2xs"
           />
-          {searchQuery && (
+          {searchInput && (
             <button
-              onClick={() => setSearchQuery('')}
+              type="button"
+              onClick={() => { setSearchInput(''); setDebouncedQuery(''); }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 rounded-full cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
@@ -248,11 +267,12 @@ export const GuestMenu: React.FC = () => {
           </div>
           <p className="text-sm font-bold text-slate-700">Không tìm thấy món nào</p>
           <p className="text-xs text-slate-400">
-            {searchQuery ? `Không có kết quả phù hợp với từ khóa "${searchQuery}"` : 'Danh mục này hiện chưa có món'}
+            {searchInput ? `Không có kết quả phù hợp với từ khóa "${searchInput}"` : 'Danh mục này hiện chưa có món'}
           </p>
-          {searchQuery && (
+          {searchInput && (
             <button
-              onClick={() => setSearchQuery('')}
+              type="button"
+              onClick={() => { setSearchInput(''); setDebouncedQuery(''); }}
               className="text-xs font-bold text-teal-700 hover:underline pt-1 cursor-pointer"
             >
               Xóa tìm kiếm
@@ -273,7 +293,13 @@ export const GuestMenu: React.FC = () => {
             {/* Image / Placeholder */}
             <div className={`${layout === 'modern_grid' ? 'w-full h-32' : layout === 'compact_list' ? 'w-12 h-12' : 'w-20 h-20'} rounded-xl bg-orange-50 border border-orange-100 flex-shrink-0 flex items-center justify-center overflow-hidden`}>
               {item.image_url ? (
-                <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                <img
+                  src={item.image_url}
+                  alt={item.name}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <span className="text-2xl">🍲</span>
               )}

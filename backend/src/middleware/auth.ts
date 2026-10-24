@@ -235,6 +235,7 @@ export async function authenticateGuest(req: Request, res: Response, next: NextF
                 ts.status as session_status,
                 ts.claimed_device_hash,
                 ts.claim_version,
+                ts.requester_guest_name,
                 t.table_number, t.is_enabled, te.status as tenant_status
             FROM guest_sessions gs
             JOIN table_sessions ts ON ts.id = gs.session_id
@@ -274,10 +275,11 @@ export async function authenticateGuest(req: Request, res: Response, next: NextF
 
         if (config.orderingMode === 'approved_single_device') {
             if (row.claimed_device_hash && row.claimed_device_hash !== deviceHash) {
+                const guestName = row.requester_guest_name || 'đặt món';
                 return res.status(403).json({
                     error: 'DEVICE_NOT_CLAIMED',
                     code: 'DEVICE_NOT_CLAIMED',
-                    message: 'Thiết bị này không có quyền thao tác trên bàn này. Chỉ thiết bị giữ quyền mới có thể thao tác.'
+                    message: `Chỉ có khách hàng ${guestName} mới gửi được yêu cầu hỗ trợ và thanh toán.`
                 });
             }
         }

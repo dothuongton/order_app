@@ -687,12 +687,12 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const handleServiceRequestUpdated = (payload?: any) => {
       refreshOrdersAndBill();
-      if (payload?.message) {
+      if (payload?.status === 'ACCEPTED' || payload?.message) {
         showToast({
-          title: 'Yêu cầu phục vụ',
-          message: payload.message,
-          type: 'info',
-          duration: 4000
+          title: payload?.type === 'CHECKOUT' ? 'Yêu cầu thanh toán' : 'Yêu cầu hỗ trợ',
+          message: payload?.message || (payload?.status === 'ACCEPTED' ? 'Nhân viên đã tiếp nhận yêu cầu và đang tới bàn!' : 'Cập nhật yêu cầu phục vụ'),
+          type: payload?.status === 'CANCELLED' ? 'warning' : 'success',
+          duration: 5000
         });
       }
     };

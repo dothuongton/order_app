@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGuest } from '../../context/GuestContext.js';
-import { Receipt, Bell, CreditCard, CheckCircle, Clock, AlertTriangle, MessageSquare } from 'lucide-react';
+import { Receipt, Bell, CreditCard, CheckCircle, Clock, AlertTriangle, MessageSquare, Shield, UserCheck } from 'lucide-react';
 
 export const GuestBill: React.FC = () => {
   const {
@@ -13,6 +13,8 @@ export const GuestBill: React.FC = () => {
     receipt,
     tableStatus,
     deviceState,
+    claimedGuestName,
+    canOrder,
     requestAssistance,
     requestCheckout,
     refreshOrdersAndBill
@@ -28,8 +30,9 @@ export const GuestBill: React.FC = () => {
   const isUnopened = !session && !isSessionClosed && !isViewerOccupied;
   const isClosed = Boolean(isSessionClosed || session?.status === 'CLOSED' || billSummary?.sessionStatus === 'CLOSED');
   const isOpen = Boolean(session && session.status === 'OPEN' && !isSessionClosed);
-  const checkoutRequest = isOpen ? activeServiceRequests.find(r => r.type === 'CHECKOUT') : null;
-  const assistanceRequest = isOpen ? activeServiceRequests.find(r => r.type === 'ASSISTANCE') : null;
+  const isViewer = deviceState === 'VIEWER' || (!canOrder && (isOpen || isViewerOccupied));
+  const checkoutRequest = (isOpen || isViewerOccupied) ? activeServiceRequests.find(r => r.type === 'CHECKOUT') : null;
+  const assistanceRequest = (isOpen || isViewerOccupied) ? activeServiceRequests.find(r => r.type === 'ASSISTANCE') : null;
 
   const handleCheckoutClick = async () => {
     setIsRequestingCheckout(true);
@@ -93,38 +96,78 @@ export const GuestBill: React.FC = () => {
 
       {/* Active Service Notification Banners - only when session is active */}
       {!isClosed && checkoutRequest && (
-        <div className="bg-amber-500 text-white rounded-2xl p-4 shadow-md flex items-center gap-3 animate-pulse-attention">
-          <CreditCard className="w-6 h-6 flex-shrink-0" />
+        <div className={`text-white rounded-2xl p-4 shadow-md flex items-center gap-3 transition-all ${
+          checkoutRequest.status === 'ACCEPTED'
+            ? 'bg-emerald-600 border border-emerald-500 shadow-emerald-600/20'
+            : 'bg-amber-500 animate-pulse-attention'
+        }`}>
+          {checkoutRequest.status === 'ACCEPTED' ? (
+            <UserCheck className="w-6 h-6 flex-shrink-0 text-emerald-100" />
+          ) : (
+            <CreditCard className="w-6 h-6 flex-shrink-0" />
+          )}
           <div className="flex-1">
             <div className="flex items-center justify-between">
-              <h4 className="font-bold text-sm">Đã gửi yêu cầu thanh toán</h4>
-              {checkoutRequest.call_count && checkoutRequest.call_count > 1 && (
-                <span className="text-[10px] bg-amber-700 font-extrabold px-2 py-0.5 rounded-full">
-                  Nhắc lần {checkoutRequest.call_count}
-                </span>
-              )}
+              <h4 className="font-bold text-sm">
+                {checkoutRequest.status === 'ACCEPTED'
+                  ? 'Nhân viên đã tiếp nhận yêu cầu thanh toán'
+                  : 'Đã gửi yêu cầu thanh toán'}
+              </h4>
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                checkoutRequest.status === 'ACCEPTED'
+                  ? 'bg-emerald-800 text-emerald-100'
+                  : 'bg-amber-700 text-white'
+              }`}>
+                {checkoutRequest.status === 'ACCEPTED' ? 'ĐÃ TIẾP NHẬN' : (
+                  checkoutRequest.call_count && checkoutRequest.call_count > 1
+                    ? `Nhắc lần ${checkoutRequest.call_count}`
+                    : 'CHỜ TIẾP NHẬN'
+                )}
+              </span>
             </div>
-            <p className="text-xs opacity-90 mt-0.5">
-              Nhân viên sẽ mang hóa đơn tới bàn để kiểm tra và nhận thanh toán ngoài hệ thống.
+            <p className="text-xs opacity-95 mt-1 leading-relaxed">
+              {checkoutRequest.status === 'ACCEPTED'
+                ? 'Nhân viên phục vụ đã tiếp nhận và đang chuẩn bị hóa đơn mang tới bàn bạn.'
+                : 'Nhân viên sẽ mang hóa đơn tới bàn để kiểm tra và nhận thanh toán ngoài hệ thống.'}
             </p>
           </div>
         </div>
       )}
 
       {!isClosed && assistanceRequest && (
-        <div className="bg-blue-600 text-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
-          <Bell className="w-6 h-6 flex-shrink-0" />
+        <div className={`text-white rounded-2xl p-4 shadow-sm flex items-center gap-3 transition-all ${
+          assistanceRequest.status === 'ACCEPTED'
+            ? 'bg-teal-700 border border-teal-600 shadow-teal-700/20'
+            : 'bg-blue-600'
+        }`}>
+          {assistanceRequest.status === 'ACCEPTED' ? (
+            <UserCheck className="w-6 h-6 flex-shrink-0 text-teal-100" />
+          ) : (
+            <Bell className="w-6 h-6 flex-shrink-0" />
+          )}
           <div className="flex-1">
             <div className="flex items-center justify-between">
-              <h4 className="font-bold text-sm">Đã gọi nhân viên hỗ trợ</h4>
-              {assistanceRequest.call_count && assistanceRequest.call_count > 1 && (
-                <span className="text-[10px] bg-blue-800 font-extrabold px-2 py-0.5 rounded-full">
-                  Gọi lần {assistanceRequest.call_count}
-                </span>
-              )}
+              <h4 className="font-bold text-sm">
+                {assistanceRequest.status === 'ACCEPTED'
+                  ? 'Nhân viên đã tiếp nhận hỗ trợ'
+                  : 'Đã gọi nhân viên hỗ trợ'}
+              </h4>
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                assistanceRequest.status === 'ACCEPTED'
+                  ? 'bg-teal-900 text-teal-100'
+                  : 'bg-blue-800 text-white'
+              }`}>
+                {assistanceRequest.status === 'ACCEPTED' ? 'ĐÃ TIẾP NHẬN' : (
+                  assistanceRequest.call_count && assistanceRequest.call_count > 1
+                    ? `Gọi lần ${assistanceRequest.call_count}`
+                    : 'CHỜ TIẾP NHẬN'
+                )}
+              </span>
             </div>
-            <p className="text-xs opacity-90 mt-0.5">
-              Nhân viên đang tới bàn để hỗ trợ quý khách.
+            <p className="text-xs opacity-95 mt-1 leading-relaxed">
+              {assistanceRequest.status === 'ACCEPTED'
+                ? 'Nhân viên phục vụ đã nhận thông báo và đang di chuyển tới bàn quý khách ngay bây giờ.'
+                : 'Đã phát chuông gọi nhân viên. Nhân viên sẽ tới bàn để hỗ trợ quý khách trong giây lát.'}
             </p>
           </div>
         </div>
@@ -348,27 +391,50 @@ export const GuestBill: React.FC = () => {
           </div>
         )
       ) : (
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <button
-            onClick={() => setShowAssistanceModal(true)}
-            className="min-h-[48px] bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-sm active:scale-95 transition"
-          >
-            <Bell className="w-4 h-4 text-slate-500" />
-            <span>Gọi nhân viên</span>
-          </button>
+        <div className="space-y-2.5 pt-2">
+          {/* Viewer Notice: only claimed guest can call staff or request payment */}
+          {isViewer && (
+            <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5 shadow-xs animate-in fade-in">
+              <Shield className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="leading-relaxed font-medium">
+                Chỉ có khách hàng <strong>{claimedGuestName || 'đang gọi món'}</strong> mới gửi được yêu cầu hỗ trợ và thanh toán.
+              </p>
+            </div>
+          )}
 
-          <button
-            onClick={handleCheckoutClick}
-            disabled={isRequestingCheckout}
-            className="min-h-[48px] bg-teal-700 hover:bg-teal-800 active:bg-teal-900 disabled:opacity-50 text-white font-bold rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-md active:scale-95 transition"
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>
-              {checkoutRequest
-                ? `Nhắc thanh toán ${checkoutRequest.call_count && checkoutRequest.call_count > 1 ? `(x${checkoutRequest.call_count})` : ''}`
-                : 'Yêu cầu thanh toán'}
-            </span>
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => !isViewer && setShowAssistanceModal(true)}
+              disabled={isViewer || isCallingStaff}
+              title={isViewer ? `Chỉ có khách hàng ${claimedGuestName || 'đang gọi món'} mới gửi được yêu cầu hỗ trợ và thanh toán.` : 'Gọi nhân viên'}
+              className={`min-h-[48px] rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-sm transition ${
+                isViewer
+                  ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                  : 'bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold active:scale-95 cursor-pointer'
+              }`}
+            >
+              <Bell className="w-4 h-4" />
+              <span>Gọi nhân viên</span>
+            </button>
+
+            <button
+              onClick={!isViewer ? handleCheckoutClick : undefined}
+              disabled={isViewer || isRequestingCheckout}
+              title={isViewer ? `Chỉ có khách hàng ${claimedGuestName || 'đang gọi món'} mới gửi được yêu cầu hỗ trợ và thanh toán.` : 'Yêu cầu thanh toán'}
+              className={`min-h-[48px] rounded-2xl p-3.5 flex items-center justify-center gap-2 shadow-md transition ${
+                isViewer
+                  ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                  : 'bg-teal-700 hover:bg-teal-800 active:bg-teal-900 text-white font-bold active:scale-95 cursor-pointer'
+              }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>
+                {checkoutRequest
+                  ? `Nhắc thanh toán ${checkoutRequest.call_count && checkoutRequest.call_count > 1 ? `(x${checkoutRequest.call_count})` : ''}`
+                  : 'Yêu cầu thanh toán'}
+              </span>
+            </button>
+          </div>
         </div>
       )}
 

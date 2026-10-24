@@ -330,6 +330,25 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
             expect(errData.code).toBe('DEVICE_NOT_CLAIMED');
         });
 
+        it('blocks Device 2 from calling staff or requesting checkout with 403 DEVICE_NOT_CLAIMED', async () => {
+            const reqRes = await fetch(`${baseUrl}/api/v1/guest/service-requests`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-guest-token': claimedToken,
+                    'Cookie': `order_device=${otherCookie}`
+                },
+                body: JSON.stringify({
+                    type: 'ASSISTANCE',
+                    note: 'Xin thêm thìa'
+                })
+            });
+            expect(reqRes.status).toBe(403);
+            const errData: any = await reqRes.json();
+            expect(errData.code).toBe('DEVICE_NOT_CLAIMED');
+            expect(errData.message).toContain('mới gửi được yêu cầu hỗ trợ và thanh toán');
+        });
+
         it('retains claim on Device 1 upon page reload (same device cookie)', async () => {
             // Device 1 re-checks public menu
             const menuRes = await fetch(`${baseUrl}/api/v1/public/tables/${tableA01QrId}/menu`, {
@@ -386,6 +405,51 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
                 SELECT revoked_at FROM guest_sessions WHERE table_id = $1
             `, [tableA01Id]);
             expect(tokenRes.rows.every(r => r.revoked_at !== null)).toBe(true);
+        });
+
+        it('blocks release-claim with 400 HAS_SERVED_ITEMS when dishes have already been served', async () => {
+            let sId: string;
+            const openRes = await query(`SELECT id FROM table_sessions WHERE table_id = $1 AND status = 'OPEN'`, [tableA01Id]);
+            if (openRes.rows.length === 0) {
+                const res = await query(`
+                    INSERT INTO table_sessions (tenant_id, table_id, status, claim_version)
+                    VALUES ($1, $2, 'OPEN', 2)
+                    RETURNING id
+                `, [tenantId, tableA01Id]);
+                sId = res.rows[0].id;
+            } else {
+                sId = openRes.rows[0].id;
+            }
+
+            const ordRes = await query(`
+                INSERT INTO orders (tenant_id, session_id, order_number, idempotency_key, source)
+                VALUES ($1, $2, 999, 'test-served-idemp', 'STAFF_POS')
+                RETURNING id
+            `, [tenantId, sId]);
+            const itemRes = await query(`
+                INSERT INTO order_items (tenant_id, order_id, menu_item_id, snapshot_name, snapshot_price, quantity)
+                VALUES ($1, $2, $3, 'Test Dish', 50000, 1)
+                RETURNING id
+            `, [tenantId, ordRes.rows[0].id, menuItemId]);
+            await query(`
+                INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
+                VALUES ($1, $2, 'SERVED', 1)
+            `, [tenantId, itemRes.rows[0].id]);
+
+            const blockedRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableA01Id}/release-claim`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${staffToken}`
+                }
+            });
+            expect(blockedRes.status).toBe(400);
+            const errData: any = await blockedRes.json();
+            expect(errData.code).toBe('HAS_SERVED_ITEMS');
+            expect(errData.message).toContain('đã có món ở trạng thái đã phục vụ');
+
+            // Cleanup test order
+            await query(`DELETE FROM orders WHERE id = $1`, [ordRes.rows[0].id]);
         });
     });
 
