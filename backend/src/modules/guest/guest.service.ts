@@ -1355,7 +1355,9 @@ export class GuestService {
 
         const allocatedQuantities = new Map<string, number>();
         for (const row of partsRes.rows) {
-            if (!row.item_id) continue;
+            // Match the previous INNER JOIN behavior: item rows without parts
+            // must not appear as bill lines.
+            if (!row.item_id || !row.status) continue;
             const price = Number(row.snapshot_price);
             const qty = row.quantity;
             const preceding = allocatedQuantities.get(row.item_id) || 0;
