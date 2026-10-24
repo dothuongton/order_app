@@ -1345,16 +1345,26 @@ export class StaffService {
             }
 
             // Mark bill CANCELLED
-            await client.query(`
+            const billUpdate = await client.query(`
                 UPDATE bills
                 SET status = 'CANCELLED', total_amount = 0, updated_at = NOW()
                 WHERE session_id = $1
             `, [sessionId]);
 
-            // Close session
+            if (billUpdate.rowCount === 0) {
+                await client.query(`
+                    INSERT INTO bills (tenant_id, session_id, status, total_amount, updated_at)
+                    VALUES ($1, $2, 'CANCELLED', 0, NOW())
+                    ON CONFLICT (session_id) DO UPDATE SET status = 'CANCELLED', total_amount = 0, updated_at = NOW()
+                `, [tenantId, sessionId]);
+            }
+
+            // Close session & clear claim
             await client.query(`
                 UPDATE table_sessions
-                SET status = 'CLOSED', closed_by = $1, closed_at = NOW(), close_reason = $2, updated_at = NOW()
+                SET status = 'CLOSED', closed_by = $1, closed_at = NOW(), close_reason = $2,
+                    claimed_device_hash = NULL, requester_device_hash = NULL, requester_guest_name = NULL,
+                    updated_at = NOW()
                 WHERE id = $3
             `, [userId, reason || 'WITHOUT_CHARGE', sessionId]);
 
@@ -1368,13 +1378,13 @@ export class StaffService {
             // Cancel any open order item parts if any existed
             await client.query(`
                 UPDATE order_item_parts
-                SET status = 'CANCELLED', cancel_reason = 'SESSION_CLOSED_WITHOUT_CHARGE', updated_at = NOW()
+                SET status = 'CANCELLED', cancel_reason = $1, updated_at = NOW()
                 WHERE order_item_id IN (
                     SELECT oi.id FROM order_items oi
                     JOIN orders o ON o.id = oi.order_id
-                    WHERE o.session_id = $1
+                    WHERE o.session_id = $2
                 ) AND status IN ('PENDING', 'ACCEPTED')
-            `, [sessionId]);
+            `, [reason || 'SESSION_CLOSED_WITHOUT_CHARGE', sessionId]);
 
             // Revoke guest access
             await client.query(`

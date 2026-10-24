@@ -193,11 +193,7 @@ export const GuestRequestModal: React.FC<GuestRequestModalProps> = ({
               <span>Bàn {tableNumber}</span>
             </div>
             <h2 id="guest-request-dialog-title" className="text-lg font-extrabold text-slate-900 mt-0.5 truncate">
-              {isRequester
-                ? 'Đang chờ nhân viên duyệt'
-                : isReplacement
-                ? 'Yêu cầu đổi máy gọi món'
-                : 'Yêu cầu mở bàn'}
+              {isRequester ? 'Đang chờ nhân viên duyệt' : 'Yêu cầu mở bàn'}
             </h2>
           </div>
           <button
@@ -215,8 +211,6 @@ export const GuestRequestModal: React.FC<GuestRequestModalProps> = ({
           <p id="guest-request-dialog-desc" className="text-xs text-slate-600 leading-relaxed">
             {isRequester
               ? 'Yêu cầu của bạn đã được gửi tới nhân viên quán. Vui lòng đợi nhân viên xác nhận để bắt đầu gọi món.'
-              : isReplacement
-              ? 'Bàn đã mở nhưng chưa có máy gọi món. Nhập tên để gửi yêu cầu cấp quyền gọi món cho thiết bị của bạn hoặc chọn chỉ xem thực đơn.'
               : 'Quý khách vui lòng nhập tên để gửi yêu cầu mở bàn. Nhân viên duyệt xong bạn sẽ có thể đặt món trực tiếp.'}
           </p>
 

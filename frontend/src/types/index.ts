@@ -126,6 +126,7 @@ export interface Order {
 
 export interface BillRound {
   orderNumber: number;
+  createdAt?: string;
   rawSubtotal?: number;
   discountTotal?: number;
   acceptedOrServedSubtotal: number;
@@ -143,6 +144,7 @@ export interface BillRound {
     status: string;
     cancelReason?: string;
     subtotal: number;
+    createdAt?: string;
   }[];
 }
 

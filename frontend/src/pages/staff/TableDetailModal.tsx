@@ -50,6 +50,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   const [settlementNote, setSettlementNote] = useState('');
   const [isSettling, setIsSettling] = useState(false);
 
+  // Release session modal state (0đ cancel/abandon)
+  const [showReleaseModal, setShowReleaseModal] = useState(false);
+  const [selectedReleaseReason, setSelectedReleaseReason] = useState('Khách đặt ảo');
+  const [customReleaseReason, setCustomReleaseReason] = useState('');
+
   // Scope & Operation Identity refs (R1)
   const currentSessionRef = useRef<string | null>(null);
   const modalScopeRef = useRef<number>(0);
@@ -65,6 +70,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     currentSessionRef.current = currentSessionId;
     setIsSettling(false);
     setShowConfirmSettlement(false);
+    setShowReleaseModal(false);
+    setSelectedReleaseReason('Khách đặt ảo');
+    setCustomReleaseReason('');
     setSettlementNote('');
     setActionError(null);
     setActionSuccess(null);
@@ -270,7 +278,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   };
 
   // Close session without charge (F12)
-  const handleCloseWithoutCharge = async () => {
+  const handleCloseWithoutCharge = async (customReason?: string) => {
     if (!table?.active_session_id) return;
     if (isSettling) return; // Prevent duplicate clicks
     const operationId = ++operationCounterRef.current;
@@ -289,7 +297,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     try {
       await request(`/staff/sessions/${targetSessionId}/close-without-charge`, {
         method: 'POST',
-        body: JSON.stringify({ reason: 'WITHOUT_CHARGE' })
+        body: JSON.stringify({ reason: customReason || 'Khách không dùng món' })
       });
 
       if (!isCurrentOperation()) {
@@ -297,6 +305,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         return;
       }
 
+      setShowReleaseModal(false);
       onRefresh();
       onClose();
     } catch (err: any) {
@@ -494,8 +503,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     {billSummary.rounds?.map((round) => (
                       <div key={round.orderNumber} className="p-3.5 space-y-2">
                         <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span>Lần gọi {round.orderNumber}</span>
+                            {round.createdAt && (
+                              <span className="text-[11px] font-normal text-slate-400">
+                                • {new Date(round.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
                             {round.appliedPromotion && (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                                 🎁 {round.appliedPromotion.title}
@@ -656,36 +670,54 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 {(() => {
                   const hasUnresolved = (billSummary.unresolvedCount || 0) > 0;
                   const totalPayable = billSummary ? (billSummary.validBillTotal || 0) : 0;
+                  const hasAnyServed = billSummary?.rounds?.some(round => round.items.some(item => item.status === 'SERVED')) || false;
 
                   // Case 1: Still has pending / unserved items -> CANNOT confirm payment yet!
                   if (hasUnresolved) {
                     return (
                       <div className="space-y-2">
+                        {/* If no items served yet (e.g. fake order or customer abandoned), allow direct 0đ session release! */}
+                        {!hasAnyServed && (
+                          <button
+                            type="button"
+                            onClick={() => setShowReleaseModal(true)}
+                            disabled={isSettling || !hasPermission('session.close_without_charge')}
+                            className="w-full min-h-[48px] bg-rose-600 hover:bg-rose-700 active:bg-rose-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition cursor-pointer"
+                          >
+                            <XCircle className="w-5 h-5" />
+                            <span>Giải phóng phiên bàn (0đ)</span>
+                          </button>
+                        )}
+
                         <button
                           disabled={true}
-                          className="w-full min-h-[52px] bg-slate-100 border border-slate-300 text-slate-400 font-bold rounded-2xl py-3.5 px-4 flex items-center justify-center gap-2 cursor-not-allowed"
+                          className="w-full min-h-[48px] bg-slate-100 border border-slate-300 text-slate-400 font-bold rounded-2xl py-3 px-4 flex items-center justify-center gap-2 cursor-not-allowed text-xs"
                           title="Chưa thể chốt bill khi còn món đang chờ tiếp nhận hoặc chưa phục vụ"
                         >
-                          <CreditCard className="w-5 h-5 text-slate-400" />
-                          <span>Còn {billSummary.unresolvedCount} món chưa xong - Chưa thể tính bill</span>
+                          <CreditCard className="w-4 h-4 text-slate-400" />
+                          <span>Còn {billSummary.unresolvedCount} món chưa phục vụ - Không thể chốt bill</span>
                         </button>
                         <p className="text-[11px] text-slate-500 text-center leading-relaxed">
-                          💡 Đơn đang chờ nhận không thể tính bill. Hãy bấm nút <strong>"Tiếp nhận & Phục vụ tất cả"</strong> ở trên hoặc bấm <strong>"Hủy"</strong> từng món nếu khách không dùng.
+                          {!hasAnyServed ? (
+                            <>Nếu đơn bị đặt ảo hoặc khách đổi ý rời đi, bấm <strong>"Giải phóng phiên bàn (0đ)"</strong> ở trên để hủy và lưu vào báo cáo đối soát. Nếu khách có dùng món, hãy bấm <strong>"Tiếp nhận & Phục vụ tất cả"</strong> để tính tiền.</>
+                          ) : (
+                            <>Bàn đã có món phục vụ. Hãy bấm <strong>"Tiếp nhận & Phục vụ tất cả"</strong> ở trên hoặc hủy món chưa ra trước khi chốt bill.</>
+                          )}
                         </p>
                       </div>
                     );
                   }
 
                   // Case 2: 0 unresolved items, but total is 0đ (e.g. empty session or all items cancelled) -> Tắt bàn 0đ
-                  if (totalPayable === 0 && !billSummary.rounds.some(round => round.items.some(item => item.status === 'SERVED'))) {
+                  if (totalPayable === 0 && !hasAnyServed) {
                     return (
                       <button
-                        onClick={handleCloseWithoutCharge}
+                        onClick={() => setShowReleaseModal(true)}
                         disabled={isSettling || !hasPermission('session.close_without_charge')}
-                        className="w-full min-h-[48px] bg-rose-600 hover:bg-rose-700 active:bg-rose-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition"
+                        className="w-full min-h-[48px] bg-rose-600 hover:bg-rose-700 active:bg-rose-800 disabled:opacity-50 text-white font-black rounded-2xl py-3 px-4 shadow-md flex items-center justify-center gap-2 transition cursor-pointer"
                       >
                         <XCircle className="w-5 h-5" />
-                        <span>{isSettling ? 'Đang tắt bàn...' : 'Tắt bàn (0đ)'}</span>
+                        <span>{isSettling ? 'Đang tắt bàn...' : 'Giải phóng phiên bàn (0đ)'}</span>
                       </button>
                     );
                   }
@@ -999,6 +1031,96 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1"
                 >
                   {isDeletingTable ? 'Đang xóa...' : 'Xóa Bàn'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* RELEASE SESSION CONFIRMATION MODAL (0đ) */}
+        {showReleaseModal && (
+          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-scale-in">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  <XCircle className="w-5 h-5 text-rose-600" />
+                  <span>Giải Phóng Phiên Bàn (0đ)</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowReleaseModal(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Vui lòng chọn lý do giải phóng <strong>Bàn {table.table_number}</strong>. Hóa đơn 0đ sẽ được lưu lại trong báo cáo để đối soát minh bạch.
+              </p>
+
+              {/* Reason list */}
+              <div className="space-y-2">
+                {['Khách đặt ảo', 'Khách đổi ý', 'Khách rời bàn / gọi nhầm', 'Lý do khác'].map((r) => (
+                  <label
+                    key={r}
+                    onClick={() => setSelectedReleaseReason(r)}
+                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition ${
+                      selectedReleaseReason === r
+                        ? 'border-rose-500 bg-rose-50/70 text-rose-900 shadow-2xs'
+                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="releaseReason"
+                      checked={selectedReleaseReason === r}
+                      onChange={() => setSelectedReleaseReason(r)}
+                      className="text-rose-600 focus:ring-rose-500 h-4 w-4"
+                    />
+                    <span>{r}</span>
+                  </label>
+                ))}
+
+                {selectedReleaseReason === 'Lý do khác' && (
+                  <input
+                    type="text"
+                    placeholder="Nhập lý do cụ thể..."
+                    value={customReleaseReason}
+                    onChange={(e) => setCustomReleaseReason(e.target.value)}
+                    className="w-full mt-2 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                    autoFocus
+                  />
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowReleaseModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={isSettling}
+                  onClick={() => {
+                    const finalReason = selectedReleaseReason === 'Lý do khác'
+                      ? (customReleaseReason.trim() || 'Lý do khác')
+                      : selectedReleaseReason;
+                    handleCloseWithoutCharge(finalReason);
+                  }}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1"
+                >
+                  {isSettling ? (
+                    <span>Đang xử lý...</span>
+                  ) : (
+                    <>
+                      <XCircle className="w-4 h-4" />
+                      <span>Xác nhận giải phóng</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

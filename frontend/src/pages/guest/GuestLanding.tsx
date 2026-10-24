@@ -5,7 +5,7 @@ import { GuestOrders } from './GuestOrders.js';
 import { GuestBill } from './GuestBill.js';
 import { CartDrawer } from '../../components/CartDrawer.js';
 import { GuestRequestModal } from '../../components/GuestRequestModal.js';
-import { UtensilsCrossed, ClipboardList, Receipt, Bell, ShoppingBag, AlertCircle, Sparkles, WifiOff, Clock, UserCheck, Shield, Eye } from 'lucide-react';
+import { UtensilsCrossed, ClipboardList, Receipt, Bell, ShoppingBag, AlertCircle, Sparkles, WifiOff, Clock, UserCheck, Shield, Eye, Search } from 'lucide-react';
 
 interface GuestLandingProps {
   qrId: string;
@@ -258,16 +258,37 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
           </div>
         </div>
 
-        {/* Orders badge button */}
-        {orders.length > 0 && (
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Orders badge button */}
+          {orders.length > 0 && (
+            <button
+              onClick={() => setActiveTab('orders')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-teal-50 text-teal-800 font-bold text-xs rounded-xl border border-teal-200 active:bg-teal-100"
+            >
+              <ClipboardList className="w-3.5 h-3.5" />
+              <span>{orders.length} lần</span>
+            </button>
+          )}
+
+          {/* Search Button */}
           <button
-            onClick={() => setActiveTab('orders')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 text-teal-800 font-bold text-xs rounded-xl border border-teal-200 active:bg-teal-100"
+            onClick={() => {
+              setActiveTab('menu');
+              setTimeout(() => {
+                const el = document.getElementById('guest-menu-search-input');
+                if (el) {
+                  el.focus();
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }, 120);
+            }}
+            className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 flex items-center justify-center transition border border-slate-200 cursor-pointer"
+            title="Tìm kiếm món ăn"
+            aria-label="Tìm kiếm món ăn"
           >
-            <ClipboardList className="w-3.5 h-3.5" />
-            <span>{orders.length} lần gọi</span>
+            <Search className="w-4 h-4" />
           </button>
-        )}
+        </div>
       </header>
 
       {/* Real-time Banner when staff accepts support/payment */}
@@ -344,7 +365,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
                 onClick={() => setIsRequestModalDismissed(false)}
                 className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-xl shrink-0 transition shadow-xs cursor-pointer"
               >
-                {deviceState === 'VIEWER' ? 'Yêu cầu đổi máy' : 'Yêu cầu mở bàn'}
+                Yêu cầu mở bàn
               </button>
             </div>
           )}

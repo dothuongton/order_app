@@ -715,21 +715,21 @@ export const StaffDashboard: React.FC = () => {
               {soundMode === 'off' && <VolumeX className="w-4 h-4 text-slate-400" />}
             </button>
 
-            {/* Web Push Notification Settings Button */}
+            {/* Device Push Notification Settings Button */}
             <button
               onClick={() => setShowPushModal(true)}
               className={`w-9 h-9 rounded-xl transition flex items-center justify-center border text-xs font-bold relative shrink-0 cursor-pointer ${
                 pushState === 'granted' && isPushSubscribed
-                  ? 'text-[var(--brand-accent-dark)] bg-[var(--brand-accent-tint)] border-[var(--brand-line)] hover:bg-[var(--brand-accent-strong)]'
+                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
                   : pushState === 'key_mismatch' || pushState === 'ios_need_install'
                   ? 'text-amber-700 bg-amber-50 border-amber-300 hover:bg-amber-100 animate-pulse'
                   : pushState === 'http_insecure' || pushState === 'denied'
                   ? 'text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100'
-                  : 'text-[var(--brand-muted)] bg-[var(--brand-surface-soft)] border-[var(--brand-line)] hover:bg-[var(--brand-accent-tint)]'
+                  : 'text-slate-600 bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300'
               }`}
-              title={`Thông báo đẩy PWA: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'server_disabled' ? 'Chưa bật trên máy chủ' : pushState === 'key_mismatch' ? 'Cần cập nhật khóa' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
+              title={`Thông báo đẩy thiết bị: ${pushState === 'granted' && isPushSubscribed ? 'Đã bật' : pushState === 'server_disabled' ? 'Chưa bật trên máy chủ' : pushState === 'key_mismatch' ? 'Cần cập nhật khóa' : pushState === 'http_insecure' ? 'Cần HTTPS' : pushState === 'denied' ? 'Bị chặn' : pushState === 'ios_need_install' ? 'Cần cài Home Screen' : 'Chưa bật'}. Nhấn để quản lý.`}
             >
-              <BellRing className="w-4 h-4 text-[var(--brand-accent-text)]" />
+              <Smartphone className={`w-4 h-4 ${pushState === 'granted' && isPushSubscribed ? 'text-emerald-600' : 'text-slate-700'}`} />
               {pushState === 'granted' && isPushSubscribed && (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white"></span>
               )}
@@ -752,15 +752,6 @@ export const StaffDashboard: React.FC = () => {
                   {openRequests.length}
                 </span>
               )}
-            </button>
-
-            {/* Logout Button */}
-            <button
-              onClick={logout}
-              className="w-9 h-9 text-slate-500 hover:text-rose-600 rounded-xl bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 flex items-center justify-center transition shrink-0 cursor-pointer"
-              title="Đăng xuất"
-            >
-              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </header>

@@ -103,35 +103,51 @@ export const StaffReports: React.FC = () => {
         </div>
 
         <div className="divide-y divide-slate-100">
-          {(data?.recentSettledSessions || []).map((s: any, idx: number) => (
-            <div
-              key={idx}
-              onClick={() => setSelectedSessionForReceipt(s)}
-              className="py-3 px-3 -mx-2 rounded-xl hover:bg-[var(--brand-accent-tint)] active:bg-[var(--brand-accent-strong)] cursor-pointer flex items-center justify-between text-xs transition border border-transparent hover:border-[var(--brand-line)] group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] flex items-center justify-center font-black group-hover:bg-[var(--brand-accent)] group-hover:text-white transition">
-                  <Receipt className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900 text-sm">Bàn {s.table_number}</span>
-                    <span className="text-[10px] text-slate-400">#{s.session_id.slice(0, 6)}</span>
+          {(data?.recentSettledSessions || []).map((s: any, idx: number) => {
+            const isReleased0d = s.bill_status === 'CANCELLED' || Number(s.confirmed_amount) === 0;
+            return (
+              <div
+                key={idx}
+                onClick={() => setSelectedSessionForReceipt(s)}
+                className="py-3 px-3 -mx-2 rounded-xl hover:bg-[var(--brand-accent-tint)] active:bg-[var(--brand-accent-strong)] cursor-pointer flex items-center justify-between text-xs transition border border-transparent hover:border-[var(--brand-line)] group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition ${
+                    isReleased0d
+                      ? 'bg-slate-100 text-slate-600'
+                      : 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] group-hover:bg-[var(--brand-accent)] group-hover:text-white'
+                  }`}>
+                    <Receipt className="w-4 h-4" />
                   </div>
-                  <span className="text-slate-400 block text-[11px]">
-                    {s.confirmed_by_name} • {new Date(s.confirmed_at).toLocaleTimeString('vi-VN')} ({new Date(s.confirmed_at).toLocaleDateString('vi-VN')})
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-slate-900 text-sm">Bàn {s.table_number}</span>
+                      <span className="text-[10px] text-slate-400">#{s.session_id.slice(0, 6)}</span>
+                      {s.close_reason && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                          Đã giải phóng: {s.close_reason}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-slate-400 block text-[11px]">
+                      {s.confirmed_by_name} • {new Date(s.confirmed_at).toLocaleTimeString('vi-VN')} ({new Date(s.confirmed_at).toLocaleDateString('vi-VN')})
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className={`font-extrabold text-sm transition ${
+                    isReleased0d
+                      ? 'text-slate-500'
+                      : 'text-emerald-700 group-hover:text-[var(--brand-accent-text)]'
+                  }`}>
+                    {Number(s.confirmed_amount).toLocaleString('vi-VN')}đ
                   </span>
+                  <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-[var(--brand-accent-text)] transition" />
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm text-emerald-700 group-hover:text-[var(--brand-accent-text)] transition">
-                  {Number(s.confirmed_amount).toLocaleString('vi-VN')}đ
-                </span>
-                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-[var(--brand-accent-text)] transition" />
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {(!data?.recentSettledSessions || data.recentSettledSessions.length === 0) && (
             <p className="text-xs text-slate-400 py-3 text-center">Chưa có phiên nào được thanh toán</p>

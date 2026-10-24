@@ -13,6 +13,9 @@ interface ReceiptDetailModalProps {
     confirmed_by_name: string;
     settlement_note?: string;
     opened_at?: string;
+    session_status?: string;
+    close_reason?: string;
+    bill_status?: string;
   } | null;
   onClose: () => void;
 }
@@ -110,6 +113,12 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                     <span>Thu ngân:</span>
                     <span>{session.confirmed_by_name}</span>
                   </div>
+                  {session.close_reason && (
+                    <div className="flex justify-between text-rose-700 font-sans font-bold pt-0.5">
+                      <span>Lý do giải phóng:</span>
+                      <span>{session.close_reason}</span>
+                    </div>
+                  )}
                   {session.settlement_note && (
                     <div className="flex justify-between text-amber-700 pt-0.5">
                       <span>Ghi chú:</span>
