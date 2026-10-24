@@ -80,6 +80,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             SELECT 
                 ts.id as session_id,
                 t.table_number,
+                ts.requester_guest_name as opening_guest_name,
                 COALESCE(msc.amount, b.total_amount, 0) as confirmed_amount,
                 COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) as confirmed_at,
                 COALESCE(u.full_name, 'Nhân viên') as confirmed_by_name,
@@ -96,7 +97,13 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
             WHERE ts.tenant_id = $1 
               AND (
                 ((b.status = 'CONFIRMED' OR msc.id IS NOT NULL OR ts.close_reason = 'CONFIRMED_SETTLED') AND COALESCE(msc.amount, b.total_amount, 0) > 0)
-                OR (ts.status = 'CLOSED' AND b.status = 'CANCELLED' AND ts.close_reason IS NOT NULL)
+                OR (
+                    ts.status = 'CLOSED' AND ts.close_reason IS NOT NULL
+                    AND (
+                        b.status = 'CANCELLED'
+                        OR (b.status = 'CONFIRMED' AND COALESCE(msc.amount, b.total_amount, 0) = 0)
+                    )
+                )
               )
             ORDER BY COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) DESC
             LIMIT 50

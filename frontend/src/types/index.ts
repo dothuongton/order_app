@@ -152,6 +152,7 @@ export interface BillSummary {
   sessionId: string;
   sessionStatus: 'OPEN' | 'CLOSED';
   settlementVersion: number;
+  openingGuestName?: string | null;
   rawBillTotal?: number;
   totalDiscount?: number;
   validBillTotal: number;

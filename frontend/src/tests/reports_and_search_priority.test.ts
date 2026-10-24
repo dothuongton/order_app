@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isSessionCancelled, formatCancelReason } from '../pages/staff/StaffReports.js';
+import { isSessionCancelled, formatCancelReason, getSessionReportStatus } from '../pages/staff/StaffReports.js';
+import { getReceiptItemsForDisplay } from '../pages/staff/ReceiptDetailModal.js';
 
 describe('Reports Status Badge Logic (Issue #140 Follow-up)', () => {
   it('correctly marks confirmed/paid sessions as NOT cancelled and formats them cleanly', () => {
@@ -16,6 +17,7 @@ describe('Reports Status Badge Logic (Issue #140 Follow-up)', () => {
 
     expect(isSessionCancelled(paidSession)).toBe(false);
     expect(formatCancelReason(paidSession.close_reason)).toBe('');
+    expect(getSessionReportStatus(paidSession)).toBeNull();
   });
 
   it('correctly identifies cancelled 0đ sessions and formats friendly reason without raw technical codes', () => {
@@ -70,6 +72,41 @@ describe('Reports Status Badge Logic (Issue #140 Follow-up)', () => {
     };
     expect(isSessionCancelled(smokeTestSession)).toBe(true);
     expect(formatCancelReason(smokeTestSession.close_reason)).toBe('Đã hủy: Thử nghiệm');
+    expect(getSessionReportStatus(smokeTestSession)).toEqual({
+      kind: 'cancelled',
+      label: 'Đã hủy: Thử nghiệm'
+    });
+  });
+
+  it('gives confirmed zero-value receipts a clear completed status instead of a blank cancellation reason', () => {
+    const zeroReceipt = {
+      confirmed_amount: 0,
+      close_reason: 'CONFIRMED_SETTLED',
+      bill_status: 'CONFIRMED'
+    };
+
+    expect(isSessionCancelled(zeroReceipt)).toBe(false);
+    expect(getSessionReportStatus(zeroReceipt)).toEqual({
+      kind: 'zero',
+      label: 'Đã chốt 0đ · Không có món phục vụ'
+    });
+  });
+
+  it('labels a zero-value cancelled receipt even if no reason was saved', () => {
+    expect(getSessionReportStatus({ confirmed_amount: 0, bill_status: 'CANCELLED', close_reason: null })).toEqual({
+      kind: 'cancelled',
+      label: 'Đã hủy (0đ)'
+    });
+  });
+
+  it('keeps customer-ordered cancelled items visible on a zero-value receipt', () => {
+    const items = [
+      { itemId: '1', name: 'Phở bò', price: 50000, quantity: 1, status: 'CANCELLED', subtotal: 0 },
+      { itemId: '2', name: 'Trà đá', price: 5000, quantity: 1, status: 'SERVED', subtotal: 5000 }
+    ];
+
+    expect(getReceiptItemsForDisplay(items, 0)).toEqual(items);
+    expect(getReceiptItemsForDisplay(items, 5000)).toEqual([items[1]]);
   });
 });
 

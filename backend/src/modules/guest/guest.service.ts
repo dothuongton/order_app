@@ -1303,6 +1303,7 @@ export class GuestService {
                 ts.status AS session_status,
                 ts.settlement_version,
                 ts.table_id,
+                ts.requester_guest_name AS opening_guest_name,
                 confirmed_bill.id AS confirmed_bill_id,
                 confirmed_bill.total_amount AS confirmed_bill_total_amount,
                 confirmed_bill.confirmed_at AS confirmed_bill_at,
@@ -1374,7 +1375,8 @@ export class GuestService {
             id: partsRes.rows[0].session_id,
             status: partsRes.rows[0].session_status,
             settlement_version: partsRes.rows[0].settlement_version,
-            table_id: partsRes.rows[0].table_id
+            table_id: partsRes.rows[0].table_id,
+            opening_guest_name: partsRes.rows[0].opening_guest_name
         };
         const confirmedBill = partsRes.rows[0].confirmed_bill_id ? {
             id: partsRes.rows[0].confirmed_bill_id,
@@ -1508,6 +1510,7 @@ export class GuestService {
                     sessionId: session.id,
                     sessionStatus: session.status,
                     settlementVersion: session.settlement_version,
+                    openingGuestName: session.opening_guest_name,
                     rawBillTotal: rawConfirmedTotal,
                     totalDiscount: closedDiscountTotal,
                     validBillTotal: closedBillTotal, // Immutable closed amount
@@ -1553,6 +1556,7 @@ export class GuestService {
             sessionId: session.id,
             sessionStatus: session.status,
             settlementVersion: session.settlement_version,
+            openingGuestName: session.opening_guest_name,
             rawBillTotal: rawConfirmedTotal,
             totalDiscount: effectiveDiscount,
             validBillTotal: effectiveValidBillTotal, // Tổng các món đã tiếp nhận / đã phục vụ sau giảm giá tổng bill

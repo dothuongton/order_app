@@ -3,7 +3,7 @@ import { request } from '../../api/client.js';
 import { BillSummary } from '../../types/index.js';
 import { X, Printer, Receipt, XCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
-import { isSessionCancelled, formatCancelReason } from './StaffReports.js';
+import { isSessionCancelled, formatCancelReason, getSessionReportStatus } from './StaffReports.js';
 
 interface ReceiptDetailModalProps {
   session: {
@@ -17,9 +17,13 @@ interface ReceiptDetailModalProps {
     session_status?: string;
     close_reason?: string;
     bill_status?: string;
+    opening_guest_name?: string | null;
   } | null;
   onClose: () => void;
 }
+
+export const getReceiptItemsForDisplay = (items: BillSummary['rounds'][number]['items'], amount: number) =>
+  Number(amount) === 0 ? items : items.filter(item => item.status !== 'CANCELLED');
 
 export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session, onClose }) => {
   const { currentTenant } = useAuth();
@@ -52,8 +56,10 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
 
   // Flatten items for printing summary
   const allItems = billSummary?.rounds?.flatMap(r => r.items) || [];
-  const validItems = allItems.filter(i => i.status !== 'CANCELLED');
+  const showZeroValueItems = Number(session.confirmed_amount) === 0;
+  const displayItems = getReceiptItemsForDisplay(allItems, session.confirmed_amount);
   const isCancelled = isSessionCancelled(session);
+  const receiptStatus = getSessionReportStatus(session);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
@@ -65,7 +71,9 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
               <Receipt className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">Hóa đơn thanh toán</h3>
+              <h3 className="font-bold text-slate-900 text-base">
+                {Number(session.confirmed_amount) === 0 ? 'Biên nhận phiên 0đ' : 'Hóa đơn thanh toán'}
+              </h3>
               <p className="text-xs text-slate-500">Bàn {session.table_number}</p>
             </div>
           </div>
@@ -112,15 +120,21 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                     <span>{new Date(session.confirmed_at).toLocaleString('vi-VN')}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Thu ngân:</span>
+                    <span>{Number(session.confirmed_amount) === 0 ? 'Người xử lý:' : 'Thu ngân:'}</span>
                     <span>{session.confirmed_by_name}</span>
                   </div>
-                  {isCancelled && (
+                  <div className="flex justify-between gap-3">
+                    <span className="shrink-0">Người yêu cầu mở bàn:</span>
+                    <span className="text-right">{billSummary?.openingGuestName || session.opening_guest_name || 'Không ghi nhận tên'}</span>
+                  </div>
+                  {receiptStatus && (
                     <div className="flex justify-between items-center pt-0.5 font-sans">
                       <span className="text-slate-600">Trạng thái:</span>
-                      <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                        <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
-                        <span>{formatCancelReason(session.close_reason)}</span>
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border ${
+                        isCancelled ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {isCancelled && <XCircle className="w-3 h-3 text-rose-600 shrink-0" />}
+                        <span>{receiptStatus.label}</span>
                       </span>
                     </div>
                   )}
@@ -142,10 +156,18 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                   <span className="w-20 text-right">T.Tiền</span>
                 </div>
 
-                {validItems.map((item, idx) => (
+                {showZeroValueItems && allItems.length > 0 && (
+                  <p className="text-[10px] font-bold text-rose-700 bg-rose-50 rounded-lg px-2 py-1.5">
+                    Món khách đã gọi trong phiên 0đ (hiển thị cả món đã hủy)
+                  </p>
+                )}
+
+                {displayItems.map((item, idx) => (
                   <div key={idx} className="space-y-0.5">
                     <div className="flex justify-between items-baseline text-slate-800">
-                      <span className="flex-1 font-sans font-semibold text-[11px] pr-1">
+                      <span className={`flex-1 font-sans font-semibold text-[11px] pr-1 ${
+                        item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-800'
+                      }`}>
                         {item.name}
                         {item.variantName && (
                           <span className="ml-1 text-[10px] text-[var(--brand-accent-dark)] font-bold">({item.variantName})</span>
@@ -164,11 +186,18 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                         * {item.note}
                       </div>
                     )}
+                    {showZeroValueItems && item.status === 'CANCELLED' && (
+                      <div className="text-[10px] text-rose-700 font-semibold pl-1">
+                        Đã hủy · {formatCancelReason(item.cancelReason).replace(/^Đã hủy:\s*/, '')}
+                      </div>
+                    )}
                   </div>
                 ))}
 
-                {validItems.length === 0 && (
-                  <p className="text-center py-4 text-slate-400 italic">Không có món ăn phát sinh trong hóa đơn này</p>
+                {displayItems.length === 0 && (
+                  <p className="text-center py-4 text-slate-400 italic">
+                    {isCancelled ? 'Không ghi nhận món đã gọi trong phiên này' : 'Không có món ăn phát sinh trong hóa đơn này'}
+                  </p>
                 )}
               </div>
 
@@ -180,11 +209,11 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                     {Number(session.confirmed_amount).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
-                {isCancelled && (
+                {receiptStatus && (
                   <div className="flex items-center justify-center gap-1.5 text-[11px] font-sans font-bold pt-1">
-                    <span className="text-rose-600 flex items-center gap-1">
-                      <XCircle className="w-3.5 h-3.5" />
-                      <span>{formatCancelReason(session.close_reason).toUpperCase()}</span>
+                    <span className={`${isCancelled ? 'text-rose-600' : 'text-amber-700'} flex items-center gap-1`}>
+                      {isCancelled ? <XCircle className="w-3.5 h-3.5" /> : <Receipt className="w-3.5 h-3.5" />}
+                      <span>{receiptStatus.label.toUpperCase()}</span>
                     </span>
                   </div>
                 )}
