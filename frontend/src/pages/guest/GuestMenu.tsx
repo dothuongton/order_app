@@ -44,7 +44,8 @@ export const GuestMenu: React.FC = () => {
     }));
   }, [menuItems]);
 
-  // Available items always appear first; out-of-stock items (Hết món) are pushed to the bottom
+  // Available items always appear first; out-of-stock items (Hết món) are pushed to the bottom.
+  // When searching: Prioritize items matching by NAME before items matching only by DESCRIPTION.
   const filteredItems = useMemo(() => {
     const trimmed = debouncedQuery.trim();
     const q = trimmed ? normalizeSearch(trimmed) : '';
@@ -57,11 +58,33 @@ export const GuestMenu: React.FC = () => {
       list = list.filter(({ normName, normDesc }) => normName.includes(q) || normDesc.includes(q));
     }
 
-    const items = list.map(entry => entry.item);
-    return items.sort((a, b) => {
-      if (a.is_available === b.is_available) return 0;
-      return a.is_available ? -1 : 1;
-    });
+    return list
+      .sort((a, b) => {
+        // Available items always appear first; out-of-stock items (Hết món) are pushed to the bottom
+        if (a.item.is_available !== b.item.is_available) {
+          return a.item.is_available ? -1 : 1;
+        }
+
+        // When searching: prioritize matches by item NAME before matches by DESCRIPTION
+        if (q) {
+          const aNameMatch = a.normName.includes(q);
+          const bNameMatch = b.normName.includes(q);
+
+          // 1. Items matching name come strictly before items matching only description
+          if (aNameMatch && !bNameMatch) return -1;
+          if (!aNameMatch && bNameMatch) return 1;
+
+          // 2. Among items matching name: exact match > prefix match > substring match
+          if (aNameMatch && bNameMatch) {
+            const aScore = a.normName === q ? 1 : a.normName.startsWith(q) ? 2 : 3;
+            const bScore = b.normName === q ? 1 : b.normName.startsWith(q) ? 2 : 3;
+            if (aScore !== bScore) return aScore - bScore;
+          }
+        }
+
+        return 0;
+      })
+      .map(entry => entry.item);
   }, [indexedItems, selectedCategory, debouncedQuery]);
 
   const handleOpenCustomize = (item: MenuItem) => {
