@@ -144,6 +144,29 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
         expect(releasedSession.bill_status).toBe('CANCELLED');
     });
 
+    it('authenticates a reports summary request only once', async () => {
+        let queryCount = 0;
+        const poolAny = pool as any;
+        const originalQuery = poolAny.query;
+        poolAny.query = function (...args: any[]) {
+            queryCount += 1;
+            return originalQuery.apply(pool, args);
+        };
+
+        try {
+            const reportsRes = await fetch(`${baseUrl}/api/v1/staff/reports/summary`, {
+                headers: { Authorization: `Bearer ${staffToken}` }
+            });
+            expect(reportsRes.status).toBe(200);
+            const reportsData: any = await reportsRes.json();
+            expect(reportsData.metrics).toBeDefined();
+            // One token-revocation lookup, one membership lookup and four report reads.
+            expect(queryCount).toBe(6);
+        } finally {
+            poolAny.query = originalQuery;
+        }
+    });
+
     it('exposes round createdAt timestamp in getBillSummary', async () => {
         const tableRes = await query(`SELECT id, table_number FROM tables WHERE tenant_id = $1 LIMIT 1`, [tenantId]);
         const table = tableRes.rows[0];

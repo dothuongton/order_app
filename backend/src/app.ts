@@ -150,8 +150,8 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/cms', cmsRouter);
 app.use('/api/v1', guestRouter);
-app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/staff/reports', reportsRouter);
+app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/staff/push', pushRouter);
 
 // Serve frontend static files if public folder exists (Production / Fly.io / Local build)
