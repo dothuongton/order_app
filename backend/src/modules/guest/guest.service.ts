@@ -1553,14 +1553,19 @@ export class GuestService {
         return await withTransaction(async (client) => {
             validate(z.enum(['ASSISTANCE', 'CHECKOUT']), type);
             validate(z.string().max(1000).optional(), note);
-            const locked = await client.query(`SELECT id, status, claimed_device_hash FROM table_sessions
+            const locked = await client.query(`SELECT id, status, claimed_device_hash, requester_guest_name FROM table_sessions
                 WHERE id = $1 AND tenant_id = $2 AND table_id = $3 FOR UPDATE`, [sessionId, tenantId, tableId]);
             if (!locked.rows.length || locked.rows[0].status !== 'OPEN') {
                 throw { status: 409, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc' };
             }
             if (config.orderingMode === 'approved_single_device') {
                 if (!callerDeviceHash || locked.rows[0].claimed_device_hash !== callerDeviceHash) {
-                    throw { status: 403, code: 'DEVICE_NOT_CLAIMED', message: 'Chỉ thiết bị giữ quyền đặt món mới có thể gọi nhân viên.' };
+                    const guestName = locked.rows[0].requester_guest_name || 'đặt món';
+                    throw {
+                        status: 403,
+                        code: 'DEVICE_NOT_CLAIMED',
+                        message: `Chỉ có khách hàng ${guestName} mới gửi được yêu cầu hỗ trợ và thanh toán.`
+                    };
                 }
             }
             // Check if there is already an open request of this type

@@ -711,19 +711,34 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 })()}
 
                 {/* Release Claim (Gaeru P1) */}
-                <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between">
-                  <div className="text-[11px] text-slate-500">
-                    <span>Đổi máy gọi món / giải phóng quyền đặt</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleReleaseClaim}
-                    disabled={isReleasingClaim}
-                    className="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition cursor-pointer"
-                  >
-                    {isReleasingClaim ? 'Đang giải phóng...' : 'Giải phóng máy gọi'}
-                  </button>
-                </div>
+                {(() => {
+                  const hasServedItems = (table.counts?.served || 0) > 0 || (billSummary?.servedTotal || 0) > 0;
+                  return (
+                    <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-slate-500">
+                        <span>Đổi máy gọi món / giải phóng quyền đặt</span>
+                        {hasServedItems && (
+                          <span className="block text-rose-600 font-medium text-[10px] mt-0.5">
+                            🔒 Đã có món phục vụ, không thể giải phóng máy
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleReleaseClaim}
+                        disabled={isReleasingClaim || hasServedItems}
+                        title={hasServedItems ? 'Bàn đã có món ở trạng thái đã phục vụ, không thể giải phóng máy gọi món' : 'Giải phóng máy gọi món'}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-xl transition shrink-0 ${
+                          hasServedItems
+                            ? 'text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed opacity-60'
+                            : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 cursor-pointer'
+                        }`}
+                      >
+                        {isReleasingClaim ? 'Đang giải phóng...' : 'Giải phóng máy gọi'}
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             )}
             </>

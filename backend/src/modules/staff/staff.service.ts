@@ -530,6 +530,24 @@ export class StaffService {
             }
 
             const session = sessionRes.rows[0];
+
+            // Verify no served items exist before releasing machine/device claim
+            const servedRes = await client.query(`
+                SELECT COUNT(oip.id) as count
+                FROM order_item_parts oip
+                JOIN order_items oi ON oi.id = oip.order_item_id
+                JOIN orders o ON o.id = oi.order_id
+                WHERE o.session_id = $1 AND oip.status = 'SERVED'
+            `, [session.id]);
+
+            if (parseInt(servedRes.rows[0].count, 10) > 0) {
+                throw {
+                    status: 400,
+                    code: 'HAS_SERVED_ITEMS',
+                    message: 'Bàn đã có món ở trạng thái đã phục vụ, không thể giải phóng máy gọi món'
+                };
+            }
+
             const nextClaimVersion = (session.claim_version || 1) + 1;
 
             await client.query(`
@@ -1451,8 +1469,23 @@ export class StaffService {
         }
 
         const row = res.rows[0];
-        broadcastToStaff(tenantId, 'service_request.updated', { requestId });
-        broadcastToSession(row.session_id, 'service_request.updated', { requestId });
+        const acceptMsg = row.type === 'CHECKOUT'
+            ? 'Nhân viên đã tiếp nhận yêu cầu thanh toán và đang tới bàn.'
+            : 'Nhân viên đã tiếp nhận yêu cầu hỗ trợ và đang tới bàn.';
+
+        broadcastToStaff(tenantId, 'service_request.updated', { requestId, type: row.type, status: 'ACCEPTED' });
+        broadcastToSession(row.session_id, 'service_request.updated', {
+            requestId,
+            type: row.type,
+            status: 'ACCEPTED',
+            message: acceptMsg
+        });
+        broadcastToTable(row.table_id, 'service_request.updated', {
+            requestId,
+            type: row.type,
+            status: 'ACCEPTED',
+            message: acceptMsg
+        });
 
         return { success: true, message: 'Đã tiếp nhận yêu cầu hỗ trợ' };
     }
@@ -1470,8 +1503,19 @@ export class StaffService {
         }
 
         const row = res.rows[0];
-        broadcastToStaff(tenantId, 'service_request.updated', { requestId });
-        broadcastToSession(row.session_id, 'service_request.updated', { requestId });
+        broadcastToStaff(tenantId, 'service_request.updated', { requestId, type: row.type, status: 'COMPLETED' });
+        broadcastToSession(row.session_id, 'service_request.updated', {
+            requestId,
+            type: row.type,
+            status: 'COMPLETED',
+            message: 'Nhân viên đã hoàn tất yêu cầu hỗ trợ.'
+        });
+        broadcastToTable(row.table_id, 'service_request.updated', {
+            requestId,
+            type: row.type,
+            status: 'COMPLETED',
+            message: 'Nhân viên đã hoàn tất yêu cầu hỗ trợ.'
+        });
 
         return { success: true, message: 'Đã hoàn tất yêu cầu hỗ trợ' };
     }
@@ -1489,8 +1533,20 @@ export class StaffService {
         }
 
         const row = res.rows[0];
-        broadcastToStaff(tenantId, 'service_request.updated', { requestId });
-        broadcastToSession(row.session_id, 'service_request.updated', { requestId });
+        const cancelMsg = reason ? `Yêu cầu hỗ trợ đã hủy: ${reason}` : 'Yêu cầu hỗ trợ đã được hủy.';
+        broadcastToStaff(tenantId, 'service_request.updated', { requestId, type: row.type, status: 'CANCELLED' });
+        broadcastToSession(row.session_id, 'service_request.updated', {
+            requestId,
+            type: row.type,
+            status: 'CANCELLED',
+            message: cancelMsg
+        });
+        broadcastToTable(row.table_id, 'service_request.updated', {
+            requestId,
+            type: row.type,
+            status: 'CANCELLED',
+            message: cancelMsg
+        });
 
         return { success: true, message: 'Đã hủy yêu cầu' };
     }
