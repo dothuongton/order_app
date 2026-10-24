@@ -154,21 +154,38 @@ app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/staff/reports', reportsRouter);
 app.use('/api/v1/staff/push', pushRouter);
 
-// Serve frontend static files if public folder exists (Production / Fly.io)
+// Serve frontend static files if public folder exists (Production / Fly.io / Local build)
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const publicDir = process.env.PUBLIC_DIR || path.resolve(__dirname, '../public');
+const defaultPublicDir = path.resolve(__dirname, '../public');
+const frontendDistDir = path.resolve(__dirname, '../../frontend/dist');
+const publicDir = process.env.PUBLIC_DIR || (fs.existsSync(defaultPublicDir) ? defaultPublicDir : (fs.existsSync(frontendDistDir) ? frontendDistDir : defaultPublicDir));
 
 if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
+    app.use(express.static(publicDir, {
+        setHeaders: (res: Response, filePath: string) => {
+            // Hashed bundles in /assets/ get 1-year immutable cache
+            if (filePath.includes('/assets/') || filePath.includes('\\assets\\')) {
+                res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            } else if (filePath.endsWith('.html')) {
+                // HTML entry points must always revalidate
+                res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+            } else {
+                // Other static assets (icons, sounds, manifest)
+                res.setHeader('Cache-Control', 'public, max-age=86400');
+            }
+        }
+    }));
+
     app.get('*', (req: Request, res: Response, next: NextFunction) => {
         if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/socket.io')) {
             return next();
         }
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
         res.sendFile(path.join(publicDir, 'index.html'));
     });
 }

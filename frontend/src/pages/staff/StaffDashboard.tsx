@@ -169,11 +169,12 @@ export const StaffDashboard: React.FC = () => {
     }
   };
 
-  // Screen unlock / visibility wakeup: immediate fetch & audio sync
+  // Screen unlock / visibility wakeup: immediate fetch & audio sync (consolidated single listener)
   useEffect(() => {
     const handleWakeup = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         fetchDashboard();
+        fetchPendingRequests();
       }
     };
 
@@ -184,7 +185,7 @@ export const StaffDashboard: React.FC = () => {
       document.removeEventListener('visibilitychange', handleWakeup);
       window.removeEventListener('focus', handleWakeup);
     };
-  }, [fetchDashboard]);
+  }, [fetchDashboard, fetchPendingRequests]);
 
   // Keep screen awake while on staff dashboard
   useEffect(() => {
@@ -203,6 +204,15 @@ export const StaffDashboard: React.FC = () => {
     joinRoom();
     socket.on('connect', joinRoom);
 
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchDashboard();
+        fetchPendingRequests();
+      }, 150);
+    };
+
     const handleOrderCreated = (payload: any) => {
       const tableName = payload?.tableName || 'Bàn';
       const eventId = payload?.orderId ? `order-${payload.orderId}` : undefined;
@@ -213,7 +223,7 @@ export const StaffDashboard: React.FC = () => {
         type: 'info',
         duration: 7000
       });
-      fetchDashboard();
+      scheduleRefresh();
     };
 
     const handleServiceRequestCreated = (payload: any) => {
@@ -232,17 +242,15 @@ export const StaffDashboard: React.FC = () => {
         type: 'warning',
         duration: 8000
       });
-      fetchDashboard();
+      scheduleRefresh();
     };
 
     const handleUpdate = () => {
-      fetchDashboard();
-      fetchPendingRequests();
+      scheduleRefresh();
     };
 
     const handleTableRequested = (payload: any) => {
-      fetchDashboard();
-      fetchPendingRequests();
+      scheduleRefresh();
       const tableName = payload?.tableNumber ? `Bàn ${payload.tableNumber}` : 'Bàn';
       playAlertSound(tableName, 'ASSISTANCE');
       showToast({
@@ -263,21 +271,17 @@ export const StaffDashboard: React.FC = () => {
     socket.on('table_session:opened', handleUpdate);
     socket.on('table_session:rejected', handleUpdate);
 
-    // Backup polling (20s) as safety net while WebSockets handle instant real-time events (optimizing DB load for 100+ stores)
+    // Backup polling (20s) as safety net; pauses when tab is hidden to save DB load for 100+ stores
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
       fetchDashboard();
       fetchPendingRequests();
     }, 20000);
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchDashboard();
-        fetchPendingRequests();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       socket.emit('leave_staff_room');
       socket.off('connect', joinRoom);
       socket.off('reconnect', joinRoom);
@@ -291,7 +295,6 @@ export const StaffDashboard: React.FC = () => {
       socket.off('table_session:opened', handleUpdate);
       socket.off('table_session:rejected', handleUpdate);
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard, fetchPendingRequests]);
 

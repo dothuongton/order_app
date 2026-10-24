@@ -1,27 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import { PushProvider } from './context/PushContext.js';
 import { GuestProvider } from './context/GuestContext.js';
 import { NotificationProvider } from './context/NotificationContext.js';
-import { GuestLanding } from './pages/guest/GuestLanding.js';
-import { StaffLogin } from './pages/staff/StaffLogin.js';
-import { StaffDashboard } from './pages/staff/StaffDashboard.js';
-import { AdminLogin } from './pages/admin/AdminLogin.js';
-import { AdminDashboard } from './pages/admin/AdminDashboard.js';
 import { Store, QrCode, Shield, ArrowRight, ShieldCheck } from 'lucide-react';
+
+const GuestLanding = React.lazy(() => import('./pages/guest/GuestLanding.js').then(m => ({ default: m.GuestLanding })));
+const StaffLogin = React.lazy(() => import('./pages/staff/StaffLogin.js').then(m => ({ default: m.StaffLogin })));
+const StaffDashboard = React.lazy(() => import('./pages/staff/StaffDashboard.js').then(m => ({ default: m.StaffDashboard })));
+const AdminLogin = React.lazy(() => import('./pages/admin/AdminLogin.js').then(m => ({ default: m.AdminLogin })));
+const AdminDashboard = React.lazy(() => import('./pages/admin/AdminDashboard.js').then(m => ({ default: m.AdminDashboard })));
+
+function RouteLoadingFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+      <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  );
+}
 
 function StaffApp() {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
-        <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
+    return <RouteLoadingFallback />;
   }
 
-  return user ? <StaffDashboard /> : <StaffLogin />;
+  return (
+    <Suspense fallback={<RouteLoadingFallback />}>
+      {user ? <StaffDashboard /> : <StaffLogin />}
+    </Suspense>
+  );
 }
 
 function AdminApp() {
@@ -49,11 +58,15 @@ function AdminApp() {
     setAdminUser(null);
   };
 
-  if (!adminUser) {
-    return <AdminLogin onLoginSuccess={handleLoginSuccess} />;
-  }
-
-  return <AdminDashboard user={adminUser} onLogout={handleLogout} />;
+  return (
+    <Suspense fallback={<RouteLoadingFallback />}>
+      {!adminUser ? (
+        <AdminLogin onLoginSuccess={handleLoginSuccess} />
+      ) : (
+        <AdminDashboard user={adminUser} onLogout={handleLogout} />
+      )}
+    </Suspense>
+  );
 }
 
 export function App() {
@@ -72,7 +85,9 @@ export function App() {
     return (
       <NotificationProvider>
         <GuestProvider>
-          <GuestLanding qrId={qrId} />
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <GuestLanding qrId={qrId} />
+          </Suspense>
         </GuestProvider>
       </NotificationProvider>
     );
@@ -84,7 +99,9 @@ export function App() {
     return (
       <NotificationProvider>
         <GuestProvider>
-          <GuestLanding qrId="qr-phoco-a01" />
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <GuestLanding qrId="qr-phoco-a01" />
+          </Suspense>
         </GuestProvider>
       </NotificationProvider>
     );
