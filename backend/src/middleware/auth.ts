@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyStaffToken } from '../utils/staff-token.js';
+import { verifyStaffToken, verifyStaffTokenSignature } from '../utils/staff-token.js';
 import { config } from '../config/index.js';
 import { query } from '../db/pool.js';
 import { hashToken } from '../utils/crypto.js';
@@ -67,13 +67,23 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
             });
         }
 
-        const decoded = await verifyStaffToken(token);
+        // Verify the JWT locally, then check revocation and active membership in
+        // one database round trip. Keep revoked tokens distinguishable from
+        // valid tokens whose membership is missing or inactive.
+        const decoded = verifyStaffTokenSignature(token);
         const userId = decoded.userId;
         const tenantId = req.headers['x-tenant-id'] as string || decoded.tenantId;
 
-        // Fetch user and active membership for tenant
+        // Fetch token state, user and active membership for tenant together.
         const resMem = await query(`
+            WITH token_state AS (
+                SELECT EXISTS (
+                    SELECT 1 FROM revoked_staff_tokens
+                    WHERE token_hash = $3 AND expires_at > NOW()
+                ) AS is_revoked
+            )
             SELECT 
+                token_state.is_revoked,
                 u.id, u.email, u.full_name, u.is_platform_admin,
                 m.tenant_id, m.role, m.permissions, m.is_active,
                 t.name as tenant_name, t.slug as tenant_slug, t.status as tenant_status,
@@ -81,20 +91,27 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
                 t.description as tenant_description, t.phone as tenant_phone,
                 t.address as tenant_address, t.opening_hours as tenant_opening_hours,
                 t.active_theme_config as tenant_theme_config
-            FROM users u
-            JOIN memberships m ON m.user_id = u.id
+            FROM token_state
+            LEFT JOIN users u ON u.id = $1
+            LEFT JOIN memberships m ON m.user_id = u.id AND m.tenant_id = $2 AND m.is_active = true
             LEFT JOIN tenants t ON t.id = m.tenant_id
-            WHERE u.id = $1 AND m.tenant_id = $2 AND m.is_active = true
-        `, [userId, tenantId]);
+        `, [userId, tenantId, hashToken(token)]);
 
-        if (resMem.rows.length === 0) {
+        const row = resMem.rows[0];
+        if (row.is_revoked) {
+            return res.status(401).json({
+                error: 'INVALID_TOKEN',
+                message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn'
+            });
+        }
+
+        if (!row.id || !row.tenant_id) {
             return res.status(403).json({
                 error: 'FORBIDDEN',
                 message: 'Tài khoản không có quyền truy cập quán này hoặc đã bị khóa'
             });
         }
 
-        const row = resMem.rows[0];
         const tenantStatus = (row.tenant_status || 'active').toLowerCase();
 
         // Enforce tenant lifecycle status for staff (Issue #6 / Issue #19)

@@ -145,6 +145,13 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
     });
 
     it('authenticates a reports summary request only once', async () => {
+        const tableRes = await query(`SELECT id FROM tables WHERE tenant_id = $1 AND is_enabled = true AND readiness = 'READY' LIMIT 1`, [tenantId]);
+        const openRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableRes.rows[0].id}/open`, {
+            method: 'POST', headers: { Authorization: `Bearer ${staffToken}` }
+        });
+        expect(openRes.status).toBe(201);
+        const sessionId = (await openRes.json() as any).sessionId;
+
         let queryCount = 0;
         const poolAny = pool as any;
         const originalQuery = poolAny.query;
@@ -160,8 +167,19 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
             expect(reportsRes.status).toBe(200);
             const reportsData: any = await reportsRes.json();
             expect(reportsData.metrics).toBeDefined();
-            // One token-revocation lookup, one membership lookup and four report reads.
-            expect(queryCount).toBe(6);
+            // One combined token/membership check and four report reads.
+            expect(queryCount).toBe(5);
+
+            queryCount = 0;
+            const billRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/bill-summary`, {
+                headers: { Authorization: `Bearer ${staffToken}` }
+            });
+            expect(billRes.status).toBe(200);
+            const billData: any = await billRes.json();
+            expect(billData.sessionId).toBe(sessionId);
+            expect(billData.validBillTotal).toBeGreaterThanOrEqual(0);
+            // One combined token/membership check plus the two parallel bill reads.
+            expect(queryCount).toBe(3);
         } finally {
             poolAny.query = originalQuery;
         }
