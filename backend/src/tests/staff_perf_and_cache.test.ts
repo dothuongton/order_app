@@ -89,20 +89,25 @@ describe('Staff Performance, Asset Caching, and Snapshot Parallelism (Issue #142
     });
 
     describe('Code Splitting Chunks in Frontend Build', () => {
-        it('verifies route splitting produced separate lazy chunks for Staff, Guest, and Admin', () => {
+        it('keeps staff feature modules out of the initial dashboard chunk', () => {
             const distAssets = path.resolve('../frontend/dist/assets');
             expect(fs.existsSync(distAssets)).toBe(true);
 
             const files = fs.readdirSync(distAssets);
             const hasIndexChunk = files.some(f => f.startsWith('index-') && f.endsWith('.js'));
-            const hasStaffDashboardChunk = files.some(f => f.startsWith('StaffDashboard-') && f.endsWith('.js'));
+            const staffDashboardChunk = files.find(f => f.startsWith('StaffDashboard-') && f.endsWith('.js'));
             const hasGuestLandingChunk = files.some(f => f.startsWith('GuestLanding-') && f.endsWith('.js'));
             const hasAdminDashboardChunk = files.some(f => f.startsWith('AdminDashboard-') && f.endsWith('.js'));
+            const hasStaffMenuChunk = files.some(f => f.startsWith('StaffMenuManage-') && f.endsWith('.js'));
+            const hasStaffCmsChunk = files.some(f => f.startsWith('StaffCmsManage-') && f.endsWith('.js'));
 
             expect(hasIndexChunk).toBe(true);
-            expect(hasStaffDashboardChunk).toBe(true);
+            expect(staffDashboardChunk).toBeDefined();
             expect(hasGuestLandingChunk).toBe(true);
             expect(hasAdminDashboardChunk).toBe(true);
+            expect(hasStaffMenuChunk).toBe(true);
+            expect(hasStaffCmsChunk).toBe(true);
+            expect(fs.statSync(path.join(distAssets, staffDashboardChunk!)).size).toBeLessThan(200 * 1024);
         });
     });
 });
