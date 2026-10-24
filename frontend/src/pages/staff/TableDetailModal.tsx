@@ -409,7 +409,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
               <h2 className="text-xl font-black text-slate-900">Bàn {table.table_number}</h2>
               <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
                 table.displayStatus === 'Sẵn sàng' ? 'bg-emerald-100 text-emerald-800' :
-                table.displayStatus === 'Yêu cầu thanh toán' ? 'bg-amber-100 text-amber-800 animate-pulse' :
+                table.displayStatus === 'Yêu cầu thanh toán' ? 'bg-amber-100 text-amber-800' :
                 table.displayStatus === 'Chờ dọn' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
               }`}>
                 {table.displayStatus}
@@ -469,6 +469,36 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {table.active_session_id ? (
             <>
+              {isLoading && !billSummary && (
+                <div role="status" aria-live="polite" className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                    <RefreshCw className="h-4 w-4 animate-spin text-[var(--brand-accent)]" />
+                    Đang tải chi tiết đơn và hóa đơn…
+                  </div>
+                  <div className="space-y-2 animate-pulse" aria-hidden="true">
+                    <div className="h-12 rounded-xl bg-slate-100" />
+                    <div className="h-16 rounded-xl bg-slate-100" />
+                    <div className="h-16 rounded-xl bg-slate-100" />
+                  </div>
+                </div>
+              )}
+              {actionError && !billSummary && !isLoading && (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-center">
+                  <p className="text-sm font-semibold text-rose-800">Chưa tải được chi tiết đơn.</p>
+                  <button
+                    type="button"
+                    onClick={() => loadSessionData()}
+                    className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-rose-800 ring-1 ring-rose-200 transition hover:bg-rose-100"
+                  >
+                    <RefreshCw className="h-4 w-4" /> Thử tải lại
+                  </button>
+                </div>
+              )}
+              {isLoading && billSummary && (
+                <p role="status" className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Đang cập nhật hóa đơn…
+                </p>
+              )}
               {billSummary && (
                 <div className="space-y-4">
                   {/* Itemized Bill Breakdown */}
