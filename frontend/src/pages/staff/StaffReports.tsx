@@ -1,7 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { request } from '../../api/client.js';
-import { BarChart3, TrendingUp, Utensils, CheckCircle, RefreshCw, Receipt, ChevronRight } from 'lucide-react';
+import { BarChart3, TrendingUp, Utensils, CheckCircle, RefreshCw, Receipt, ChevronRight, CheckCircle2, XCircle } from 'lucide-react';
 import { ReceiptDetailModal } from './ReceiptDetailModal.js';
+
+export const isSessionCancelled = (s: any): boolean => {
+  if (s.bill_status === 'CANCELLED') return true;
+  if (s.close_reason && s.close_reason !== 'CONFIRMED_SETTLED') return true;
+  if (Number(s.confirmed_amount || 0) === 0) return true;
+  return false;
+};
+
+export const formatCancelReason = (reason?: string | null): string => {
+  if (!reason) return 'Đã hủy (0đ)';
+  const trimmed = reason.trim();
+  if (trimmed === 'CONFIRMED_SETTLED') return '';
+  if (trimmed === 'Khách đặt ảo') return 'Đã hủy: Khách đặt ảo';
+  if (trimmed === 'Khách đổi ý') return 'Đã hủy: Khách đổi ý';
+  if (trimmed === 'Khách rời bàn / gọi nhầm') return 'Đã hủy: Rời bàn / Gọi nhầm';
+  if (trimmed === 'WITHOUT_CHARGE' || trimmed === 'SESSION_CLOSED_WITHOUT_CHARGE' || trimmed === 'SESSION_CLOSED') {
+    return 'Đã hủy: Không dùng món';
+  }
+  if (trimmed.toLowerCase().includes('smoke') || trimmed.toLowerCase().includes('test')) {
+    return 'Đã hủy: Thử nghiệm';
+  }
+  const cleaned = trimmed.replace(/^(SESSION_CLOSED_|WITHOUT_CHARGE_?)/i, '');
+  return cleaned ? `Đã hủy: ${cleaned}` : 'Đã hủy';
+};
 
 export const StaffReports: React.FC = () => {
   const [data, setData] = useState<any | null>(null);
@@ -104,7 +128,9 @@ export const StaffReports: React.FC = () => {
 
         <div className="divide-y divide-slate-100">
           {(data?.recentSettledSessions || []).map((s: any, idx: number) => {
-            const isReleased0d = s.bill_status === 'CANCELLED' || Number(s.confirmed_amount) === 0;
+            const isCancelled = isSessionCancelled(s);
+            const cancelLabel = isCancelled ? formatCancelReason(s.close_reason) : '';
+
             return (
               <div
                 key={idx}
@@ -113,23 +139,32 @@ export const StaffReports: React.FC = () => {
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition ${
-                    isReleased0d
-                      ? 'bg-slate-100 text-slate-600'
-                      : 'bg-[var(--brand-accent-tint)] text-[var(--brand-accent-text)] group-hover:bg-[var(--brand-accent)] group-hover:text-white'
+                    isCancelled
+                      ? 'bg-rose-50 text-rose-600'
+                      : 'bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white'
                   }`}>
-                    <Receipt className="w-4 h-4" />
+                    {isCancelled ? <XCircle className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
                   </div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-slate-900 text-sm">Bàn {s.table_number}</span>
                       <span className="text-[10px] text-slate-400">#{s.session_id.slice(0, 6)}</span>
-                      {s.close_reason && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                          Đã giải phóng: {s.close_reason}
+
+                      {/* Only cancelled orders get red badge */}
+                      {isCancelled ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                          <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                          <span>{cancelLabel}</span>
+                        </span>
+                      ) : (
+                        /* Successfully paid orders get green "Xong" badge */
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>Xong</span>
                         </span>
                       )}
                     </div>
-                    <span className="text-slate-400 block text-[11px]">
+                    <span className="text-slate-400 block text-[11px] mt-0.5">
                       {s.confirmed_by_name} • {new Date(s.confirmed_at).toLocaleTimeString('vi-VN')} ({new Date(s.confirmed_at).toLocaleDateString('vi-VN')})
                     </span>
                   </div>
@@ -137,8 +172,8 @@ export const StaffReports: React.FC = () => {
 
                 <div className="flex items-center gap-2">
                   <span className={`font-extrabold text-sm transition ${
-                    isReleased0d
-                      ? 'text-slate-500'
+                    isCancelled
+                      ? 'text-rose-600/80 font-bold'
                       : 'text-emerald-700 group-hover:text-[var(--brand-accent-text)]'
                   }`}>
                     {Number(s.confirmed_amount).toLocaleString('vi-VN')}đ
