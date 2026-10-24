@@ -20,72 +20,90 @@ async function lockOpenSession(client: PoolClient, tenantId: string, sessionId: 
 export class StaffService {
     // 1. Get Dashboard Snapshot
     static async getDashboardSnapshot(tenantId: string) {
-        // Fetch all tables
-        const tablesRes = await query(`
-            SELECT 
-                t.id as table_id,
-                t.table_number,
-                t.public_qr_id,
-                t.capacity,
-                t.readiness,
-                t.is_enabled,
-                ts.id as active_session_id,
-                ts.opened_at,
-                ts.settlement_version,
-                u.full_name as opened_by_name
-            FROM tables t
-            LEFT JOIN table_sessions ts ON ts.table_id = t.id AND ts.status = 'OPEN'
-            LEFT JOIN users u ON u.id = ts.opened_by
-            WHERE t.tenant_id = $1
-            ORDER BY 
-                CASE WHEN ts.id IS NOT NULL THEN 0 ELSE 1 END ASC,
-                LENGTH(t.table_number) ASC,
-                t.table_number ASC
-        `, [tenantId]);
+        // Fetch snapshot data in parallel to optimize response latency and minimize connection hold time
+        const [tablesRes, requestsRes, activeItemsRes, pendingItemsRes] = await Promise.all([
+            // 1. Fetch all tables
+            query(`
+                SELECT 
+                    t.id as table_id,
+                    t.table_number,
+                    t.public_qr_id,
+                    t.capacity,
+                    t.readiness,
+                    t.is_enabled,
+                    ts.id as active_session_id,
+                    ts.opened_at,
+                    ts.settlement_version,
+                    u.full_name as opened_by_name
+                FROM tables t
+                LEFT JOIN table_sessions ts ON ts.table_id = t.id AND ts.status = 'OPEN'
+                LEFT JOIN users u ON u.id = ts.opened_by
+                WHERE t.tenant_id = $1
+                ORDER BY 
+                    CASE WHEN ts.id IS NOT NULL THEN 0 ELSE 1 END ASC,
+                    LENGTH(t.table_number) ASC,
+                    t.table_number ASC
+            `, [tenantId]),
 
-        // Fetch open service requests
-        const requestsRes = await query(`
-            SELECT 
-                sr.id,
-                sr.table_id,
-                sr.session_id,
-                sr.type,
-                sr.status,
-                sr.note,
-                COALESCE(sr.call_count, 1) as call_count,
-                sr.created_at,
-                COALESCE(sr.updated_at, sr.created_at) as updated_at,
-                t.table_number,
-                u.full_name as accepted_by_name
-            FROM service_requests sr
-            JOIN tables t ON t.id = sr.table_id
-            LEFT JOIN users u ON u.id = sr.accepted_by
-            WHERE sr.tenant_id = $1 AND sr.status IN ('PENDING', 'ACCEPTED')
-            ORDER BY COALESCE(sr.updated_at, sr.created_at) DESC
-        `, [tenantId]);
+            // 2. Fetch open service requests
+            query(`
+                SELECT 
+                    sr.id,
+                    sr.table_id,
+                    sr.session_id,
+                    sr.type,
+                    sr.status,
+                    sr.note,
+                    COALESCE(sr.call_count, 1) as call_count,
+                    sr.created_at,
+                    COALESCE(sr.updated_at, sr.created_at) as updated_at,
+                    t.table_number,
+                    u.full_name as accepted_by_name
+                FROM service_requests sr
+                JOIN tables t ON t.id = sr.table_id
+                LEFT JOIN users u ON u.id = sr.accepted_by
+                WHERE sr.tenant_id = $1 AND sr.status IN ('PENDING', 'ACCEPTED')
+                ORDER BY COALESCE(sr.updated_at, sr.created_at) DESC
+            `, [tenantId]),
 
-        // Fetch active order items with notes for tables currently in OPEN session
-        const activeItemsRes = await query(`
-            SELECT 
-                ts.table_id,
-                o.order_number,
-                oi.id as order_item_id,
-                oi.snapshot_name as name,
-                oi.snapshot_variant_name as variant_name,
-                oi.snapshot_price as price,
-                oi.note,
-                oip.id as part_id,
-                oip.status,
-                oip.quantity,
-                oip.cancel_reason,
-                oi.created_at
-            FROM table_sessions ts
-            JOIN orders o ON o.session_id = ts.id
-            JOIN order_items oi ON oi.order_id = o.id
-            JOIN order_item_parts oip ON oip.order_item_id = oi.id
-            WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
-            ORDER BY o.order_number ASC, oi.created_at ASC
-        `, [tenantId]);
+            // 3. Fetch active order items with notes for tables currently in OPEN session
+            query(`
+                SELECT 
+                    ts.table_id,
+                    o.order_number,
+                    oi.id as order_item_id,
+                    oi.snapshot_name as name,
+                    oi.snapshot_variant_name as variant_name,
+                    oi.snapshot_price as price,
+                    oi.note,
+                    oip.id as part_id,
+                    oip.status,
+                    oip.quantity,
+                    oip.cancel_reason,
+                    oi.created_at
+                FROM table_sessions ts
+                JOIN orders o ON o.session_id = ts.id
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN order_item_parts oip ON oip.order_item_id = oi.id
+                WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
+                ORDER BY o.order_number ASC, oi.created_at ASC
+            `, [tenantId]),
+
+            // 4. Fetch pending/active order counts per table
+            query(`
+                SELECT 
+                    ts.table_id,
+                    COUNT(oip.id) FILTER (WHERE oip.status = 'PENDING') as pending_count,
+                    COUNT(oip.id) FILTER (WHERE oip.status = 'ACCEPTED') as accepted_count,
+                    COUNT(oip.id) FILTER (WHERE oip.status = 'SERVED') as served_count
+                FROM table_sessions ts
+                JOIN orders o ON o.session_id = ts.id
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN order_item_parts oip ON oip.order_item_id = oi.id
+                WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
+                GROUP BY ts.table_id
+            `, [tenantId])
+        ]);
 
         const itemsByTable = new Map<string, any[]>();
         activeItemsRes.rows.forEach(r => {
@@ -106,21 +124,6 @@ export class StaffService {
                 createdAt: r.created_at
             });
         });
-
-        // Fetch pending/active order counts per table
-        const pendingItemsRes = await query(`
-            SELECT 
-                ts.table_id,
-                COUNT(oip.id) FILTER (WHERE oip.status = 'PENDING') as pending_count,
-                COUNT(oip.id) FILTER (WHERE oip.status = 'ACCEPTED') as accepted_count,
-                COUNT(oip.id) FILTER (WHERE oip.status = 'SERVED') as served_count
-            FROM table_sessions ts
-            JOIN orders o ON o.session_id = ts.id
-            JOIN order_items oi ON oi.order_id = o.id
-            JOIN order_item_parts oip ON oip.order_item_id = oi.id
-            WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
-            GROUP BY ts.table_id
-        `, [tenantId]);
 
         const countsMap = new Map<string, any>();
         pendingItemsRes.rows.forEach(r => countsMap.set(r.table_id, {
