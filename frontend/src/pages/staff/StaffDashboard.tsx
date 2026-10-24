@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, { Suspense, lazy, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useNotification } from '../../context/NotificationContext.js';
 import { request } from '../../api/client.js';
@@ -6,8 +6,6 @@ import { StaffTable, ServiceRequest, PendingTableRequest } from '../../types/ind
 import { TableDetailModal } from './TableDetailModal.js';
 import { QRModal } from '../../components/QRModal.js';
 import { StaffReports } from './StaffReports.js';
-import { StaffMenuManage } from './StaffMenuManage.js';
-import { StaffCmsManage } from './StaffCmsManage.js';
 import { usePush } from '../../context/PushContext.js';
 import { PushSettingsModal } from './PushSettingsModal.js';
 import { getStaffThemeCssVars } from '../../lib/theme.js';
@@ -21,6 +19,38 @@ import {
 } from 'lucide-react';
 import { StaffChangePasswordModal } from './StaffChangePasswordModal.js';
 import { TableManageModal } from './TableManageModal.js';
+
+const StaffMenuManage = lazy(() => import('./StaffMenuManage.js').then(module => ({ default: module.StaffMenuManage })));
+const StaffCmsManage = lazy(() => import('./StaffCmsManage.js').then(module => ({ default: module.StaffCmsManage })));
+
+class StaffScreenLoadBoundary extends React.Component<{
+  children: React.ReactNode;
+  screenName: string;
+}, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error(`Failed to load ${this.props.screenName}`, error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-center text-sm text-rose-800">
+          <p>Không tải được {this.props.screenName}. Vui lòng thử tải lại màn hình.</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-3 rounded-xl bg-white px-3 py-2 font-bold">
+            Tải lại màn hình
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export const StaffDashboard: React.FC = () => {
   const { user, currentTenant, logout, hasPermission, updateUserProfile } = useAuth();
@@ -160,6 +190,18 @@ export const StaffDashboard: React.FC = () => {
   useEffect(() => () => {
     if (dashboardRefreshTimerRef.current) clearTimeout(dashboardRefreshTimerRef.current);
   }, []);
+
+  // Settings are opened before the less common shop-management screens, so use
+  // that idle time to fetch the shop module before the next tap.
+  useEffect(() => {
+    if (activeTab !== 'settings') return;
+    const timer = window.setTimeout(() => {
+      void import('./StaffCmsManage.js').catch((error) => {
+        console.error('Failed to prefetch shop settings', error);
+      });
+    });
+    return () => window.clearTimeout(timer);
+  }, [activeTab]);
 
   useEffect(() => {
     fetchDashboard();
@@ -2070,7 +2112,11 @@ export const StaffDashboard: React.FC = () => {
               <ArrowLeft className="w-4 h-4" />
               <span>Quay lại Cài đặt</span>
             </button>
-            <StaffMenuManage />
+            <StaffScreenLoadBoundary screenName="quản lý thực đơn">
+              <Suspense fallback={<div role="status" className="min-h-32 rounded-2xl bg-white p-6 text-center text-sm text-slate-500">Đang tải quản lý thực đơn…</div>}>
+                <StaffMenuManage />
+              </Suspense>
+            </StaffScreenLoadBoundary>
           </div>
         )}
 
@@ -2088,7 +2134,11 @@ export const StaffDashboard: React.FC = () => {
               <ArrowLeft className="w-4 h-4" />
               <span>Quay lại Cài đặt</span>
             </button>
-            <StaffCmsManage initialSubTab={cmsSubTab} />
+            <StaffScreenLoadBoundary screenName="thiết lập quán">
+              <Suspense fallback={<div role="status" className="min-h-32 rounded-2xl bg-white p-6 text-center text-sm text-slate-500">Đang tải thiết lập quán…</div>}>
+                <StaffCmsManage initialSubTab={cmsSubTab} />
+              </Suspense>
+            </StaffScreenLoadBoundary>
           </div>
         )}
       </main>
