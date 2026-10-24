@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { request } from '../../api/client.js';
 import { CmsThemeConfig, Banner, Promotion, CmsPublishedVersion } from '../../types/cms.js';
 import { MobilePreviewModal } from '../../components/cms/MobilePreviewModal.js';
@@ -21,6 +21,7 @@ export const StaffCmsManage: React.FC<StaffCmsManageProps> = ({ initialSubTab = 
     const [subTab, setSubTab] = useState<'branding' | 'banners' | 'promotions' | 'history'>(initialSubTab);
     const [loading, setLoading] = useState<boolean>(true);
     const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const loadedTabsRef = useRef(new Set<string>());
 
     useEffect(() => {
         if (initialSubTab) {
@@ -80,40 +81,44 @@ export const StaffCmsManage: React.FC<StaffCmsManageProps> = ({ initialSubTab = 
     ];
 
     // Load data from backend
-    const loadCmsData = async () => {
+    const loadCmsData = async (
+        targetSubTab: 'branding' | 'banners' | 'promotions' | 'history' = subTab,
+        force = true
+    ) => {
+        if (!force && loadedTabsRef.current.has(targetSubTab)) return;
         setLoading(true);
         try {
-            const [profileRes, draftRes, bannersRes, promosRes, versionsRes, categoriesRes, menuRes] = await Promise.all([
-                request<{ profile: any }>('/cms/profile'),
-                request<{ draft: any }>('/cms/draft'),
-                request<{ banners: Banner[] }>('/cms/banners'),
-                request<{ promotions: Promotion[] }>('/cms/promotions'),
-                request<{ versions: CmsPublishedVersion[] }>('/cms/versions'),
-                request<any>('/staff/menu/categories'),
-                request<any>('/staff/menu/items')
-            ]);
+            if (targetSubTab === 'branding') {
+                const [profileRes, draftRes] = await Promise.all([
+                    request<{ profile: any }>('/cms/profile'),
+                    request<{ draft: any }>('/cms/draft')
+                ]);
 
-            setShopProfile(profileRes.profile);
-            if (profileRes.profile?.activeThemeConfig) {
-                updateCurrentTenant({
-                    activeThemeConfig: profileRes.profile.activeThemeConfig
-                });
-            }
-            if (draftRes.draft) {
-                setDraftTemplateId(draftRes.draft.templateId || 'classic');
-                if (draftRes.draft.themeConfig) {
-                    setDraftTheme({
-                        ...draftRes.draft.themeConfig,
-                        staffTheme: draftRes.draft.themeConfig.staffTheme || { ...DEFAULT_STAFF_THEME },
-                        staffDensity: draftRes.draft.themeConfig.staffDensity || 'comfortable'
-                    });
+                setShopProfile(profileRes.profile);
+                if (profileRes.profile?.activeThemeConfig) {
+                    updateCurrentTenant({ activeThemeConfig: profileRes.profile.activeThemeConfig });
                 }
+                if (draftRes.draft) {
+                    setDraftTemplateId(draftRes.draft.templateId || 'classic');
+                    if (draftRes.draft.themeConfig) {
+                        setDraftTheme({
+                            ...draftRes.draft.themeConfig,
+                            staffTheme: draftRes.draft.themeConfig.staffTheme || { ...DEFAULT_STAFF_THEME },
+                            staffDensity: draftRes.draft.themeConfig.staffDensity || 'comfortable'
+                        });
+                    }
+                }
+            } else if (targetSubTab === 'banners') {
+                const result = await request<{ banners: Banner[] }>('/cms/banners');
+                setBanners(result.banners || []);
+            } else if (targetSubTab === 'promotions') {
+                const result = await request<{ promotions: Promotion[] }>('/cms/promotions');
+                setPromotions(result.promotions || []);
+            } else {
+                const result = await request<{ versions: CmsPublishedVersion[] }>('/cms/versions');
+                setVersions(result.versions || []);
             }
-            setBanners(bannersRes.banners || []);
-            setPromotions(promosRes.promotions || []);
-            setVersions(versionsRes.versions || []);
-            setCategories(categoriesRes.categories || []);
-            setMenuItems(menuRes.items || []);
+            loadedTabsRef.current.add(targetSubTab);
         } catch (err: any) {
             setActionMsg({ type: 'error', text: err.message || 'Lỗi tải dữ liệu CMS' });
         } finally {
@@ -122,8 +127,21 @@ export const StaffCmsManage: React.FC<StaffCmsManageProps> = ({ initialSubTab = 
     };
 
     useEffect(() => {
-        loadCmsData();
-    }, []);
+        loadCmsData(subTab, false);
+    }, [subTab]);
+
+    useEffect(() => {
+        if (!showPreview || (categories.length > 0 && menuItems.length > 0)) return;
+        Promise.all([
+            request<any>('/staff/menu/categories'),
+            request<any>('/staff/menu/items')
+        ]).then(([categoriesRes, menuRes]) => {
+            setCategories(categoriesRes.categories || []);
+            setMenuItems(menuRes.items || []);
+        }).catch((err: any) => {
+            setActionMsg({ type: 'error', text: err.message || 'Lỗi tải dữ liệu xem trước' });
+        });
+    }, [showPreview, categories.length, menuItems.length]);
 
     const [isSavingProfile, setIsSavingProfile] = useState<boolean>(false);
 
@@ -255,6 +273,7 @@ export const StaffCmsManage: React.FC<StaffCmsManageProps> = ({ initialSubTab = 
             setShowPublishModal(false);
             setActionMsg({ type: 'success', text: res.message || 'Xuất bản giao diện thành công!' });
             loadCmsData();
+            loadedTabsRef.current.delete('history');
         } catch (err: any) {
             setActionMsg({ type: 'error', text: err.message || 'Lỗi xuất bản giao diện' });
         } finally {
@@ -278,6 +297,7 @@ export const StaffCmsManage: React.FC<StaffCmsManageProps> = ({ initialSubTab = 
             }
             setActionMsg({ type: 'success', text: res.message || `Đã khôi phục về phiên bản v${ver}` });
             loadCmsData();
+            loadedTabsRef.current.delete('branding');
         } catch (err: any) {
             setActionMsg({ type: 'error', text: err.message || 'Lỗi khôi phục phiên bản' });
         }

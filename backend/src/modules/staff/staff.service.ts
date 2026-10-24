@@ -88,26 +88,20 @@ export class StaffService {
                 ORDER BY o.order_number ASC, oi.created_at ASC
             `, [tenantId]);
 
-        // 4. Fetch pending/active order counts per table
-        const pendingItemsRes = await query(`
-                SELECT
-                    ts.table_id,
-                    COUNT(oip.id) FILTER (WHERE oip.status = 'PENDING') as pending_count,
-                    COUNT(oip.id) FILTER (WHERE oip.status = 'ACCEPTED') as accepted_count,
-                    COUNT(oip.id) FILTER (WHERE oip.status = 'SERVED') as served_count
-                FROM table_sessions ts
-                JOIN orders o ON o.session_id = ts.id
-                JOIN order_items oi ON oi.order_id = o.id
-                JOIN order_item_parts oip ON oip.order_item_id = oi.id
-                WHERE ts.tenant_id = $1 AND ts.status = 'OPEN'
-                GROUP BY ts.table_id
-            `, [tenantId]);
-
         const itemsByTable = new Map<string, any[]>();
+        const countsMap = new Map<string, { pending: number; accepted: number; served: number }>();
         activeItemsRes.rows.forEach(r => {
             if (!itemsByTable.has(r.table_id)) {
                 itemsByTable.set(r.table_id, []);
             }
+            if (!countsMap.has(r.table_id)) {
+                countsMap.set(r.table_id, { pending: 0, accepted: 0, served: 0 });
+            }
+            const counts = countsMap.get(r.table_id)!;
+            if (r.status === 'PENDING') counts.pending += 1;
+            else if (r.status === 'ACCEPTED') counts.accepted += 1;
+            else if (r.status === 'SERVED') counts.served += 1;
+
             itemsByTable.get(r.table_id)!.push({
                 orderItemId: r.order_item_id,
                 partId: r.part_id,
@@ -123,17 +117,13 @@ export class StaffService {
             });
         });
 
-        const countsMap = new Map<string, any>();
-        pendingItemsRes.rows.forEach(r => countsMap.set(r.table_id, {
-            pending: Number(r.pending_count || 0),
-            accepted: Number(r.accepted_count || 0),
-            served: Number(r.served_count || 0)
-        }));
+        const checkoutTableIds = new Set(requestsRes.rows.filter(r => r.type === 'CHECKOUT').map(r => r.table_id));
+        const assistanceTableIds = new Set(requestsRes.rows.filter(r => r.type === 'ASSISTANCE').map(r => r.table_id));
 
         const tables = tablesRes.rows.map(table => {
             const counts = countsMap.get(table.table_id) || { pending: 0, accepted: 0, served: 0 };
-            const hasCheckout = requestsRes.rows.some(r => r.table_id === table.table_id && r.type === 'CHECKOUT');
-            const hasAssistance = requestsRes.rows.some(r => r.table_id === table.table_id && r.type === 'ASSISTANCE');
+            const hasCheckout = checkoutTableIds.has(table.table_id);
+            const hasAssistance = assistanceTableIds.has(table.table_id);
             const activeItems = itemsByTable.get(table.table_id) || [];
 
             // Display status: removed NEEDS_CLEANING (tables are immediately READY)

@@ -144,6 +144,7 @@ export const StaffDashboard: React.FC = () => {
 
   const dashboardRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshPendingRequestsRef = useRef(false);
+  const hasJoinedStaffRoomRef = useRef(false);
   const scheduleDashboardRefresh = useCallback((includePendingRequests = false) => {
     refreshPendingRequestsRef.current ||= includePendingRequests;
     if (dashboardRefreshTimerRef.current) clearTimeout(dashboardRefreshTimerRef.current);
@@ -213,8 +214,9 @@ export const StaffDashboard: React.FC = () => {
     if (!socket || !currentTenant?.id) return;
 
     const joinRoom = () => {
-      fetchDashboard();
       socket.emit('join_staff_room', { tenantId: currentTenant.id, token: localStorage.getItem('staff_token') });
+      if (hasJoinedStaffRoomRef.current) scheduleDashboardRefresh(true);
+      hasJoinedStaffRoomRef.current = true;
     };
 
     joinRoom();
@@ -295,7 +297,6 @@ export const StaffDashboard: React.FC = () => {
     return () => {
       socket.emit('leave_staff_room');
       socket.off('connect', joinRoom);
-      socket.off('reconnect', joinRoom);
       socket.off('order.created', handleOrderCreated);
       socket.off('order.updated', handleUpdate);
       socket.off('service_request.created', handleServiceRequestCreated);
@@ -473,9 +474,12 @@ export const StaffDashboard: React.FC = () => {
 
   const pendingOrdersCount = tables.reduce((sum, t) => sum + (t.counts?.pending || 0), 0);
   const countPending = pendingRequests.length;
+  const pendingTableIds = useMemo(() => new Set(pendingRequests.map(r => r.table_id)), [pendingRequests]);
+  const checkoutTableIds = useMemo(() => new Set(openRequests.filter(r => r.type === 'CHECKOUT').map(r => r.table_id)), [openRequests]);
+  const assistanceTableIds = useMemo(() => new Set(openRequests.filter(r => r.type === 'ASSISTANCE').map(r => r.table_id)), [openRequests]);
   const countCheckout = useMemo(() => {
-    return tables.filter(t => t.hasCheckout || openRequests.some(r => r.table_id === t.table_id && r.type === 'CHECKOUT')).length;
-  }, [tables, openRequests]);
+    return tables.filter(t => t.hasCheckout || checkoutTableIds.has(t.table_id)).length;
+  }, [tables, checkoutTableIds]);
 
   const countServing = useMemo(() => {
     return tables.filter(t => t.active_session_id && ((t.counts?.pending || 0) + (t.counts?.accepted || 0) + (t.counts?.served || 0) > 0)).length;
@@ -507,17 +511,17 @@ export const StaffDashboard: React.FC = () => {
 
       // 2. Status Tab Filter (6 Cards matching media_1792817203178_71b41676)
       if (tableStatusFilter === 'pending') {
-        return pendingRequests.some(r => r.table_id === table.table_id);
+        return pendingTableIds.has(table.table_id);
       }
       if (tableStatusFilter === 'checkout') {
-        return table.hasCheckout || openRequests.some(r => r.table_id === table.table_id && r.type === 'CHECKOUT');
+        return table.hasCheckout || checkoutTableIds.has(table.table_id);
       }
       if (tableStatusFilter === 'serving') {
         const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
         return table.active_session_id && totalItems > 0;
       }
       if (tableStatusFilter === 'assistance') {
-        return table.hasAssistance || openRequests.some(r => r.table_id === table.table_id && r.type === 'ASSISTANCE');
+        return table.hasAssistance || assistanceTableIds.has(table.table_id);
       }
       if (tableStatusFilter === 'zero') {
         const totalItems = (table.counts?.pending || 0) + (table.counts?.accepted || 0) + (table.counts?.served || 0);
@@ -551,7 +555,7 @@ export const StaffDashboard: React.FC = () => {
       // Natural alphanumeric order (A01, A02, B01, AKA Vip...)
       return a.table_number.localeCompare(b.table_number, 'vi', { numeric: true, sensitivity: 'base' });
     });
-  }, [tables, tableSearch, tableStatusFilter]);
+  }, [tables, tableSearch, tableStatusFilter, pendingTableIds, checkoutTableIds, assistanceTableIds]);
 
   const staffThemeStyles = useMemo(() => {
     return getStaffThemeCssVars(

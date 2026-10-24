@@ -77,9 +77,11 @@ describe('Staff action latency benchmark (isolated test database)', () => {
         const acceptMs: number[] = [];
         const serveMs: number[] = [];
         const billMs: number[] = [];
+        const dashboardMs: number[] = [];
         let acceptQueryCount = 0;
         let serveQueryCount = 0;
         let billQueryCount = 0;
+        let dashboardQueryCount = 0;
 
         for (let sample = 0; sample < sampleCount; sample += 1) {
             const session = await StaffService.openSession(tenantId, tableId, userId);
@@ -126,6 +128,15 @@ describe('Staff action latency benchmark (isolated test database)', () => {
             expect(summary.servedTotal).toBe(partCount * 1000);
             expect(summary.rounds[0].items).toHaveLength(partCount);
 
+            const dashboardStart = performance.now();
+            const dashboard = await measurePoolQueries(() => StaffService.getDashboardSnapshot(tenantId));
+            dashboardMs.push(performance.now() - dashboardStart);
+            dashboardQueryCount += dashboard.queryCount;
+            expect(dashboard.queryCount).toBeLessThanOrEqual(3);
+            const tableSnapshot = dashboard.result.tables.find(table => table.table_id === tableId);
+            expect(tableSnapshot?.counts).toEqual({ pending: 0, accepted: 0, served: partCount });
+            expect(tableSnapshot?.activeItems).toHaveLength(partCount);
+
             const events = await query(`
                 SELECT e.to_status, COUNT(*)::int AS count, SUM(e.quantity)::int AS quantity
                 FROM order_item_events e
@@ -147,7 +158,8 @@ describe('Staff action latency benchmark (isolated test database)', () => {
             partsPerSession: partCount,
             accept: { p50Ms: percentile(acceptMs, 0.5), p95Ms: percentile(acceptMs, 0.95), avgSqlCalls: acceptQueryCount / sampleCount },
             serve: { p50Ms: percentile(serveMs, 0.5), p95Ms: percentile(serveMs, 0.95), avgSqlCalls: serveQueryCount / sampleCount },
-            billSummary: { p50Ms: percentile(billMs, 0.5), p95Ms: percentile(billMs, 0.95), avgSqlCalls: billQueryCount / sampleCount }
+            billSummary: { p50Ms: percentile(billMs, 0.5), p95Ms: percentile(billMs, 0.95), avgSqlCalls: billQueryCount / sampleCount },
+            dashboardSnapshot: { p50Ms: percentile(dashboardMs, 0.5), p95Ms: percentile(dashboardMs, 0.95), avgSqlCalls: dashboardQueryCount / sampleCount }
         })}\n`);
     });
 });
