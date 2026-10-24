@@ -1297,12 +1297,16 @@ export class GuestService {
     static async getBillSummary(tenantId: string, sessionId: string) {
         // Read the session and its item parts in one round trip. LEFT JOIN keeps
         // empty sessions visible so the existing 404 and empty-bill behavior stay intact.
-        const partsRes = await query(`
+        const [partsRes, promosRes] = await Promise.all([query(`
             SELECT
                 ts.id AS session_id,
                 ts.status AS session_status,
                 ts.settlement_version,
                 ts.table_id,
+                confirmed_bill.id AS confirmed_bill_id,
+                confirmed_bill.total_amount AS confirmed_bill_total_amount,
+                confirmed_bill.confirmed_at AS confirmed_bill_at,
+                confirmed_bill.promotion_redemptions AS promotion_redemptions,
                 o.order_number,
                 o.created_at as order_created_at,
                 o.applied_promotion_id,
@@ -1323,6 +1327,25 @@ export class GuestService {
                 oip.quantity,
                 oip.cancel_reason
             FROM table_sessions ts
+            LEFT JOIN LATERAL (
+                SELECT b.id, b.total_amount, b.confirmed_at,
+                       (
+                           SELECT COALESCE(json_agg(json_build_object(
+                               'promotion_id', pr.promotion_id,
+                               'discount_amount', pr.discount_amount,
+                               'promo_title', COALESCE(pr.snapshot_title, p.title),
+                               'promo_code', COALESCE(pr.snapshot_code, p.code),
+                               'promo_type', COALESCE(pr.snapshot_discount_type, p.discount_type),
+                               'promo_value', COALESCE(pr.snapshot_discount_value, p.discount_value)
+                           )), '[]'::json)
+                           FROM promotion_redemptions pr
+                           LEFT JOIN promotions p ON p.id = pr.promotion_id
+                           WHERE pr.session_id = ts.id
+                       ) AS promotion_redemptions
+                FROM bills b
+                WHERE b.session_id = ts.id AND b.status = 'CONFIRMED'
+                LIMIT 1
+            ) confirmed_bill ON TRUE
             LEFT JOIN orders o ON o.session_id = ts.id AND o.tenant_id = ts.tenant_id
             LEFT JOIN promotions p ON p.id = o.applied_promotion_id
             LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.tenant_id = o.tenant_id
@@ -1330,7 +1353,18 @@ export class GuestService {
             WHERE ts.id = $1 AND ts.tenant_id = $2
             ORDER BY o.order_number ASC, oi.created_at ASC, oi.id,
                 CASE oip.status WHEN 'SERVED' THEN 1 WHEN 'ACCEPTED' THEN 2 WHEN 'PENDING' THEN 3 ELSE 4 END, oip.id
-        `, [sessionId, tenantId]);
+        `, [sessionId, tenantId]), query(`
+            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority, max_redemptions, current_redemptions
+            FROM promotions
+            WHERE tenant_id = $1 AND is_active = true
+              AND EXISTS (
+                  SELECT 1 FROM table_sessions ts
+                  WHERE ts.id = $2 AND ts.tenant_id = $1 AND ts.status <> 'CLOSED'
+              )
+              AND (start_time IS NULL OR NOW() >= start_time)
+              AND (end_time IS NULL OR NOW() <= end_time)
+            ORDER BY priority DESC, created_at DESC
+        `, [tenantId, sessionId])]);
 
         if (partsRes.rows.length === 0) {
             throw { status: 404, code: 'SESSION_NOT_FOUND', message: 'Không tìm thấy phiên' };
@@ -1342,6 +1376,12 @@ export class GuestService {
             settlement_version: partsRes.rows[0].settlement_version,
             table_id: partsRes.rows[0].table_id
         };
+        const confirmedBill = partsRes.rows[0].confirmed_bill_id ? {
+            id: partsRes.rows[0].confirmed_bill_id,
+            total_amount: partsRes.rows[0].confirmed_bill_total_amount,
+            confirmed_at: partsRes.rows[0].confirmed_bill_at,
+            promotion_redemptions: partsRes.rows[0].promotion_redemptions || []
+        } : null;
 
         let confirmedOrAcceptedTotal = 0; // ACCEPTED + SERVED (after discount)
         let servedTotal = 0;              // Chỉ SERVED (after discount)
@@ -1438,31 +1478,13 @@ export class GuestService {
 
         // For CLOSED sessions, read the immutable bill & settlement snapshot (BUS-03)
         if (session.status === 'CLOSED') {
-            const billRes = await query(`
-                SELECT id, total_amount, confirmed_at, status
-                FROM bills
-                WHERE session_id = $1 AND status = 'CONFIRMED'
-                LIMIT 1
-            `, [sessionId]);
-
-            if (billRes.rows.length > 0) {
-                const bill = billRes.rows[0];
+            if (confirmedBill) {
+                const bill = confirmedBill;
                 const closedBillTotal = parseInt(bill.total_amount, 10);
-
-                const promoRedemptionsRes = await query(`
-                    SELECT pr.promotion_id, pr.discount_amount,
-                           COALESCE(pr.snapshot_title, p.title) as promo_title,
-                           COALESCE(pr.snapshot_code, p.code) as promo_code,
-                           COALESCE(pr.snapshot_discount_type, p.discount_type) as promo_type,
-                           COALESCE(pr.snapshot_discount_value, p.discount_value) as promo_value
-                    FROM promotion_redemptions pr
-                    LEFT JOIN promotions p ON p.id = pr.promotion_id
-                    WHERE pr.session_id = $1
-                `, [sessionId]);
 
                 let closedDiscountTotal = 0;
                 const closedPromotions: any[] = [];
-                for (const pr of promoRedemptionsRes.rows) {
+                for (const pr of bill.promotion_redemptions) {
                     const disc = parseInt(pr.discount_amount, 10) || 0;
                     closedDiscountTotal += disc;
                     closedPromotions.push({
@@ -1503,15 +1525,6 @@ export class GuestService {
         }
 
         // Evaluate session-level promotion on the whole table session (rawConfirmedTotal)
-        const promosRes = await query(`
-            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority, max_redemptions, current_redemptions
-            FROM promotions
-            WHERE tenant_id = $1 AND is_active = true
-              AND (start_time IS NULL OR NOW() >= start_time)
-              AND (end_time IS NULL OR NOW() <= end_time)
-            ORDER BY priority DESC, created_at DESC
-        `, [tenantId]);
-
         // Select attached promotion strictly from active, non-cancelled item parts (Issue #28)
         const activeParts = partsRes.rows.filter(r => r.status === 'SERVED' || r.status === 'ACCEPTED');
         const candidateParts = activeParts.length > 0 ? activeParts : partsRes.rows.filter(r => r.status !== 'CANCELLED');

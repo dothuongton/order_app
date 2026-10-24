@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
+import { performance } from 'node:perf_hooks';
 import { app } from '../app.js';
 import { query, pool } from '../db/pool.js';
 import { seed } from '../db/seed.js';
+import { StaffService } from '../modules/staff/staff.service.js';
 
 describe('Staff Order UX & Store Slug Endpoint Tests', () => {
     let server: any;
@@ -142,6 +144,120 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
         expect(Number(releasedSession.confirmed_amount)).toBe(0);
         expect(releasedSession.close_reason).toBe('Khách đặt ảo');
         expect(releasedSession.bill_status).toBe('CANCELLED');
+    });
+
+    it('authenticates a reports summary request only once', async () => {
+        const tableRes = await query(`SELECT id FROM tables WHERE tenant_id = $1 AND is_enabled = true AND readiness = 'READY' LIMIT 1`, [tenantId]);
+        const openRes = await fetch(`${baseUrl}/api/v1/staff/tables/${tableRes.rows[0].id}/open`, {
+            method: 'POST', headers: { Authorization: `Bearer ${staffToken}` }
+        });
+        expect(openRes.status).toBe(201);
+        const sessionId = (await openRes.json() as any).sessionId;
+
+        let queryCount = 0;
+        const poolAny = pool as any;
+        const originalQuery = poolAny.query;
+        poolAny.query = function (...args: any[]) {
+            queryCount += 1;
+            return originalQuery.apply(pool, args);
+        };
+
+        try {
+            const reportsRes = await fetch(`${baseUrl}/api/v1/staff/reports/summary`, {
+                headers: { Authorization: `Bearer ${staffToken}` }
+            });
+            expect(reportsRes.status).toBe(200);
+            const reportsData: any = await reportsRes.json();
+            expect(reportsData.metrics).toBeDefined();
+            // One combined token/membership check and four report reads.
+            expect(queryCount).toBe(5);
+
+            queryCount = 0;
+            const billRes = await fetch(`${baseUrl}/api/v1/staff/sessions/${sessionId}/bill-summary`, {
+                headers: { Authorization: `Bearer ${staffToken}` }
+            });
+            expect(billRes.status).toBe(200);
+            const billData: any = await billRes.json();
+            expect(billData.sessionId).toBe(sessionId);
+            expect(billData.validBillTotal).toBeGreaterThanOrEqual(0);
+            // One combined token/membership check plus the two parallel bill reads.
+            expect(queryCount).toBe(3);
+        } finally {
+            poolAny.query = originalQuery;
+        }
+    });
+
+    it('measures authenticated open/closed invoice and reports routes on the isolated test database', async () => {
+        const tablesRes = await query(`SELECT id FROM tables WHERE tenant_id = $1 AND is_enabled = true AND readiness = 'READY' ORDER BY table_number LIMIT 2`, [tenantId]);
+        expect(tablesRes.rows.length).toBe(2);
+        const opened = await Promise.all(tablesRes.rows.map(async table => {
+            const response = await fetch(`${baseUrl}/api/v1/staff/tables/${table.id}/open`, {
+                method: 'POST', headers: { Authorization: `Bearer ${staffToken}` }
+            });
+            expect(response.status).toBe(201);
+            return (await response.json() as any).sessionId as string;
+        }));
+        const [openSessionId, closedSessionId] = opened;
+
+        const menuItemRes = await query(`SELECT id, name, price FROM menu_items WHERE tenant_id = $1 ORDER BY id LIMIT 1`, [tenantId]);
+        const menuItem = menuItemRes.rows[0];
+        const orderRes = await query(`
+            INSERT INTO orders (tenant_id, session_id, order_number, source, idempotency_key)
+            VALUES ($1, $2, 1, 'GUEST', $3) RETURNING id
+        `, [tenantId, closedSessionId, `route-perf-${closedSessionId}`]);
+        const itemRes = await query(`
+            INSERT INTO order_items (tenant_id, order_id, menu_item_id, quantity, snapshot_name, snapshot_price)
+            VALUES ($1, $2, $3, 1, $4, $5) RETURNING id
+        `, [tenantId, orderRes.rows[0].id, menuItem.id, menuItem.name, menuItem.price]);
+        await query(`
+            INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
+            VALUES ($1, $2, 'SERVED', 1)
+        `, [tenantId, itemRes.rows[0].id]);
+        await query(`UPDATE table_sessions SET settlement_version = 1 WHERE id = $1`, [closedSessionId]);
+        await StaffService.confirmPaymentAndCloseSession(tenantId, closedSessionId, 1, (await query(`SELECT id FROM users WHERE email = 'admin@phoco.vn' LIMIT 1`)).rows[0].id);
+
+        const measureRoute = async (path: string, count: number, validate: (data: any) => void) => {
+            const elapsed: number[] = [];
+            let queryCount = 0;
+            const poolAny = pool as any;
+            const originalQuery = poolAny.query;
+            poolAny.query = function (...args: any[]) {
+                queryCount += 1;
+                return originalQuery.apply(pool, args);
+            };
+            try {
+                for (let sample = 0; sample < count; sample += 1) {
+                    const start = performance.now();
+                    const response = await fetch(`${baseUrl}/api/v1${path}`, { headers: { Authorization: `Bearer ${staffToken}` } });
+                    expect(response.status).toBe(200);
+                    validate(await response.json());
+                    elapsed.push(performance.now() - start);
+                }
+            } finally {
+                poolAny.query = originalQuery;
+            }
+            const percentile = (p: number) => [...elapsed].sort((a, b) => a - b)[Math.min(elapsed.length - 1, Math.ceil(elapsed.length * p) - 1)];
+            return { p50Ms: percentile(0.5), p95Ms: percentile(0.95), queriesPerRequest: queryCount / count };
+        };
+
+        const openInvoice = await measureRoute(`/staff/sessions/${openSessionId}/bill-summary`, 10, data => {
+            expect(data.sessionStatus).toBe('OPEN');
+            expect(data.rounds).toBeDefined();
+        });
+        const closedInvoice = await measureRoute(`/staff/sessions/${closedSessionId}/bill-summary`, 10, data => {
+            expect(data.sessionStatus).toBe('CLOSED');
+            expect(data.validBillTotal).toBe(Number(menuItem.price));
+            expect(data.priceFingerprint).toBe(`1-${menuItem.price}`);
+        });
+        const reports = await measureRoute('/staff/reports/summary', 10, data => {
+            expect(data.metrics).toBeDefined();
+            expect(data.recentSettledSessions.some((session: any) => session.session_id === closedSessionId)).toBe(true);
+        });
+
+        expect(openInvoice.queriesPerRequest).toBe(3);
+        expect(closedInvoice.queriesPerRequest).toBe(3);
+        expect(reports.queriesPerRequest).toBe(5);
+        process.stdout.write(`STAFF_AUTHENTICATED_ROUTE_BENCHMARK ${JSON.stringify({ database: 'isolated PostgreSQL test database', samplesPerRoute: 10, openInvoice, closedInvoice, reports })}\n`);
     });
 
     it('exposes round createdAt timestamp in getBillSummary', async () => {
