@@ -1,3 +1,4 @@
+import { OrderSourceBadge, InvoiceSourceSummary } from '../../components/OrderSourceBadge.js';
 import React, { useState } from 'react';
 import { useGuest } from '../../context/GuestContext.js';
 import { Receipt, Bell, CreditCard, CheckCircle, Clock, AlertTriangle, MessageSquare, Shield, UserCheck } from 'lucide-react';
@@ -198,11 +199,14 @@ export const GuestBill: React.FC = () => {
             <Receipt className="w-4 h-4 text-slate-400" />
           </div>
 
+          <div className="px-4 py-2"><InvoiceSourceSummary origins={receipt?.billLines?.length ? receipt.billLines : billSummary?.rounds || []} /></div>
           {receipt && receipt.billLines && receipt.billLines.length > 0 ? (
             <div className="p-4 space-y-2">
               <div className="space-y-1.5 pl-2 border-l-2 border-slate-100">
                 {receipt.billLines.map((line, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-xs">
+                  <div key={idx} className="space-y-1 text-xs">
+                    <OrderSourceBadge {...line} />
+                    <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-slate-400">{line.quantityServed}x</span>
                       <span className="text-slate-800 font-medium truncate max-w-[190px]">
@@ -213,6 +217,7 @@ export const GuestBill: React.FC = () => {
                       </span>
                     </div>
                     <span className="font-semibold text-slate-900">{line.subtotal.toLocaleString('vi-VN')}đ</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -221,8 +226,8 @@ export const GuestBill: React.FC = () => {
             billSummary?.rounds?.map((round) => (
             <div key={round.orderNumber} className="p-4 space-y-2">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                <div className="flex items-center gap-1.5">
-                  <span>Lần {round.orderNumber}</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span>Lần {round.orderNumber}</span><OrderSourceBadge {...round} />
                   {round.appliedPromotion && (
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                       🎁 {round.appliedPromotion.title}

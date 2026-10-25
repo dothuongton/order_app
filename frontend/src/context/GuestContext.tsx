@@ -16,6 +16,8 @@ export interface GuestReceipt {
   confirmedAt?: string;
   billLines?: Array<{
     itemName: string;
+    source?: string | null;
+    orderedByName?: string | null;
     variantName?: string;
     quantityServed: number;
     unitPrice: number;

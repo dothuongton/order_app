@@ -1,5 +1,6 @@
+import { OrderSourceBadge, InvoiceSourceSummary } from '../../components/OrderSourceBadge.js';
 import React, { useState, useEffect, useRef } from 'react';
-import { StaffTable, BillSummary, StaffOrderAttribution } from '../../types/index.js';
+import { StaffTable, BillSummary } from '../../types/index.js';
 import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
@@ -16,7 +17,6 @@ interface TableDetailModalProps {
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
   const { hasPermission } = useAuth();
-  const [attributions,setAttributions] = useState<StaffOrderAttribution[]>([]);
   const [billSummary, setBillSummary] = useState<BillSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -68,7 +68,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     activeOperationRef.current = 0;
     const currentSessionId = table?.active_session_id || null;
     currentSessionRef.current = currentSessionId;
-    setAttributions([]);
     setIsSettling(false);
     setShowConfirmSettlement(false);
     setShowReleaseModal(false);
@@ -92,13 +91,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     setIsLoading(true);
     setActionError(null);
     try {
-      const [summary,attribution] = await Promise.all([
-        request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`),
-        request<{attributions:StaffOrderAttribution[]}>(`/staff/sessions/${sessionId}/order-attributions`)
-      ]);
+      const summary = await request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`);
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setBillSummary(summary);
-      setAttributions(attribution.attributions);
     } catch (err: any) {
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setActionError(err.message || 'Lỗi tải dữ liệu phiên');
@@ -528,6 +523,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                       Người yêu cầu mở bàn: <strong className="font-bold text-slate-900">{billSummary.openingGuestName}</strong>
                     </div>
                   )}
+                  <InvoiceSourceSummary origins={billSummary.rounds || []} />
                   {/* Itemized Bill Breakdown */}
                   <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs divide-y divide-slate-100 overflow-hidden">
                     <div className="p-3.5 bg-slate-50 flex items-center justify-between">
@@ -553,9 +549,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                         <div className="flex items-center justify-between text-xs font-bold text-slate-600">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span>Lần gọi {round.orderNumber}</span>
-                            {attributions.filter(a=>a.orderNumber===round.orderNumber).map(a=>(
-                              <span key={a.orderNumber} className="text-xs text-emerald-800">Nhân viên {a.staffName} gọi hộ</span>
-                            ))}
+                            <OrderSourceBadge {...round} />
                             {round.createdAt && (
                               <span className="text-[11px] font-normal text-slate-400">
                                 • {new Date(round.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}

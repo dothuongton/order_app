@@ -1,3 +1,4 @@
+import { OrderSourceBadge } from '../../components/OrderSourceBadge.js';
 import React, { Suspense, lazy, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useNotification } from '../../context/NotificationContext.js';
@@ -1537,10 +1538,10 @@ export const StaffDashboard: React.FC = () => {
                               </div>
 
                               {/* Row 1b: Order Round & Time */}
-                              <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
                                 <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-bold">
                                   Lượt #{item.orderNumber}
-                                </span>
+                                </span><OrderSourceBadge {...item} />
                                 {item.createdAt && (
                                   <span className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
                                     <Clock className="w-3 h-3 text-slate-400 shrink-0" />

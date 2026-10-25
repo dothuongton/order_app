@@ -118,6 +118,7 @@ export interface Order {
   id: string;
   orderNumber: number;
   source: string;
+  orderedByName?: string | null;
   createdAt: string;
   discountTotal?: number;
   appliedPromotion?: AppliedPromotion | null;
@@ -125,6 +126,8 @@ export interface Order {
 }
 
 export interface BillRound {
+  source?: string | null;
+  orderedByName?: string | null;
   orderNumber: number;
   createdAt?: string;
   rawSubtotal?: number;
@@ -146,13 +149,6 @@ export interface BillRound {
     subtotal: number;
     createdAt?: string;
   }[];
-}
-
-export interface StaffOrderAttribution {
-  orderNumber: number;
-  staffId: string;
-  staffName: string;
-  createdAt: string;
 }
 
 export interface BillSummary {
@@ -186,6 +182,8 @@ export interface ServiceRequest {
 }
 
 export interface TableActiveItem {
+  source?: string | null;
+  orderedByName?: string | null;
   orderItemId: string;
   partId: string;
   orderNumber: number;

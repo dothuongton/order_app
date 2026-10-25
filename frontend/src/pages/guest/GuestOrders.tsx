@@ -1,3 +1,4 @@
+import { OrderSourceBadge } from '../../components/OrderSourceBadge.js';
 import React from 'react';
 import { useGuest } from '../../context/GuestContext.js';
 import { Clock, CheckCircle2, AlertCircle, XCircle, RefreshCw } from 'lucide-react';
@@ -91,8 +92,9 @@ export const GuestOrders: React.FC = () => {
           <div key={order.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
             {/* Round Header */}
             <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="font-bold text-slate-800 text-sm">Lần {order.orderNumber}</span>
+                <OrderSourceBadge {...order} />
                 {order.appliedPromotion && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                     🎁 {order.appliedPromotion.title}
