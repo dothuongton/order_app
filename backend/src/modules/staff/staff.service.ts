@@ -1,3 +1,4 @@
+import { ORDER_SOURCE_NAME_SQL } from '../../utils/order-source.js';
 import { query, withTransaction } from '../../db/pool.js';
 import { broadcastToStaff, broadcastToSession, broadcastToTable } from '../../realtime/socket.js';
 import { generateRandomToken, hashToken } from '../../utils/crypto.js';
@@ -69,7 +70,7 @@ export class StaffService {
         const activeItemsRes = await query(`
                 SELECT
                     ts.table_id,
-                    o.order_number,
+                    o.order_number, o.source, ${ORDER_SOURCE_NAME_SQL} AS ordered_by_name,
                     oi.id as order_item_id,
                     oi.snapshot_name as name,
                     oi.snapshot_variant_name as variant_name,
@@ -106,6 +107,7 @@ export class StaffService {
                 orderItemId: r.order_item_id,
                 partId: r.part_id,
                 orderNumber: r.order_number,
+                source:r.source, orderedByName:r.ordered_by_name,
                 name: r.name,
                 variantName: r.variant_name,
                 price: Number(r.price),

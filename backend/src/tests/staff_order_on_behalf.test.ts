@@ -6,6 +6,7 @@ import { app } from '../app.js';
 import { query } from '../db/pool.js';
 import { seed } from '../db/seed.js';
 import { config } from '../config/index.js';
+import { StaffService } from '../modules/staff/staff.service.js';
 import { GuestService } from '../modules/guest/guest.service.js';
 
 describe('Staff orders on behalf of guests',()=>{
@@ -135,6 +136,39 @@ describe('Staff orders on behalf of guests',()=>{
     const table=(await query("INSERT INTO tables(tenant_id,table_number,public_qr_id) VALUES ($1,'CTX',$2) RETURNING id,public_qr_id",[other,randomUUID()])).rows[0];
     const session=(await query("INSERT INTO table_sessions(tenant_id,table_id,status) VALUES ($1,$2,'OPEN') RETURNING id",[other,table.id])).rows[0];
     const r=await fetch(`${base}/api/v1/staff/sessions/${session.id}/ordering-context?qrId=${table.public_qr_id}`,{headers:{Authorization:`Bearer ${manager}`}});expect(r.status).toBe(404);
+  });
+  it('keeps mixed-order source labels and original staff names through guest views, dashboard and confirmed receipts',async()=>{
+    config.orderingMode='multi_device';
+    await query("INSERT INTO bills(tenant_id,session_id,status,total_amount) VALUES ($1,$2,'OPEN',0)",[tenantId,sessionId]);
+    const staffResponse=await submit(manager);expect(staffResponse.status).toBe(201);const staffOrder=await staffResponse.json();
+    const guest=await GuestService.joinSession(qrId);
+    await GuestService.createOrder(tenantId,sessionId,tableId,{idempotencyKey:randomUUID(),items:[{menuItemId:menuId,quantity:1}]});
+    const original=(await query("SELECT details->>'staffName' name FROM audit_logs WHERE resource_id=$1 AND action='STAFF_CREATE_ORDER'",[staffOrder.orderId])).rows[0].name;
+    const before=await GuestService.getBillSummary(tenantId,sessionId);
+    await query(`INSERT INTO audit_logs(tenant_id,user_id,action,resource_type,resource_id,details,created_at)
+      VALUES ($1,$2,'STAFF_CREATE_ORDER','order',$3,'{"staffName":"Later duplicate"}',NOW()+INTERVAL '1 hour')`,[tenantId,actorId,staffOrder.orderId]);
+    await query("UPDATE users SET full_name='Changed account name' WHERE id=$1",[actorId]);
+    try {
+      const orders=await GuestService.getSessionOrders(tenantId,sessionId);
+      expect(orders.map(o=>o.source)).toEqual(['STAFF_POS','GUEST_WEB']);
+      expect(orders[0].orderedByName).toBe(original);expect(orders[1].orderedByName).toBeNull();
+      expect(orders[0]).not.toHaveProperty('staffId');expect(orders[0]).not.toHaveProperty('email');
+      const summary=await GuestService.getBillSummary(tenantId,sessionId);
+      expect(summary.pendingTotal).toBe(before.pendingTotal);expect(summary.rounds).toHaveLength(2);
+      expect(summary.rounds[0]).toMatchObject({source:'STAFF_POS',orderedByName:original});
+      const dashboard=await StaffService.getDashboardSnapshot(tenantId);
+      const active=dashboard.tables.find(t=>t.table_id===tableId)!.activeItems;
+      expect(active).toHaveLength(2);expect(active.find(item=>item.source==='STAFF_POS')?.orderedByName).toBe(original);
+      await StaffService.acceptAllPending(tenantId,sessionId,actorId);await StaffService.serveAllAccepted(tenantId,sessionId,actorId);
+      const served=await GuestService.getBillSummary(tenantId,sessionId);
+      await StaffService.confirmPaymentAndCloseSession(tenantId,sessionId,served.settlementVersion,actorId,undefined,randomUUID(),served.validBillTotal);
+      const receiptResponse=await fetch(`${base}/api/v1/guest/receipt?qrId=${qrId}`,{headers:{'x-guest-token':guest.token}});
+      expect(receiptResponse.status).toBe(200);const receipt=await receiptResponse.json();
+      expect(receipt.totalAmount).toBe(served.validBillTotal);expect(receipt.billLines).toHaveLength(2);
+      expect(receipt.billLines.find((line:{source:string})=>line.source==='STAFF_POS')).toMatchObject({orderedByName:original});
+      expect(receipt.billLines.find((line:{source:string})=>line.source==='GUEST_WEB').orderedByName).toBeNull();
+      const closed=await GuestService.getBillSummary(tenantId,sessionId);expect(closed.rounds[0].orderedByName).toBe(original);expect(closed.validBillTotal).toBe(served.validBillTotal);
+    } finally {await query('UPDATE users SET full_name=$1 WHERE id=$2',[original,actorId]);}
   });
   it('rejects revoked staff tokens',async()=>{
     const token=await login('phucvu@phoco.vn');

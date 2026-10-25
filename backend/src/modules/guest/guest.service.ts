@@ -1,3 +1,4 @@
+import { ORDER_SOURCE_NAME_SQL } from '../../utils/order-source.js';
 import { query, withTransaction } from '../../db/pool.js';
 import { generateRandomToken, hashToken } from '../../utils/crypto.js';
 import { checkIdempotency, recordIdempotency } from '../../utils/idempotency.js';
@@ -1228,7 +1229,7 @@ export class GuestService {
     // 4. Get all orders of current session
     static async getSessionOrders(tenantId: string, sessionId: string) {
         const ordersRes = await query(`
-            SELECT o.id, o.order_number, o.source, o.created_at, o.applied_promotion_id, o.discount_total,
+            SELECT o.id, o.order_number, o.source, ${ORDER_SOURCE_NAME_SQL} AS ordered_by_name, o.created_at, o.applied_promotion_id, o.discount_total,
                    p.title as promo_title, p.code as promo_code, p.discount_type as promo_type, p.discount_value as promo_value
             FROM orders o
             LEFT JOIN promotions p ON p.id = o.applied_promotion_id
@@ -1271,6 +1272,7 @@ export class GuestService {
                 id: o.id,
                 orderNumber: o.order_number,
                 source: o.source,
+                orderedByName: o.ordered_by_name,
                 createdAt: o.created_at,
                 discountTotal: Number(o.discount_total || 0),
                 appliedPromotion: o.applied_promotion_id ? {
@@ -1340,7 +1342,7 @@ export class GuestService {
                 confirmed_bill.total_amount AS confirmed_bill_total_amount,
                 confirmed_bill.confirmed_at AS confirmed_bill_at,
                 confirmed_bill.promotion_redemptions AS promotion_redemptions,
-                o.order_number,
+                o.order_number, o.source, ${ORDER_SOURCE_NAME_SQL} AS ordered_by_name,
                 o.created_at as order_created_at,
                 o.applied_promotion_id,
                 o.discount_total,
@@ -1444,6 +1446,7 @@ export class GuestService {
             if (!roundSummaries[roundNum]) {
                 roundSummaries[roundNum] = {
                     orderNumber: roundNum,
+                    source: row.source, orderedByName: row.ordered_by_name,
                     createdAt: row.order_created_at || row.item_created_at,
                     rawSubtotal: 0,
                     discountTotal: 0,

@@ -1,3 +1,4 @@
+import { ORDER_SOURCE_NAME_SQL } from '../../utils/order-source.js';
 import { Router, Request, Response } from 'express';
 import { GuestService } from './guest.service.js';
 import { authenticateGuest } from '../../middleware/auth.js';
@@ -224,11 +225,14 @@ guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
             if (billRes.rows.length > 0) {
                 const bill = billRes.rows[0];
                 const linesRes = await query(`
-                    SELECT item_name, variant_name, quantity_served, unit_price, subtotal
-                    FROM bill_lines
-                    WHERE bill_id = $1
-                    ORDER BY created_at ASC
-                `, [bill.id]);
+                    SELECT bl.item_name, bl.variant_name, bl.quantity_served, bl.unit_price, bl.subtotal,
+                           o.source, ${ORDER_SOURCE_NAME_SQL} AS ordered_by_name
+                    FROM bill_lines bl
+                    LEFT JOIN order_items oi ON oi.id=bl.order_item_id AND oi.tenant_id=$2
+                    LEFT JOIN orders o ON o.id=oi.order_id AND o.tenant_id=$2 AND o.session_id=$3
+                    WHERE bl.bill_id = $1
+                    ORDER BY bl.created_at ASC
+                `, [bill.id, row.tenant_id, row.session_id]);
 
                 const promoRes = await query(`
                     SELECT pr.promotion_id, pr.discount_amount,
@@ -251,6 +255,7 @@ guestRouter.get('/guest/receipt', async (req: Request, res: Response) => {
                     confirmedAt: bill.confirmed_at,
                     billLines: linesRes.rows.map(r => ({
                         itemName: r.item_name,
+                        source:r.source, orderedByName:r.ordered_by_name,
                         variantName: r.variant_name,
                         quantityServed: r.quantity_served,
                         unitPrice: parseInt(r.unit_price, 10),
