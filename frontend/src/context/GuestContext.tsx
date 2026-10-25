@@ -31,6 +31,8 @@ export interface GuestReceipt {
 }
 
 interface GuestContextType {
+  isStaffOrdering: boolean;
+  staffName: string | null;
   publicQrId: string | null;
   tenant: Tenant | null;
   table: { id: string; tableNumber: string; readiness: string; isEnabled: boolean } | null;
@@ -159,7 +161,20 @@ export const canonicalizeCartItem = (raw: any): CartItem => {
 
 const GuestContext = createContext<GuestContextType | null>(null);
 
-export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface StaffOrderingMenu {
+  tenant: Tenant;
+  table: NonNullable<GuestContextType['table']> & { orderingMode: GuestContextType['orderingMode'] };
+  session: NonNullable<GuestContextType['session']>;
+  staff: { id: string; fullName: string };
+  categories: MenuCategory[];
+  menuItems: MenuItem[];
+  banners: GuestContextType['banners'];
+  promotions: GuestContextType['promotions'];
+}
+
+export const GuestProvider: React.FC<{ children: React.ReactNode; staffSessionId?: string }> = ({ children, staffSessionId }) => {
+  const isStaffOrdering = Boolean(staffSessionId);
+  const [staffName,setStaffName] = useState<string | null>(null);
   const { socket, playSuccessSound, showToast } = useNotification();
   const [publicQrId, setPublicQrId] = useState<string | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -181,10 +196,10 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [deviceState, setDeviceState] = useState<'IDLE' | 'REQUESTER' | 'CLAIMED' | 'VIEWER'>('IDLE');
   const [claimedGuestName, setClaimedGuestName] = useState<string | null>(null);
   const [pendingRequest, setPendingRequest] = useState<any>(null);
-  const [canOrder, setCanOrder] = useState<boolean>(true);
+  const [canOrder, setCanOrder] = useState<boolean>(!staffSessionId);
   const [canRequest, setCanRequest] = useState<boolean>(false);
   const [guestToken, setGuestToken] = useState<string | null>(() => {
-    return typeof window !== 'undefined' ? sessionStorage.getItem('guest_token') : null;
+    return !staffSessionId && typeof window !== 'undefined' ? sessionStorage.getItem('guest_token') : null;
   });
 
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -220,6 +235,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Fetch verified receipt directly from backend with detailed status
   const fetchReceiptInternal = useCallback(async (token?: string, scopedQr?: string): Promise<{ receipt?: GuestReceipt; error?: string; status?: number; isRetryable?: boolean } | null> => {
+    if (staffSessionId) return null;
     const t = token || sessionStorage.getItem('guest_token');
     if (!t) return null;
     const qrParam = scopedQr ? `?qrId=${scopedQr}` : '';
@@ -233,7 +249,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const isRetryable = status === 0 || status >= 500;
       return { error: err.code || 'API_ERROR', status, isRetryable };
     }
-  }, []);
+  }, [staffSessionId]);
 
   const fetchReceipt = useCallback(async (token?: string): Promise<GuestReceipt | null> => {
     const res = await fetchReceiptInternal(token);
@@ -242,6 +258,28 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Refresh orders & bill with single-flight and stale response protection
   const refreshOrdersAndBill = useCallback(async (): Promise<void> => {
+    if (staffSessionId) {
+      if (inFlightRefreshRef.current) return inFlightRefreshRef.current;
+      const operation = (async()=>{
+        try {
+          const [orderData,bill] = await Promise.all([
+            request<{orders:Order[];staff:{fullName:string}}>(`/staff/sessions/${staffSessionId}/orders`),
+            request<BillSummary>(`/staff/sessions/${staffSessionId}/bill-summary`)
+          ]);
+          setOrders(orderData.orders);setBillSummary(bill);setStaffName(orderData.staff.fullName);
+          setCanOrder(bill.sessionStatus==='OPEN');
+          setIsSessionClosed(bill.sessionStatus!=='OPEN');
+          isSessionClosedRef.current=bill.sessionStatus!=='OPEN';
+        } catch (error:unknown) {
+          setCanOrder(false);
+          if (error instanceof ApiError && error.code==='SESSION_CLOSED') setIsSessionClosed(true);
+          throw error;
+        }
+      })();
+      inFlightRefreshRef.current=operation;
+      try {await operation;} finally {inFlightRefreshRef.current=null;}
+      return;
+    }
     const token = sessionStorage.getItem('guest_token');
     if (!token) return;
 
@@ -305,13 +343,13 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     inFlightRefreshRef.current = promise;
     return promise;
-  }, []);
+  }, [staffSessionId]);
 
   // Load menu by QR id with session scoping and isolation
   const loadTableMenu = useCallback(async (qrId: string): Promise<any> => {
     publicQrIdRef.current = qrId;
     setPublicQrId(qrId);
-    pendingOrder.current = null;
+    if (!staffSessionId) pendingOrder.current = null;
 
     if (inFlightMenuRef.current && inFlightMenuRef.current.qrId === qrId) {
       return inFlightMenuRef.current.promise;
@@ -324,13 +362,27 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       let storedSession: ScopedGuestSession | null = null;
       try {
-        const raw = sessionStorage.getItem(scopedKey);
+        const raw = staffSessionId ? null : sessionStorage.getItem(scopedKey);
         if (raw) storedSession = JSON.parse(raw);
       } catch {
         storedSession = null;
       }
 
       try {
+        if (staffSessionId) {
+          const data=await request<StaffOrderingMenu>(`/staff/sessions/${staffSessionId}/ordering-context?qrId=${encodeURIComponent(qrId)}`);
+          if (fetchSeqRef.current!==seq) return data;
+          setTenant(data.tenant);setTable(data.table);setSession(data.session);
+          activeSessionIdRef.current=data.session.id;
+          setStaffName(data.staff.fullName);setCategories(data.categories);setMenuItems(data.menuItems);
+          setBanners(data.banners);setPromotions(data.promotions);
+          setOrderingMode(data.table.orderingMode);setTableStatus('OCCUPIED');
+          // UI capability verified by staff auth; this never grants a guest device claim.
+          setDeviceState('CLAIMED');setCanOrder(true);setCanRequest(false);
+          setIsSessionClosed(false);isSessionClosedRef.current=false;
+          await refreshOrdersAndBill();
+          return data;
+        }
         const data = await request<any>(`/public/tables/${qrId}/menu`);
         if (fetchSeqRef.current !== seq) return data;
 
@@ -474,10 +526,11 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     inFlightMenuRef.current = { qrId, promise };
     return promise;
-  }, [refreshOrdersAndBill, fetchReceiptInternal]);
+  }, [refreshOrdersAndBill, fetchReceiptInternal, staffSessionId]);
 
   // Join table session with generation and QR scope protection (R2)
   const joinSession = useCallback(async (qrId: string): Promise<any> => {
+    if (staffSessionId) throw new Error('Gọi hộ không sử dụng phiên xác thực khách');
     if (inFlightJoinRef.current && inFlightJoinRef.current.qrId === qrId) {
       return inFlightJoinRef.current.promise;
     }
@@ -546,10 +599,11 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     inFlightJoinRef.current = { qrId, promise };
     return promise;
-  }, [refreshOrdersAndBill, socket]);
+  }, [refreshOrdersAndBill, socket, staffSessionId]);
 
   // Request table open (Gaeru P1)
   const requestOpenTable = useCallback(async (guestName: string): Promise<any> => {
+    if (staffSessionId) throw new Error('Không tạo yêu cầu mở bàn trong chế độ gọi hộ');
     if (!publicQrIdRef.current) throw new Error('Không có mã QR bàn');
     const requestId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('req-' + Math.random().toString(36).substring(2, 11));
     const res = await request<any>(`/public/tables/${publicQrIdRef.current}/request-open`, {
@@ -558,10 +612,11 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
     await loadTableMenu(publicQrIdRef.current);
     return res;
-  }, [loadTableMenu]);
+  }, [loadTableMenu, staffSessionId]);
 
   // Withdraw pending table request (Gaeru P1)
   const withdrawOpenRequest = useCallback(async (): Promise<any> => {
+    if (staffSessionId) throw new Error('Không có yêu cầu khách trong chế độ gọi hộ');
     if (!publicQrIdRef.current || !pendingRequest?.requestId) throw new Error('Không có yêu cầu nào đang chờ');
     const res = await request<any>(`/public/tables/${publicQrIdRef.current}/withdraw-request`, {
       method: 'POST',
@@ -569,11 +624,11 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
     await loadTableMenu(publicQrIdRef.current);
     return res;
-  }, [pendingRequest, loadTableMenu]);
+  }, [pendingRequest, loadTableMenu, staffSessionId]);
 
   // Listen to table status events (for pending approval, claim release, approval)
   useEffect(() => {
-    if (!socket || !table?.id) return;
+    if (staffSessionId || !socket || !table?.id) return;
 
     const currentTableId = table.id;
     socket.emit('join_table_room', { tableId: currentTableId });
@@ -611,7 +666,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Listen to socket session room events
   useEffect(() => {
-    if (!socket || !session?.id || !guestToken) return;
+    if (staffSessionId || !socket || !session?.id || !guestToken) return;
 
     const currentSessionId = session.id;
     const currentToken = guestToken;
@@ -715,6 +770,30 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, [socket, session?.id, guestToken, refreshOrdersAndBill, showToast]);
 
+  // The staff page stays pinned to its original session and rechecks permission on wake/poll.
+  useEffect(()=>{
+    if (!staffSessionId || !session?.id) return;
+    const refresh=()=>{
+      if (document.visibilityState==='visible') void refreshOrdersAndBill().catch(()=>{
+        showToast({title:'Không thể xác nhận quyền gọi hộ',message:'Hãy kiểm tra đăng nhập hoặc phiên bàn.',type:'warning'});
+      });
+    };
+    const join=()=>{socket?.emit('join_staff_room',{tenantId:tenant?.id,token:localStorage.getItem('staff_token')});refresh();};
+    let pending:ReturnType<typeof setTimeout> | undefined;
+    const changed=(payload?:{sessionId?:string;tableId?:string})=>{
+      if (payload?.sessionId && payload.sessionId!==staffSessionId) return;
+      if (payload?.tableId && payload.tableId!==table?.id) return;
+      if (pending) clearTimeout(pending);
+      pending=setTimeout(refresh,150);
+    };
+    join();socket?.on('connect',join);
+    const events=['order.created','order.updated','table.updated'];
+    events.forEach(event=>socket?.on(event,changed));
+    const timer=setInterval(refresh,20000);
+    window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
+    return ()=>{clearInterval(timer);if(pending)clearTimeout(pending);socket?.off('connect',join);events.forEach(event=>socket?.off(event,changed));socket?.emit('leave_staff_room');window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
+  },[staffSessionId,session?.id,tenant?.id,table?.id,socket,refreshOrdersAndBill,showToast]);
+
   // Cart operations
   const addToCart = (
     item: MenuItem,
@@ -722,6 +801,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     note?: string,
     variant?: { id?: string; variantIds?: string[]; optionIds?: string[]; name?: string; price_adjustment?: number }
   ) => {
+    if (staffSessionId && !canOrder) return;
     setCart(prev => {
       const itemPrice = Math.max(0, Number(item.price) + (variant?.price_adjustment ? Number(variant.price_adjustment) : 0));
       const cleanNote = note?.trim() || undefined;
@@ -785,7 +865,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Persist cart scoped to table and session
   useEffect(() => {
-    if (!publicQrId || !session?.id || isSessionClosed) return;
+    if (staffSessionId || !publicQrId || !session?.id || isSessionClosed) return;
     try {
       if (cart.length > 0) {
         sessionStorage.setItem(getCartStorageKey(publicQrId, session.id), JSON.stringify(cart));
@@ -793,11 +873,11 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         sessionStorage.removeItem(getCartStorageKey(publicQrId, session.id));
       }
     } catch {}
-  }, [cart, publicQrId, session?.id, isSessionClosed]);
+  }, [cart, publicQrId, session?.id, isSessionClosed, staffSessionId]);
 
   const clearCart = () => {
     setCart([]);
-    if (publicQrId && session?.id) {
+    if (!staffSessionId && publicQrId && session?.id) {
       sessionStorage.removeItem(getCartStorageKey(publicQrId, session.id));
     }
   };
@@ -833,7 +913,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const operation = (async () => {
       try {
-        const res = await request<any>('/guest/orders', {
+        const res = await request<unknown>(staffSessionId ? `/staff/sessions/${staffSessionId}/orders` : '/guest/orders', {
           method: 'POST',
           headers: { 'x-idempotency-key': idempotencyKey },
           body: JSON.stringify({
@@ -846,7 +926,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         playSuccessSound();
         const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
         showToast({
-          title: 'Đặt món thành công!',
+          title: staffSessionId ? 'Gọi món hộ thành công!' : 'Đặt món thành công!',
           message: `Đã gửi ${itemCount} món đến nhân viên quán.`,
           type: 'success',
           duration: 4500
@@ -868,6 +948,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const requestAssistance = async (note?: string) => {
+    if (staffSessionId) throw new Error('Thao tác phục vụ thực hiện tại trang nhân viên');
     const res = await request<any>('/guest/service-requests', {
       method: 'POST',
       body: JSON.stringify({ type: 'ASSISTANCE', note })
@@ -883,6 +964,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const requestCheckout = async (note?: string) => {
+    if (staffSessionId) throw new Error('Thanh toán thực hiện tại trang nhân viên');
     const res = await request<any>('/guest/service-requests', {
       method: 'POST',
       body: JSON.stringify({ type: 'CHECKOUT', note })
@@ -899,6 +981,7 @@ export const GuestProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   return (
     <GuestContext.Provider value={{
+      isStaffOrdering, staffName,
       publicQrId,
       tenant,
       table,

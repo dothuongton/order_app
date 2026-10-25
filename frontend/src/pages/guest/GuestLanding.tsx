@@ -13,6 +13,7 @@ interface GuestLandingProps {
 
 export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
   const {
+    isStaffOrdering, staffName,
     tenant,
     table,
     session,
@@ -77,6 +78,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       try {
         const menuData = await loadTableMenu(qrId);
         if (activeQrRef.current !== qrId) return;
+        if (isStaffOrdering) return;
 
         if (menuData?.session && menuData.session.status === 'OPEN') {
           const isSingleDevice = (menuData.table?.ordering_mode || menuData.table?.orderingMode) === 'approved_single_device';
@@ -126,11 +128,12 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
     };
 
     init();
-  }, [qrId, loadTableMenu, joinSession]);
+  }, [qrId, loadTableMenu, joinSession, isStaffOrdering]);
 
   // When a device gets approved into CLAIMED state, join session if not already joined
   const joiningClaimRef = useRef(false);
   useEffect(() => {
+    if (isStaffOrdering) return;
     if (deviceState !== 'CLAIMED' || !session || session.status !== 'OPEN' || isSessionClosed) return;
     const scopedKey = `guest_auth_${qrId}`;
     let hasValidToken = false;
@@ -154,7 +157,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
           joiningClaimRef.current = false;
         });
     }
-  }, [deviceState, session, qrId, joinSession, isSessionClosed]);
+  }, [deviceState, session, qrId, joinSession, isSessionClosed, isStaffOrdering]);
 
   // A guest who scans before staff open the table should not need to reload.
   // Stop after the first successful join; never auto-join a later customer session.
@@ -189,9 +192,9 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
         <div className="bg-white rounded-3xl p-6 text-center max-w-sm shadow-xl border border-slate-100">
           <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
-          <h2 className="text-lg font-bold text-slate-900">Không tìm thấy bàn</h2>
+          <h2 className="text-lg font-bold text-slate-900">{isStaffOrdering ? 'Không thể gọi món hộ' : 'Không tìm thấy bàn'}</h2>
           <p className="text-xs text-slate-500 mt-1 mb-4">{initError}</p>
-          <p className="text-xs text-slate-400">Vui lòng quét đúng mã QR dán tại bàn</p>
+          <p className="text-xs text-slate-400">{isStaffOrdering ? <a href="/staff" className="text-teal-700 underline">Về trang nhân viên để đăng nhập và kiểm tra quyền</a> : 'Vui lòng quét đúng mã QR dán tại bàn'}</p>
         </div>
       </div>
     );
@@ -212,8 +215,12 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
 
   return (
     <div style={{ '--brand-color': /^#[0-9a-fA-F]{6}$/.test(tenant?.activeThemeConfig?.primaryColor || '') ? tenant!.activeThemeConfig!.primaryColor : '#0f766e' } as React.CSSProperties} className="guest-storefront min-h-screen flex flex-col bg-slate-50 max-w-md mx-auto relative shadow-2xl pb-[calc(5rem+env(safe-area-inset-bottom))]">
+      {isStaffOrdering && <div role="status" className="sticky top-0 z-40 bg-emerald-950 text-white px-4 py-3 shadow-sm">
+        <p className="font-bold text-sm">Đang gọi món hộ · Bàn {table?.tableNumber || '…'}</p>
+        <div className="flex justify-between items-center gap-2 text-xs mt-1"><span>{staffName || 'Đang xác nhận quyền nhân viên…'}{staffName && !canOrder ? ' · Không còn quyền gửi món' : ''}</span><a href="/staff" className="underline shrink-0">Về trang nhân viên</a></div>
+      </div>}
       {/* Top Bar / Restaurant & Table Info */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-xs">
+      <header className={`${isStaffOrdering ? 'relative' : 'sticky top-0'} z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-xs`}>
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {tenant?.logoUrl ? (
             <img
@@ -337,7 +344,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
       )}
 
       {/* Gaeru Flow - Single Device Mode Dialog and State Banners */}
-      {orderingMode === 'approved_single_device' ? (
+      {!isStaffOrdering && (orderingMode === 'approved_single_device' ? (
         <>
           {/* Modal / Bottom Sheet: Shown before interacting with menu if device needs to request claim or is waiting */}
           <GuestRequestModal
@@ -419,13 +426,13 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
             </p>
           </div>
         )
-      )}
+      ))}
 
       {/* Main Tab Content */}
       <main className="flex-1">
         {activeTab === 'menu' && <GuestMenu />}
         {activeTab === 'orders' && <GuestOrders />}
-        {activeTab === 'bill' && <GuestBill />}
+        {!isStaffOrdering && activeTab === 'bill' && <GuestBill />}
       </main>
 
       {/* Floating Cart Bar (when items are in cart and session is open) */}
@@ -476,7 +483,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
           )}
         </button>
 
-        <button
+        {!isStaffOrdering && <button
           onClick={() => setActiveTab('bill')}
           className={`flex flex-col items-center justify-center flex-1 min-h-[48px] rounded-xl transition relative ${
             activeTab === 'bill' ? 'text-teal-700 font-bold' : 'text-slate-500 font-medium'
@@ -491,7 +498,7 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
             )}
           </div>
           <span className="text-[11px] mt-1">Hỗ trợ</span>
-        </button>
+        </button>}
       </nav>
 
       {/* Cart Drawer Modal */}

@@ -1,4 +1,3 @@
-import { StaffOrderModal } from './StaffOrderModal.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { StaffTable, BillSummary, StaffOrderAttribution } from '../../types/index.js';
 import { request } from '../../api/client.js';
@@ -17,7 +16,6 @@ interface TableDetailModalProps {
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
   const { hasPermission } = useAuth();
-  const [orderForSession,setOrderForSession] = useState<string | null>(null);
   const [attributions,setAttributions] = useState<StaffOrderAttribution[]>([]);
   const [billSummary, setBillSummary] = useState<BillSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -70,7 +68,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     activeOperationRef.current = 0;
     const currentSessionId = table?.active_session_id || null;
     currentSessionRef.current = currentSessionId;
-    setOrderForSession(null);
     setAttributions([]);
     setIsSettling(false);
     setShowConfirmSettlement(false);
@@ -111,6 +108,18 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       }
     }
   };
+
+  // The storefront opens in a separate tab; refresh this bill when staff returns.
+  useEffect(()=>{
+    let timer:ReturnType<typeof setTimeout> | undefined;
+    const refresh=()=>{
+      if (document.visibilityState!=='visible' || !currentSessionRef.current) return;
+      if (timer) clearTimeout(timer);
+      timer=setTimeout(()=>{if(currentSessionRef.current) void loadSessionData(currentSessionRef.current);},150);
+    };
+    window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
+    return ()=>{if(timer)clearTimeout(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
+  },[]);
 
   if (!table) return null;
 
@@ -460,15 +469,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
           </div>
         </div>
 
-        {orderForSession && orderForSession === table.active_session_id && (
-          <StaffOrderModal key={`${table.table_id}:${orderForSession}`} sessionId={orderForSession} tableNumber={table.table_number}
-            onClose={()=>setOrderForSession(null)} onCreated={()=>{
-              setOrderForSession(null); setActionSuccess('Đã gửi món hộ khách, chờ tiếp nhận');
-              void loadSessionData(orderForSession); onRefresh();
-            }} />
-        )}
         {table.active_session_id && billSummary?.sessionStatus === 'OPEN' && billSummary.sessionId === table.active_session_id && hasPermission('order.manage') && (
-          <button type="button" onClick={()=>setOrderForSession(table.active_session_id!)} className="mx-4 mt-3 rounded-xl bg-emerald-900 text-white p-3 font-bold">Gọi món hộ</button>
+          <a href={`/t/${encodeURIComponent(table.public_qr_id)}?staffSession=${encodeURIComponent(table.active_session_id)}`}
+            target="_blank" rel="noopener noreferrer" className="mx-4 mt-3 rounded-xl bg-emerald-900 text-white p-3 font-bold text-center">Gọi món hộ</a>
         )}
         {/* Action Banners */}
         {actionError && (
