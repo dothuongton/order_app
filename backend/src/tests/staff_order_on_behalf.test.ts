@@ -112,9 +112,34 @@ describe('Staff orders on behalf of guests',()=>{
     const kept=(await query('SELECT status,requester_device_hash FROM table_sessions WHERE id=$1',[sessionId])).rows[0];
     expect(kept).toEqual({status:'OPEN',requester_device_hash:null});
   });
+  it.each(['approved_single_device','multi_device'] as const)('authorizes the existing guest storefront without granting guest claims in %s',async mode=>{
+    config.orderingMode=mode;
+    await query("UPDATE table_sessions SET claimed_device_hash='existing-guest-device' WHERE id=$1",[sessionId]);
+    const before=(await query('SELECT count(*)::int n FROM guest_sessions WHERE session_id=$1',[sessionId])).rows[0].n;
+    const getContext=(token:string,qr=qrId)=>fetch(`${base}/api/v1/staff/sessions/${sessionId}/ordering-context?qrId=${encodeURIComponent(qr)}`,{headers:{Authorization:`Bearer ${token}`}});
+    expect((await getContext('')).status).toBe(401);
+    expect((await getContext(cashier)).status).toBe(403);
+    expect((await getContext(manager,'wrong-table-qr')).status).toBe(409);
+    const r=await getContext(waiter);expect(r.status).toBe(200);
+    const context=await r.json();expect(context.session.id).toBe(sessionId);expect(context.table.id).toBe(tableId);expect(context.staff.fullName).toBeTruthy();
+    const after=(await query('SELECT count(*)::int n FROM guest_sessions WHERE session_id=$1',[sessionId])).rows[0].n;expect(after).toBe(before);
+    expect((await query('SELECT claimed_device_hash FROM table_sessions WHERE id=$1',[sessionId])).rows[0].claimed_device_hash).toBe('existing-guest-device');
+    const denied=await fetch(`${base}/api/v1/staff/sessions/${sessionId}/orders`,{headers:{Authorization:`Bearer ${cashier}`}});expect(denied.status).toBe(403);
+    const created=await submit(waiter);expect(created.status).toBe(201);
+    const ownOrders=await fetch(`${base}/api/v1/staff/sessions/${sessionId}/orders`,{headers:{Authorization:`Bearer ${waiter}`}});
+    expect(ownOrders.status).toBe(200);expect((await ownOrders.json()).orders).toHaveLength(1);
+    await query("UPDATE table_sessions SET status='CLOSED' WHERE id=$1",[sessionId]);expect((await getContext(waiter)).status).toBe(409);
+  });
+  it('denies a storefront context for another tenant',async()=>{
+    const other=(await query("INSERT INTO tenants(slug,name) VALUES ($1,'Another test tenant') RETURNING id",[`ctx-${randomUUID()}`])).rows[0].id;
+    const table=(await query("INSERT INTO tables(tenant_id,table_number,public_qr_id) VALUES ($1,'CTX',$2) RETURNING id,public_qr_id",[other,randomUUID()])).rows[0];
+    const session=(await query("INSERT INTO table_sessions(tenant_id,table_id,status) VALUES ($1,$2,'OPEN') RETURNING id",[other,table.id])).rows[0];
+    const r=await fetch(`${base}/api/v1/staff/sessions/${session.id}/ordering-context?qrId=${table.public_qr_id}`,{headers:{Authorization:`Bearer ${manager}`}});expect(r.status).toBe(404);
+  });
   it('rejects revoked staff tokens',async()=>{
     const token=await login('phucvu@phoco.vn');
     await fetch(`${base}/api/v1/auth/logout`,{method:'POST',headers:{Authorization:`Bearer ${token}`}});
     expect((await submit(token)).status).toBe(401);
+    const r=await fetch(`${base}/api/v1/staff/sessions/${sessionId}/ordering-context?qrId=${qrId}`,{headers:{Authorization:`Bearer ${token}`}});expect(r.status).toBe(401);
   });
 });

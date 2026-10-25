@@ -82,9 +82,13 @@ export function App() {
   const matchTable = currentPath.match(/^\/t\/([^/?#]+)/);
   if (matchTable) {
     const qrId = matchTable[1];
+    const params = new URLSearchParams(window.location.search);
+    const rawStaffSession=params.get('staffSession') || '';
+    const validStaffSession=/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(rawStaffSession);
+    const staffSessionId = params.has('staffSession') ? (validStaffSession ? rawStaffSession : 'invalid') : undefined;
     return (
       <NotificationProvider>
-        <GuestProvider>
+        <GuestProvider key={`${qrId}:${staffSessionId || 'guest'}`} staffSessionId={staffSessionId}>
           <Suspense fallback={<RouteLoadingFallback />}>
             <GuestLanding qrId={qrId} />
           </Suspense>

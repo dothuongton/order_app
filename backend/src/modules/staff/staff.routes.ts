@@ -37,6 +37,39 @@ staffRouter.post('/sessions/:id/orders', requirePermission('order.manage'), asyn
     }
 });
 
+// Staff enters the existing guest storefront only after server-side authorization.
+staffRouter.get('/sessions/:id/ordering-context', requirePermission('order.manage'), async (req: Request, res: Response) => {
+    try {
+        const staff=req.staff!;
+        const result=await query<{id:string;status:string;opened_at:string;public_qr_id:string}>(`
+            SELECT ts.id,ts.status,ts.opened_at,t.public_qr_id FROM table_sessions ts
+            JOIN tables t ON t.id=ts.table_id AND t.tenant_id=ts.tenant_id
+            WHERE ts.id=$1 AND ts.tenant_id=$2`,[req.params.id,staff.tenantId]);
+        const session=result.rows[0];
+        if (!session) return res.status(404).json({error:'SESSION_NOT_FOUND',message:'Không tìm thấy phiên bàn'});
+        if (session.status!=='OPEN') return res.status(409).json({error:'SESSION_CLOSED',message:'Phiên bàn đã kết thúc'});
+        if (req.query.qrId!==session.public_qr_id) return res.status(409).json({error:'TABLE_MISMATCH',message:'Phiên không thuộc bàn đang mở'});
+        const menu=await GuestService.getPublicTableMenu(session.public_qr_id);
+        return res.json({...menu,
+            session:{id:session.id,status:session.status,openedAt:session.opened_at},
+            staff:{id:staff.id,fullName:staff.fullName}});
+    } catch (err:unknown) {
+        const error=err as {status?:number;code?:string;message?:string};
+        return res.status(error.status || 500).json({error:error.code || 'SERVER_ERROR',message:error.status ? error.message : 'Không thể xác nhận quyền gọi hộ'});
+    }
+});
+
+staffRouter.get('/sessions/:id/orders', requirePermission('order.manage'), async (req: Request, res: Response) => {
+    try {
+        const staff=req.staff!;
+        const found=await query('SELECT id FROM table_sessions WHERE id=$1 AND tenant_id=$2',[req.params.id,staff.tenantId]);
+        if (!found.rows.length) return res.status(404).json({error:'SESSION_NOT_FOUND',message:'Không tìm thấy phiên bàn'});
+        return res.json({orders:await GuestService.getSessionOrders(staff.tenantId,req.params.id),staff:{fullName:staff.fullName}});
+    } catch {
+        return res.status(500).json({error:'SERVER_ERROR',message:'Không tải được món của phiên bàn'});
+    }
+});
+
 staffRouter.get('/sessions/:id/order-attributions', async (req: Request, res: Response) => {
     try {
         const staff = req.staff!;

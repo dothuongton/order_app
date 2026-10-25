@@ -8,7 +8,7 @@ interface CartDrawerProps {
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
-  const { cart, updateCartQuantity, removeFromCart, clearCart, submitOrder, table, promotions, billSummary } = useGuest();
+  const { isStaffOrdering, staffName, canOrder, isSessionClosed, cart, updateCartQuantity, removeFromCart, clearCart, submitOrder, table, promotions, billSummary } = useGuest();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -79,7 +79,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <ShoppingBag className="w-5 h-5 text-orange-600" />
-            <h3 className="font-bold text-slate-900 text-lg">Đơn gọi món mới</h3>
+            <h3 className="font-bold text-slate-900 text-lg">{isStaffOrdering ? 'Đơn gọi món hộ' : 'Đơn gọi món mới'}</h3>
             {table && (
               <span className="text-xs bg-orange-100 text-orange-700 font-semibold px-2 py-0.5 rounded-full">
                 Bàn {table.tableNumber}
@@ -94,6 +94,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
 
+        {isStaffOrdering && <p className="px-4 py-2 bg-emerald-50 text-emerald-900 text-xs">Nhân viên {staffName} đang gọi hộ. Hệ thống ghi nhận người gọi và thời điểm.</p>}
         {/* Warning banner about round total */}
         <div className="bg-amber-50 px-4 py-2.5 border-b border-amber-100/60 flex items-start gap-2 text-xs text-amber-800">
           <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -192,7 +193,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
 
             <button
               onClick={handleSubmit}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !canOrder || isSessionClosed}
               className="w-full min-h-[48px] bg-orange-600 hover:bg-orange-700 active:bg-orange-800 disabled:opacity-50 text-white font-bold rounded-xl py-3 px-4 shadow-lg flex items-center justify-center gap-2 transition"
             >
               {isSubmitting ? (
