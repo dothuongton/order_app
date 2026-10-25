@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { request } from '../../api/client.js';
-import { BillSummary } from '../../types/index.js';
+import { BillSummary, StaffOrderAttribution } from '../../types/index.js';
 import { X, Printer, Receipt, XCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { isSessionCancelled, formatCancelReason, getSessionReportStatus } from './StaffReports.js';
@@ -28,24 +28,32 @@ export const getReceiptItemsForDisplay = (items: BillSummary['rounds'][number]['
 export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session, onClose }) => {
   const { currentTenant } = useAuth();
   const [billSummary, setBillSummary] = useState<BillSummary | null>(null);
+  const [attributions,setAttributions] = useState<StaffOrderAttribution[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session?.session_id) return;
+    let cancelled=false;
+    setBillSummary(null); setAttributions([]);
     const fetchBill = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const data = await request<BillSummary>(`/staff/sessions/${session.session_id}/bill-summary`);
-        setBillSummary(data);
-      } catch (err: any) {
-        setError(err.message || 'Không thể tải chi tiết hóa đơn');
+        const [data,attribution] = await Promise.all([
+          request<BillSummary>(`/staff/sessions/${session.session_id}/bill-summary`),
+          request<{attributions:StaffOrderAttribution[]}>(`/staff/sessions/${session.session_id}/order-attributions`)
+        ]);
+        if (cancelled) return;
+        setBillSummary(data); setAttributions(attribution.attributions);
+      } catch (err: unknown) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Không thể tải chi tiết hóa đơn');
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     fetchBill();
+    return ()=>{cancelled=true;};
   }, [session?.session_id]);
 
   if (!session) return null;
@@ -98,6 +106,9 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
             </div>
           ) : (
             <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-200/80 font-mono text-xs space-y-3 print:bg-white print:border-none print:p-0">
+              {attributions.length > 0 && <div className="print:hidden rounded-xl bg-emerald-50 p-3 space-y-1 font-sans">
+                {attributions.map(a=><p key={a.orderNumber}>Lần gọi {a.orderNumber}: <strong>{a.staffName}</strong> gọi hộ · {new Date(a.createdAt).toLocaleString('vi-VN')}</p>)}
+              </div>}
               {/* Receipt Header */}
               <div className="text-center pb-3 border-b border-dashed border-slate-300 space-y-1">
                 <h2 className="font-extrabold text-base text-slate-900 font-sans tracking-wide">

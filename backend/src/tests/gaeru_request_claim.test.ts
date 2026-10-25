@@ -1169,10 +1169,10 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
         it('G4d [P2]: probe replacement race: when a new requester arrives while menu waits for lock, menu does not clear new requester', async () => {
             await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA02Id]);
 
-            // 1. Create an OPEN session with no claim on table A02
+            // 1. Simulate an OPEN session after explicit claim release (version > 1).
             const insertRes = await query(`
                 INSERT INTO table_sessions (tenant_id, table_id, status, opened_at, claim_version)
-                VALUES ($1, $2, 'OPEN', NOW(), 1)
+                VALUES ($1, $2, 'OPEN', NOW(), 2)
                 RETURNING id
             `, [tenantId, tableA02Id]);
             const sessionId = insertRes.rows[0].id;

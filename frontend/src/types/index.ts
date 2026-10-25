@@ -148,6 +148,13 @@ export interface BillRound {
   }[];
 }
 
+export interface StaffOrderAttribution {
+  orderNumber: number;
+  staffId: string;
+  staffName: string;
+  createdAt: string;
+}
+
 export interface BillSummary {
   sessionId: string;
   sessionStatus: 'OPEN' | 'CLOSED';

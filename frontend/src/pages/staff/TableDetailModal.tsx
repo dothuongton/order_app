@@ -1,5 +1,6 @@
+import { StaffOrderModal } from './StaffOrderModal.js';
 import React, { useState, useEffect, useRef } from 'react';
-import { StaffTable, BillSummary } from '../../types/index.js';
+import { StaffTable, BillSummary, StaffOrderAttribution } from '../../types/index.js';
 import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
@@ -16,6 +17,8 @@ interface TableDetailModalProps {
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
   const { hasPermission } = useAuth();
+  const [orderForSession,setOrderForSession] = useState<string | null>(null);
+  const [attributions,setAttributions] = useState<StaffOrderAttribution[]>([]);
   const [billSummary, setBillSummary] = useState<BillSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -67,6 +70,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     activeOperationRef.current = 0;
     const currentSessionId = table?.active_session_id || null;
     currentSessionRef.current = currentSessionId;
+    setOrderForSession(null);
+    setAttributions([]);
     setIsSettling(false);
     setShowConfirmSettlement(false);
     setShowReleaseModal(false);
@@ -90,9 +95,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     setIsLoading(true);
     setActionError(null);
     try {
-      const summary = await request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`);
+      const [summary,attribution] = await Promise.all([
+        request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`),
+        request<{attributions:StaffOrderAttribution[]}>(`/staff/sessions/${sessionId}/order-attributions`)
+      ]);
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setBillSummary(summary);
+      setAttributions(attribution.attributions);
     } catch (err: any) {
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setActionError(err.message || 'Lỗi tải dữ liệu phiên');
@@ -451,6 +460,16 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
           </div>
         </div>
 
+        {orderForSession && orderForSession === table.active_session_id && (
+          <StaffOrderModal key={`${table.table_id}:${orderForSession}`} sessionId={orderForSession} tableNumber={table.table_number}
+            onClose={()=>setOrderForSession(null)} onCreated={()=>{
+              setOrderForSession(null); setActionSuccess('Đã gửi món hộ khách, chờ tiếp nhận');
+              void loadSessionData(orderForSession); onRefresh();
+            }} />
+        )}
+        {table.active_session_id && billSummary?.sessionStatus === 'OPEN' && billSummary.sessionId === table.active_session_id && hasPermission('order.manage') && (
+          <button type="button" onClick={()=>setOrderForSession(table.active_session_id!)} className="mx-4 mt-3 rounded-xl bg-emerald-900 text-white p-3 font-bold">Gọi món hộ</button>
+        )}
         {/* Action Banners */}
         {actionError && (
           <div className="m-3 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold">
@@ -531,6 +550,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                         <div className="flex items-center justify-between text-xs font-bold text-slate-600">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span>Lần gọi {round.orderNumber}</span>
+                            {attributions.filter(a=>a.orderNumber===round.orderNumber).map(a=>(
+                              <span key={a.orderNumber} className="text-xs text-emerald-800">Nhân viên {a.staffName} gọi hộ</span>
+                            ))}
                             {round.createdAt && (
                               <span className="text-[11px] font-normal text-slate-400">
                                 • {new Date(round.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
