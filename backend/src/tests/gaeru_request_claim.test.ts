@@ -81,6 +81,32 @@ describe('Gaeru Flow Experiment: Table Request & Single Device Claim (P1)', () =
 
     const createDeviceCookie = () => crypto.randomBytes(32).toString('hex');
 
+    describe('Hotfix: occupied table without an assigned device', () => {
+        it('does not offer or create a new opening request for a staff-opened session', async () => {
+            await query(`UPDATE table_sessions SET status = 'CLOSED' WHERE table_id = $1`, [tableA02Id]);
+            const opened = await query(`
+                INSERT INTO table_sessions (tenant_id, table_id, status, claim_version)
+                VALUES ($1, $2, 'OPEN', 1) RETURNING id
+            `, [tenantId, tableA02Id]);
+            const cookie = `device_id=${createDeviceCookie()}`;
+            const menuResponse = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/menu`, {
+                headers: { Cookie: cookie }
+            });
+            expect(menuResponse.status).toBe(200);
+            const menu = await menuResponse.json();
+            expect(menu.table.canRequest).toBe(false);
+            const response = await fetch(`${baseUrl}/api/v1/public/tables/${tableA02QrId}/request-open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Cookie: cookie },
+                body: JSON.stringify({ requestId: crypto.randomUUID(), guestName: 'Hotfix test' })
+            });
+            expect(response.status).toBe(409);
+            expect((await response.json()).error).toBe('TABLE_ALREADY_OCCUPIED');
+            const unchanged = await query(`SELECT status, request_id, requester_device_hash FROM table_sessions WHERE id=$1`, [opened.rows[0].id]);
+            expect(unchanged.rows[0]).toEqual({status:'OPEN',request_id:null,requester_device_hash:null});
+        });
+    });
+
     describe('1. EX01: Concurrency on Table Open Request (2 Devices Overlap)', () => {
         it('allows exactly 1 request to win PENDING_APPROVAL and blocks the loser with 409', async () => {
             // Ensure table A01 has no active sessions
