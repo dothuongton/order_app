@@ -7,6 +7,7 @@ import { authenticateStaff, requirePermission } from '../../middleware/auth.js';
 import { staffMutationLimiter } from '../../middleware/security.js';
 import { config } from '../../config/index.js';
 import { query, withTransaction } from '../../db/pool.js';
+import { validate } from '../../utils/validation.js';
 import { generatePublicQrId } from '../../utils/crypto.js';
 
 export const staffRouter = Router();
@@ -17,6 +18,40 @@ staffRouter.param('id', (req, res, next, id) => {
 
 staffRouter.use(authenticateStaff);
 staffRouter.use(staffMutationLimiter);
+
+// Staff ordering uses authenticated identity; public guest claims are unchanged.
+staffRouter.post('/sessions/:id/orders', requirePermission('order.manage'), async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const sessionId = validate(z.string().uuid(), req.params.id);
+        const session = await query<{table_id:string}>(
+            'SELECT table_id FROM table_sessions WHERE id=$1 AND tenant_id=$2', [sessionId,staff.tenantId]);
+        if (!session.rows.length) return res.status(404).json({error:'SESSION_NOT_FOUND',message:'Không tìm thấy phiên bàn'});
+        const result = await GuestService.createOrder(staff.tenantId,sessionId,session.rows[0].table_id,
+            {idempotencyKey:req.body.idempotencyKey,items:req.body.items}, undefined,
+            {id:staff.id,fullName:staff.fullName});
+        return res.status(201).json(result);
+    } catch (err: unknown) {
+        const error = err as {status?:number;code?:string;message?:string};
+        return res.status(error.status || 500).json({error:error.code || 'SERVER_ERROR',message:error.status ? error.message : 'Không thể gửi món hộ khách. Vui lòng thử lại.'});
+    }
+});
+
+staffRouter.get('/sessions/:id/order-attributions', async (req: Request, res: Response) => {
+    try {
+        const staff = req.staff!;
+        const sessionId = validate(z.string().uuid(), req.params.id);
+        const result = await query(`SELECT o.order_number AS "orderNumber", a.user_id AS "staffId",
+            a.details->>'staffName' AS "staffName", a.created_at AS "createdAt"
+            FROM orders o JOIN audit_logs a ON a.resource_id=o.id::text AND a.tenant_id=o.tenant_id
+                AND a.action='STAFF_CREATE_ORDER' AND a.resource_type='order'
+            WHERE o.tenant_id=$1 AND o.session_id=$2 ORDER BY o.order_number`, [staff.tenantId,sessionId]);
+        return res.json({attributions:result.rows});
+    } catch (err: unknown) {
+        const error = err as {status?:number;message?:string};
+        return res.status(error.status || 500).json({error:'SERVER_ERROR',message:error.message});
+    }
+});
 
 // 1. Dashboard snapshot
 staffRouter.get('/dashboard/snapshot', async (req: Request, res: Response) => {

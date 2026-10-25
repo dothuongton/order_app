@@ -245,7 +245,14 @@ export class GuestService {
                             }
                         } else {
                             deviceState = 'VIEWER';
-                            canRequest = table.is_enabled && table.tenant_status === 'active';
+                            canRequest = activeSession.claim_version > 1 && table.is_enabled && table.tenant_status === 'active';
+                            if (canRequest) {
+                                const served = await query(`SELECT 1 FROM orders o
+                                    JOIN order_items i ON i.order_id=o.id
+                                    JOIN order_item_parts p ON p.order_item_id=i.id
+                                    WHERE o.session_id=$1 AND p.status='SERVED' LIMIT 1`, [activeSession.id]);
+                                canRequest = served.rows.length === 0;
+                            }
                         }
                     }
                 } else {
@@ -663,7 +670,7 @@ export class GuestService {
 
             // Check existing active session
             const activeRes = await client.query(`
-                SELECT id, status, request_id, requester_device_hash, requester_guest_name, requested_at, expires_at, claimed_device_hash
+                SELECT id, status, request_id, requester_device_hash, requester_guest_name, requested_at, expires_at, claimed_device_hash, claim_version
                 FROM table_sessions
                 WHERE table_id = $1 AND status IN ('PENDING_APPROVAL', 'OPEN')
                 FOR UPDATE
@@ -672,7 +679,14 @@ export class GuestService {
             if (activeRes.rows.length > 0) {
                 const active = activeRes.rows[0];
                 if (active.status === 'OPEN') {
-                    if (active.claimed_device_hash) {
+                    if (active.claimed_device_hash || active.claim_version <= 1) {
+                        throw { status: 409, code: 'TABLE_ALREADY_OCCUPIED', message: 'Bàn đang có khách phục vụ.' };
+                    }
+                    const served = await client.query(`SELECT 1 FROM orders o
+                        JOIN order_items i ON i.order_id=o.id
+                        JOIN order_item_parts p ON p.order_item_id=i.id
+                        WHERE o.session_id=$1 AND p.status='SERVED' LIMIT 1`, [active.id]);
+                    if (served.rows.length) {
                         throw { status: 409, code: 'TABLE_ALREADY_OCCUPIED', message: 'Bàn đang có khách phục vụ.' };
                     }
                     // G3: Claim released on OPEN session! Check if replacement request exists
@@ -916,13 +930,18 @@ export class GuestService {
         sessionId: string,
         tableId: string,
         input: CreateOrderInput,
-        callerDeviceHash?: string
+        callerDeviceHash?: string,
+        staffActor?: { id: string; fullName: string }
     ) {
         input = validate(orderInputSchema, input);
         if (!input.items || input.items.length === 0) {
             throw { status: 400, code: 'EMPTY_ORDER', message: 'Giỏ hàng đang trống' };
         }
 
+        const operation = staffActor ? `STAFF_ORDER:${staffActor.id}` : 'CREATE_ORDER';
+        const storageKey = staffActor
+            ? `staff:${staffActor.id}:${hashToken(input.idempotencyKey)}`
+            : input.idempotencyKey;
         return await withTransaction(async (client) => {
             // Lock session row FOR UPDATE
             const sessionRes = await client.query(`
@@ -941,7 +960,7 @@ export class GuestService {
             const idempotency = await checkIdempotency(
                 client,
                 tenantId,
-                'CREATE_ORDER',
+                operation,
                 sessionId,
                 input.idempotencyKey,
                 input
@@ -955,7 +974,7 @@ export class GuestService {
                 throw { status: 400, code: 'SESSION_CLOSED', message: 'Phiên bàn đã kết thúc, không thể gọi thêm món' };
             }
 
-            if (config.orderingMode === 'approved_single_device') {
+            if (!staffActor && config.orderingMode === 'approved_single_device') {
                 if (!callerDeviceHash || session.claimed_device_hash !== callerDeviceHash) {
                     throw {
                         status: 403,
@@ -1068,15 +1087,16 @@ export class GuestService {
             // Insert into orders
             const orderRes = await client.query(`
                 INSERT INTO orders (tenant_id, session_id, order_number, idempotency_key, source, applied_promotion_id, discount_total)
-                VALUES ($1, $2, $3, $4, 'GUEST_WEB', $5, $6)
+                VALUES ($1, $2, $3, $4, $7, $5, $6)
                 RETURNING id, order_number, created_at
             `, [
                 tenantId,
                 sessionId,
                 nextOrderNumber,
-                input.idempotencyKey,
+                storageKey,
                 effectiveOrderPromoId,
-                effectiveOrderDiscount
+                effectiveOrderDiscount,
+                staffActor ? 'STAFF_POS' : 'GUEST_WEB'
             ]);
 
             const order = orderRes.rows[0];
@@ -1135,6 +1155,16 @@ export class GuestService {
                 WHERE id = $1
             `, [sessionId]);
 
+            if (staffActor) {
+                await client.query(`INSERT INTO audit_logs
+                    (tenant_id,user_id,action,resource_type,resource_id,details)
+                    VALUES ($1,$2,'STAFF_CREATE_ORDER','order',$3,$4::jsonb)`,
+                    [tenantId,staffActor.id,order.id,JSON.stringify({
+                        staffName:staffActor.fullName, sessionId,tableId:session.table_id,
+                        orderNumber:order.order_number, items:createdItems,
+                        requestedItems:input.items, finalTotal:pricing.finalTotal
+                    })]);
+            }
             const result = {
                 orderId: order.id,
                 orderNumber: order.order_number,
@@ -1151,7 +1181,7 @@ export class GuestService {
             await recordIdempotency(
                 client,
                 tenantId,
-                'CREATE_ORDER',
+                operation,
                 sessionId,
                 input.idempotencyKey,
                 input,
@@ -1164,6 +1194,8 @@ export class GuestService {
                 sessionId,
                 tableId,
                 tableName,
+                source: staffActor ? 'STAFF_POS' : 'GUEST_WEB',
+                orderedByName: staffActor?.fullName,
                 orderId: order.id,
                 orderNumber: order.order_number,
                 itemsCount: createdItems.length

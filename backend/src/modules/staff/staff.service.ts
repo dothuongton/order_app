@@ -345,6 +345,16 @@ export class StaffService {
                 throw { status: 409, code: 'VERSION_CONFLICT', message: 'Phiên yêu cầu đã có thay đổi' };
             }
 
+            if (session.status === 'OPEN') {
+                const served = await client.query(`SELECT 1 FROM orders o
+                    JOIN order_items i ON i.order_id=o.id
+                    JOIN order_item_parts p ON p.order_item_id=i.id
+                    WHERE o.session_id=$1 AND p.status='SERVED' LIMIT 1`, [session.id]);
+                if (session.claim_version <= 1 || served.rows.length) {
+                    throw { status: 409, code: 'TABLE_ALREADY_OCCUPIED', message: 'Bàn đang phục vụ, không thể duyệt yêu cầu mở bàn này.' };
+                }
+            }
+
             // Reset readiness if needed
             if (table.readiness === 'NEEDS_CLEANING') {
                 await client.query(`UPDATE tables SET readiness = 'READY' WHERE id = $1`, [tableId]);

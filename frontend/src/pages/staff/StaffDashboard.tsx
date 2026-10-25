@@ -273,7 +273,9 @@ export const StaffDashboard: React.FC = () => {
       const eventId = payload?.orderId ? `order-${payload.orderId}` : undefined;
       playOrderSound(tableName, eventId);
       showToast({
-        title: `🔔 Khách gọi món mới (${tableName})`,
+        title: payload?.source === 'STAFF_POS'
+          ? `🔔 Nhân viên gọi món hộ (${tableName})`
+          : `🔔 Khách gọi món mới (${tableName})`,
         message: `Lượt gọi #${payload?.orderNumber || 'mới'} gồm ${payload?.itemsCount || 1} món`,
         type: 'info',
         duration: 7000
