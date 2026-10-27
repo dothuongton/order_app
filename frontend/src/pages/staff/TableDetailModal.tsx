@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext.js';
 import {
   X, Check, CheckCheck, Ban, CreditCard, Sparkles, AlertTriangle, AlertCircle,
   Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed, Plus, Store,
-  Edit3, Trash2
+  Edit3, Trash2, CheckCircle2
 } from 'lucide-react';
 
 interface TableDetailModalProps {
@@ -416,10 +416,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-fade-in">
       <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up staff-density-modal">
         {/* Top Header */}
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-black text-slate-900">Bàn {table.table_number}</h2>
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/90 gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-3 py-1 bg-slate-900 text-white font-black text-base sm:text-lg rounded-xl tracking-tight shrink-0 shadow-xs">
+                Bàn {table.table_number}
+              </span>
               <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
                 table.displayStatus === 'Sẵn sàng' ? 'bg-emerald-100 text-emerald-800' :
                 table.displayStatus === 'Yêu cầu thanh toán' ? 'bg-amber-100 text-amber-800' :
@@ -429,12 +431,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
               </span>
             </div>
             {table.opened_at && (
-              <span className="text-[11px] text-slate-400 block mt-0.5">
-                Mở lúc {new Date(table.opened_at).toLocaleTimeString('vi-VN')}
+              <span className="text-[11px] text-slate-400 block mt-1">
+                Mở lúc {new Date(table.opened_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             {hasPermission('table.manage') && (
               <>
                 <button
@@ -458,6 +460,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
             <button
               onClick={onClose}
               className="w-10 h-10 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-400 cursor-pointer"
+              title="Đóng"
             >
               <X className="w-5 h-5" />
             </button>
@@ -465,8 +468,17 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         </div>
 
         {table.active_session_id && billSummary?.sessionStatus === 'OPEN' && billSummary.sessionId === table.active_session_id && hasPermission('order.manage') && (
-          <a href={`/t/${encodeURIComponent(table.public_qr_id)}?staffSession=${encodeURIComponent(table.active_session_id)}`}
-            target="_blank" rel="noopener noreferrer" className="mx-4 mt-3 rounded-xl bg-emerald-900 text-white p-3 font-bold text-center">Gọi món hộ</a>
+          <div className="px-4 pt-3">
+            <a
+              href={`/t/${encodeURIComponent(table.public_qr_id)}?staffSession=${encodeURIComponent(table.active_session_id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full rounded-2xl bg-slate-900 hover:bg-slate-800 active:scale-[0.99] text-white py-2.5 px-4 font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Gọi món hộ</span>
+            </a>
+          </div>
         )}
         {/* Action Banners */}
         {actionError && (
@@ -525,8 +537,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   )}
                   <InvoiceSourceSummary origins={billSummary.rounds || []} />
                   {/* Itemized Bill Breakdown */}
-                  <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs divide-y divide-slate-100 overflow-hidden">
-                    <div className="p-3.5 bg-slate-50 flex items-center justify-between">
+                  <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs divide-y divide-slate-100 overflow-hidden">
+                    <div className="p-3.5 sm:p-4 bg-slate-50/80 flex items-center justify-between border-b border-slate-100">
                       <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
                         Chi tiết các món trong hóa đơn
                       </span>
@@ -545,105 +557,188 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                     )}
 
                     {billSummary.rounds?.map((round) => (
-                      <div key={round.orderNumber} className="p-3.5 space-y-2">
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+                      <div key={round.orderNumber} className="p-3.5 sm:p-4 space-y-3">
+                        {/* Round Header */}
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-600 pb-1.5 border-b border-slate-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span>Lần gọi {round.orderNumber}</span>
-                            <OrderSourceBadge {...round} />
+                            <span className="text-slate-800 font-extrabold">Lần #{round.orderNumber}</span>
                             {round.createdAt && (
                               <span className="text-[11px] font-normal text-slate-400">
                                 • {new Date(round.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             )}
+                            <OrderSourceBadge {...round} />
                             {round.appliedPromotion && (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                                 🎁 {round.appliedPromotion.title}
                               </span>
                             )}
                           </div>
-                          <span className="text-slate-900">{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
+                          <span className="text-slate-900 font-bold">{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
                         </div>
 
-                        <div className="space-y-1.5 pl-2 border-l-2 border-slate-200">
-                          {round.items.map((item, idx) => (
-                            <div key={idx} className="space-y-1 bg-slate-50/70 p-2 rounded-xl">
-                              <div className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                                  <span className="font-bold text-slate-700 shrink-0">{item.quantity}x</span>
-                                  <span className={`truncate ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900 font-semibold'}`}>
-                                    {item.name}
-                                  </span>
-                                  {item.variantName && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] rounded shrink-0">
-                                      {item.variantName}
+                        {/* Round Items List */}
+                        <div className="divide-y divide-slate-100">
+                          {round.items.map((item, idx) => {
+                            const isPending = item.status === 'PENDING';
+                            const isAccepted = item.status === 'ACCEPTED';
+                            const isServed = item.status === 'SERVED';
+                            const isCancelled = item.status === 'CANCELLED';
+
+                            return (
+                              <div
+                                key={idx}
+                                className="relative flex items-center justify-between gap-2.5 sm:gap-3 py-2.5 first:pt-1 last:pb-1"
+                              >
+                                {/* Left side vertical accent bar - 6px */}
+                                <div
+                                  className={`w-1.5 self-stretch rounded-full shrink-0 ${
+                                    isPending
+                                      ? 'bg-amber-400'
+                                      : isAccepted
+                                      ? 'bg-sky-400'
+                                      : isServed
+                                      ? 'bg-emerald-400'
+                                      : 'bg-rose-300'
+                                  }`}
+                                />
+
+                                {/* Middle Column: Dish Info */}
+                                <div className="min-w-0 flex-1 space-y-1 overflow-hidden pr-1">
+                                  {/* Row 1: Quantity + Dish Name */}
+                                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                                    <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">
+                                      {item.quantity}×
                                     </span>
+                                    <span className={`font-bold text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug ${
+                                      isCancelled ? 'line-through text-slate-400' : 'text-slate-900'
+                                    }`}>
+                                      {item.name}
+                                    </span>
+                                  </div>
+
+                                  {/* Row 2: Variant Details - Bold */}
+                                  {item.variantName && (
+                                    <p className="text-xs sm:text-[13px] font-bold text-slate-700 leading-tight">
+                                      {item.variantName}
+                                    </p>
                                   )}
-                                  {item.status === 'CANCELLED' && (
-                                    <span className="text-[10px] text-rose-600 font-bold shrink-0">(Đã hủy)</span>
+
+                                  {/* Row 3: Customer Note - Italic text in warm amber-brown with pin icon */}
+                                  {item.note && (
+                                    <p className="flex items-start gap-1 text-xs sm:text-[13px] italic font-normal text-[#9A3412] break-all [overflow-wrap:anywhere] leading-snug">
+                                      <span className="not-italic shrink-0 select-none text-[11px] mt-0.5">📌</span>
+                                      <span>{item.note}</span>
+                                    </p>
                                   )}
-                                  {item.status === 'PENDING' && (
-                                    <span className="text-[10px] text-amber-700 bg-amber-100/90 px-1.5 py-0.5 rounded-md font-extrabold shrink-0">Chờ nhận</span>
-                                  )}
-                                  {item.status === 'ACCEPTED' && (
-                                    <span className="text-[10px] text-blue-700 bg-blue-100/90 px-1.5 py-0.5 rounded-md font-extrabold shrink-0">Đã nhận</span>
-                                  )}
-                                  {item.status === 'SERVED' && (
-                                    <span className="text-[10px] text-emerald-700 bg-emerald-100/90 px-1.5 py-0.5 rounded-md font-extrabold shrink-0">Đã phục vụ</span>
+
+                                  {/* Row 4: Cancel Reason */}
+                                  {isCancelled && item.cancelReason && (
+                                    <p className="text-[11px] text-rose-500 italic">
+                                      Lý do hủy: {item.cancelReason}
+                                    </p>
                                   )}
                                 </div>
-                                <div className="text-right shrink-0">
-                                  <span className={`font-bold ${item.status === 'CANCELLED' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                                    {item.status === 'CANCELLED' ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
-                                  </span>
-                                  {item.status !== 'CANCELLED' && typeof item.rawPrice === 'number' && item.rawPrice > item.subtotal && (
-                                    <span className="block text-[10px] text-slate-400 line-through">
-                                      {item.rawPrice.toLocaleString('vi-VN')}đ
+
+                                {/* Right Column: Price & Actions */}
+                                <div className="flex flex-col items-end justify-center gap-1.5 shrink-0 self-center">
+                                  <div className="text-right">
+                                    <span className={`font-black text-xs sm:text-sm ${
+                                      isCancelled ? 'line-through text-slate-400' : 'text-slate-900'
+                                    }`}>
+                                      {isCancelled ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
+                                    </span>
+                                    {!isCancelled && typeof item.rawPrice === 'number' && item.rawPrice > item.subtotal && (
+                                      <span className="block text-[10px] text-slate-400 line-through">
+                                        {item.rawPrice.toLocaleString('vi-VN')}đ
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Quick action buttons or status badge */}
+                                  {isPending && item.itemId && (
+                                    <div className="flex items-center gap-1.5">
+                                      {hasPermission('order.manage') && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAcceptItem(item.itemId)}
+                                          className="px-2.5 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer"
+                                          title="Nhận món"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                          <span>Nhận</span>
+                                        </button>
+                                      )}
+                                      {hasPermission('order.cancel') && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
+                                            setCancelQty(item.quantity);
+                                            setCancelReason('Hết nguyên liệu');
+                                            setMarkItemOutOfStock(true);
+                                          }}
+                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                          title="Hủy món"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          <span>Hủy</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {isAccepted && item.itemId && (
+                                    <div className="flex items-center gap-1.5">
+                                      {hasPermission('order.serve') && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleServeItem(item.itemId)}
+                                          className="px-2.5 py-1.5 bg-[#059669] hover:bg-[#047857] active:bg-[#065F46] text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer"
+                                          title="Phục vụ món"
+                                        >
+                                          <UtensilsCrossed className="w-3.5 h-3.5" />
+                                          <span>Phục vụ</span>
+                                        </button>
+                                      )}
+                                      {hasPermission('order.cancel') && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
+                                            setCancelQty(item.quantity);
+                                            setCancelReason('Hết nguyên liệu');
+                                            setMarkItemOutOfStock(true);
+                                          }}
+                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                          title="Hủy món"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          <span>Hủy</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {isServed && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50/90 px-2.5 py-1 rounded-xl border border-emerald-200/60">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                      <span>Đã phục vụ</span>
+                                    </span>
+                                  )}
+
+                                  {isCancelled && (
+                                    <span className="inline-flex items-center text-[11px] font-bold text-rose-700 bg-rose-50/90 px-2.5 py-1 rounded-xl border border-rose-200/60">
+                                      Đã hủy
                                     </span>
                                   )}
                                 </div>
                               </div>
-
-                              {/* Item actions: quick accept / serve / cancel */}
-                              {(item.status === 'PENDING' || item.status === 'ACCEPTED') && item.itemId && (
-                                <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-200/60">
-                                  {item.status === 'PENDING' && (
-                                    <button
-                                      onClick={() => handleAcceptItem(item.itemId)}
-                                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1"
-                                    >
-                                      <Check className="w-3 h-3" />
-                                      <span>Nhận món</span>
-                                    </button>
-                                  )}
-                                  {item.status === 'ACCEPTED' && (
-                                    <button
-                                      onClick={() => handleServeItem(item.itemId)}
-                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1"
-                                    >
-                                      <UtensilsCrossed className="w-3 h-3" />
-                                      <span>Phục vụ</span>
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity })}
-                                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition flex items-center gap-1"
-                                  >
-                                    <X className="w-3 h-3" />
-                                    <span>Hủy</span>
-                                  </button>
-                                </div>
-                              )}
-
-                              {item.note && (
-                                <div className="text-[11px] text-amber-800 font-medium italic">
-                                  Ghi chú: {item.note}
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
 
                   {/* Pending subtotal note */}
                   {billSummary.pendingTotal > 0 && (
