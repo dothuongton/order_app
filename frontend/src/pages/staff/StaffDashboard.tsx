@@ -1415,7 +1415,6 @@ export const StaffDashboard: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="font-extrabold text-slate-900 text-lg">Quản lý đơn món</h2>
-                  <p className="text-xs text-slate-500">Phân loại & xử lý món trực tiếp tại các bàn</p>
                 </div>
                 <button
                   type="button"
