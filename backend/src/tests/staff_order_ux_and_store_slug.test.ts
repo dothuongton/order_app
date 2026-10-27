@@ -186,14 +186,10 @@ describe('Staff Order UX & Store Slug Endpoint Tests', () => {
         });
         expect(zeroReportsRes.status).toBe(200);
         const zeroReportsData: any = await zeroReportsRes.json();
-        expect(zeroReportsData.recentSettledSessions).toEqual(expect.arrayContaining([
-            expect.objectContaining({
-                session_id: emptySessionId,
-                confirmed_amount: '0',
-                close_reason: 'CONFIRMED_SETTLED',
-                bill_status: 'CONFIRMED'
-            })
-        ]));
+        // Sessions without customer request or orders (like phantom session #A4572161) must NOT appear in recent invoice reports
+        expect(zeroReportsData.recentSettledSessions.some((s: any) => s.session_id === emptySessionId)).toBe(false);
+        // But sessions with customer or orders (like releasedSession) MUST appear
+        expect(zeroReportsData.recentSettledSessions.some((s: any) => s.session_id === sessionId)).toBe(true);
     });
 
     it('authenticates a reports summary request only once', async () => {
