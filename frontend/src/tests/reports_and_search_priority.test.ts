@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isSessionCancelled, formatCancelReason, getSessionReportStatus } from '../pages/staff/StaffReports.js';
-import { getReceiptItemsForDisplay } from '../pages/staff/ReceiptDetailModal.js';
+import { getReceiptItemsForDisplay, escapeReceiptHtml, generateReceiptHtml } from '../pages/staff/ReceiptDetailModal.js';
 
 describe('Reports Status Badge Logic (Issue #140 Follow-up)', () => {
   it('correctly marks confirmed/paid sessions as NOT cancelled and formats them cleanly', () => {
@@ -197,5 +197,160 @@ describe('Guest Search Priority (Name matches before Description matches)', () =
     ];
     const results = filterAndSort(items, 'cà phê');
     expect(results[0].name).toBe('Cà phê');
+  });
+});
+
+describe('ReceiptDetailModal View Toggles & HTML Generator', () => {
+  const mockSession = {
+    session_id: 'sess-12345678-abcd',
+    table_number: 'B05',
+    confirmed_amount: 150000,
+    confirmed_at: '2026-10-27T10:30:00.000Z',
+    confirmed_by_name: 'Nguyễn Văn Thu Ngân',
+    settlement_note: 'Ghi chú thanh toán rất dài: Khách trả bằng thẻ tín dụng Sacombank, đã trừ voucher 20k và yêu cầu gửi bill qua Zalo cho anh Tuấn 0901234567.',
+    opening_guest_name: 'Khách bàn 5'
+  };
+
+  const mockBillSummary = {
+    openingGuestName: 'Khách bàn 5',
+    rounds: [
+      {
+        orderId: 'ord-1',
+        source: 'STAFF_POS',
+        orderedByName: 'Nhân viên A',
+        items: [
+          {
+            itemId: 'item-101',
+            name: 'Trà Sữa Trân Châu Đường Đen',
+            variantName: 'Size L, 50% đường',
+            quantity: 2,
+            price: 45000,
+            subtotal: 90000,
+            status: 'SERVED',
+            note: 'Ít đá, không lấy ống hút nhựa'
+          },
+          {
+            itemId: 'item-102',
+            name: 'Bánh Mì Chảo',
+            quantity: 1,
+            price: 60000,
+            subtotal: 60000,
+            status: 'SERVED'
+          }
+        ]
+      }
+    ]
+  };
+
+  it('escapes dangerous HTML characters properly', () => {
+    expect(escapeReceiptHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+    expect(escapeReceiptHtml('Tom & Jerry')).toBe('Tom &amp; Jerry');
+    expect(escapeReceiptHtml(null)).toBe('');
+  });
+
+  it('generates receipt HTML with order source and notes when both are enabled', () => {
+    const html = generateReceiptHtml({
+      session: mockSession,
+      currentTenantName: 'Quán Cà Phê Mẫu',
+      billSummary: mockBillSummary as any,
+      showOrderSource: true,
+      showNotes: true
+    });
+
+    expect(html).toContain('Quán Cà Phê Mẫu');
+    expect(html).toContain('Bàn B05');
+    expect(html).toContain('Trà Sữa Trân Châu Đường Đen');
+    expect(html).toContain('Size L, 50% đường');
+    // Order source elements
+    expect(html).toContain('Người yêu cầu mở bàn');
+    expect(html).toContain('Khách bàn 5');
+    expect(html).toContain('Nhân viên gọi hộ · Nhân viên A');
+    // Notes elements
+    expect(html).toContain('Ghi chú thanh toán');
+    expect(html).toContain('Khách trả bằng thẻ tín dụng Sacombank');
+    expect(html).toContain('Ít đá, không lấy ống hút nhựa');
+    // Styling for long note overflow prevention
+    expect(html).toContain('overflow-wrap: anywhere');
+    expect(html).toContain('word-break: break-word');
+  });
+
+  it('hides order source info in generated HTML when showOrderSource is false', () => {
+    const html = generateReceiptHtml({
+      session: mockSession,
+      currentTenantName: 'Quán Cà Phê Mẫu',
+      billSummary: mockBillSummary as any,
+      showOrderSource: false,
+      showNotes: true
+    });
+
+    expect(html).not.toContain('Người yêu cầu mở bàn');
+    expect(html).not.toContain('Nhân viên gọi hộ · Nhân viên A');
+    expect(html).not.toContain('Người gọi món:');
+    // Notes should still be present
+    expect(html).toContain('Ghi chú thanh toán');
+  });
+
+  it('hides notes in generated HTML when showNotes is false', () => {
+    const html = generateReceiptHtml({
+      session: mockSession,
+      currentTenantName: 'Quán Cà Phê Mẫu',
+      billSummary: mockBillSummary as any,
+      showOrderSource: true,
+      showNotes: false
+    });
+
+    expect(html).not.toContain('Ghi chú thanh toán');
+    expect(html).not.toContain('Khách trả bằng thẻ tín dụng Sacombank');
+    expect(html).not.toContain('Ít đá, không lấy ống hút nhựa');
+    // Order source should still be present
+    expect(html).toContain('Người yêu cầu mở bàn');
+    expect(html).toContain('Nhân viên gọi hộ · Nhân viên A');
+  });
+
+  it('handles 0đ cancelled sessions properly in receipt display and HTML generation', () => {
+    const zeroSession = {
+      session_id: 'sess-zero-0000',
+      table_number: 'A01',
+      confirmed_amount: 0,
+      confirmed_at: '2026-10-27T10:30:00.000Z',
+      confirmed_by_name: 'Thu Ngân',
+      close_reason: 'Khách đổi ý',
+      bill_status: 'CANCELLED'
+    };
+    const zeroSummary = {
+      openingGuestName: null,
+      rounds: [
+        {
+          orderId: 'ord-zero',
+          source: 'GUEST_WEB',
+          items: [
+            {
+              itemId: 'item-cancelled-1',
+              name: 'Món đã hủy',
+              quantity: 1,
+              price: 30000,
+              subtotal: 30000,
+              status: 'CANCELLED',
+              cancelReason: 'Khách đổi ý'
+            }
+          ]
+        }
+      ]
+    };
+
+    const displayItems = getReceiptItemsForDisplay(zeroSummary.rounds[0].items as any, 0);
+    expect(displayItems).toHaveLength(1); // 0đ session displays cancelled items
+
+    const html = generateReceiptHtml({
+      session: zeroSession,
+      currentTenantName: 'Quán Cà Phê Mẫu',
+      billSummary: zeroSummary as any,
+      showOrderSource: false,
+      showNotes: false
+    });
+
+    expect(html).toContain('BIÊN NHẬN PHIÊN 0đ');
+    expect(html).toContain('Món đã hủy');
+    expect(html).toContain('Đã hủy');
   });
 });
