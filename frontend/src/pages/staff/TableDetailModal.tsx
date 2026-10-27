@@ -622,16 +622,16 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                     <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">
                                       {item.quantity}×
                                     </span>
-                                    <span className={`font-bold text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug ${
+                                    <span className={`font-normal text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug ${
                                       isCancelled ? 'line-through text-slate-400' : 'text-slate-900'
                                     }`}>
                                       {item.name}
                                     </span>
                                   </div>
 
-                                  {/* Row 2: Variant Details - Bold */}
+                                  {/* Row 2: Variant Details */}
                                   {item.variantName && (
-                                    <p className="text-xs sm:text-[13px] font-bold text-slate-700 leading-tight">
+                                    <p className="text-xs sm:text-[13px] font-normal text-slate-500 leading-tight">
                                       {item.variantName}
                                     </p>
                                   )}
