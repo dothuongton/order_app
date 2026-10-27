@@ -1560,9 +1560,9 @@ export const StaffDashboard: React.FC = () => {
                                     </span>
                                   </div>
 
-                                  {/* Row 2: Variant Details */}
+                                  {/* Row 2: Variant Details - Bold as requested */}
                                   {item.variantName && (
-                                    <p className="text-xs text-slate-500 font-medium leading-tight">
+                                    <p className="text-xs sm:text-[13px] font-bold text-slate-700 leading-tight">
                                       {item.variantName}
                                     </p>
                                   )}
@@ -1579,11 +1579,9 @@ export const StaffDashboard: React.FC = () => {
                                     </div>
                                   )}
 
-                                  {/* Row 4: Order Source, Round, and Time - Subtle inline metadata, plain text without prominent blocks */}
+                                  {/* Row 4: Round, Time, Order Source - Ordered as: Lần #2 • 20:09 • khách tự gọi */}
                                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[10px] text-slate-400 font-normal leading-tight">
-                                    <span>{orderSourceLabel(item)}</span>
-                                    <span className="text-slate-300">•</span>
-                                    <span>Lượt #{item.orderNumber}</span>
+                                    <span>Lần #{item.orderNumber}</span>
                                     {item.createdAt && (
                                       <>
                                         <span className="text-slate-300">•</span>
@@ -1592,6 +1590,8 @@ export const StaffDashboard: React.FC = () => {
                                         </span>
                                       </>
                                     )}
+                                    <span className="text-slate-300">•</span>
+                                    <span>{orderSourceLabel(item).replace(/^Khách tự gọi$/, 'khách tự gọi')}</span>
                                   </div>
                                 </div>
 
