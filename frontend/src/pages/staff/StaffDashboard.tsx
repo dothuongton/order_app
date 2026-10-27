@@ -1514,7 +1514,7 @@ export const StaffDashboard: React.FC = () => {
                         key={table.table_id}
                         className="bg-white rounded-3xl border-2 border-slate-300 shadow-md overflow-hidden flex flex-col transition hover:border-slate-400"
                       >
-                        {/* Table Header: Tên bàn dạng khối + Thời gian đợi + Số món + Nút Bill + Nút Nhận tất cả */}
+                        {/* Table Header: Tên bàn dạng khối + Thời gian đợi + Số món + Nút Bill + Nút Nhận cả bàn / Phục vụ cả bàn */}
                         <div className="bg-slate-100/95 px-4 py-3 sm:py-3.5 border-b-2 border-slate-200 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 flex-wrap min-w-0">
                             {/* Distinct Block Badge for Table Number */}
@@ -1547,9 +1547,9 @@ export const StaffDashboard: React.FC = () => {
                                 type="button"
                                 onClick={() => handleQuickAcceptAll(table.active_session_id!)}
                                 className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer"
-                                title={`Nhận tất cả ${pendingCount} món đang chờ`}
+                                title={`Nhận cả bàn (${pendingCount} món đang chờ)`}
                               >
-                                Nhận tất cả ({pendingCount})
+                                Nhận cả bàn ({pendingCount})
                               </button>
                             )}
 
@@ -1558,9 +1558,9 @@ export const StaffDashboard: React.FC = () => {
                                 type="button"
                                 onClick={() => handleQuickServeAll(table.active_session_id!)}
                                 className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer"
-                                title={`Đã phục vụ tất cả ${acceptedCount} món`}
+                                title={`Phục vụ cả bàn (${acceptedCount} món)`}
                               >
-                                Phục vụ tất cả ({acceptedCount})
+                                Phục vụ cả bàn ({acceptedCount})
                               </button>
                             )}
 
