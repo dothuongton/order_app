@@ -61,10 +61,44 @@ export function areApplicationServerKeysEqual(subKey: ArrayBuffer | null, server
   }
 }
 
+export const PUSH_STORAGE_KEY = 'staff_push_enabled';
+export const PUSH_STATE_KEY = 'staff_push_state';
+
+export function readStoredPushEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(PUSH_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function readStoredPushState(): PushPermissionState {
+  if (typeof window === 'undefined') return 'default';
+  try {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') return 'denied';
+    const savedState = localStorage.getItem(PUSH_STATE_KEY) as PushPermissionState | null;
+    const isEnabled = localStorage.getItem(PUSH_STORAGE_KEY) === 'true';
+    if (isEnabled && savedState) return savedState;
+    if (isEnabled) return 'granted';
+    return savedState || 'default';
+  } catch {
+    return 'default';
+  }
+}
+
+export function writeStoredPush(enabled: boolean, pushState: PushPermissionState): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PUSH_STORAGE_KEY, String(enabled));
+    localStorage.setItem(PUSH_STATE_KEY, pushState);
+  } catch {}
+}
+
 export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, currentTenant } = useAuth();
-  const [state, setState] = useState<PushPermissionState>('default');
-  const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
+  const [state, setState] = useState<PushPermissionState>(() => readStoredPushState());
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(() => readStoredPushEnabled());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -110,10 +144,13 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     activeOperationIdRef.current += 1;
     setIsLoading(false);
 
-    if (!user || !currentTenant) {
+    // Only clear subscription if there's definitely NO logged in staff session token
+    const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('staff_token');
+    if (!user && !currentTenant && !hasToken) {
       setIsSubscribed(false);
       setState(typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'granted' : 'default');
       setErrorMessage(null);
+      writeStoredPush(false, 'default');
     }
   }, [user?.id, currentTenant?.id]);
 
@@ -155,6 +192,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isStale()) return;
         setState('denied');
         setIsSubscribed(false);
+        writeStoredPush(false, 'denied');
         return;
       }
     }
@@ -169,17 +207,25 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!hasSW || !hasPush) {
       if (isStale()) return;
+      const storedEnabled = readStoredPushEnabled();
+      if (storedEnabled) {
+        setState('granted');
+        setIsSubscribed(true);
+        return;
+      }
       setState('unsupported');
       setIsSubscribed(false);
       return;
     }
 
     // If user is logged out, clear subscription state (no false positives)
-    if (!user || !currentTenant) {
+    const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('staff_token');
+    if (!user && !currentTenant && !hasToken) {
       if (isStale()) return;
       setIsSubscribed(false);
       setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
       setErrorMessage(null);
+      writeStoredPush(false, 'default');
       return;
     }
 
@@ -212,6 +258,13 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (hasNotification && Notification.permission === 'default') {
+      const storedEnabled = readStoredPushEnabled();
+      if (storedEnabled) {
+        setState('granted');
+        setIsSubscribed(true);
+        setErrorMessage(null);
+        return;
+      }
       setState('default');
       setIsSubscribed(false);
       setErrorMessage(null);
@@ -220,7 +273,13 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // 4. Permission is 'granted', check active subscription in ServiceWorker and sync with backend
     try {
-      const reg = await navigator.serviceWorker.getRegistration();
+      let reg = await navigator.serviceWorker.getRegistration();
+      if (!reg && 'ready' in navigator.serviceWorker) {
+        reg = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1500))
+        ]) as ServiceWorkerRegistration | undefined;
+      }
       if (isStale()) return;
 
       if (reg) {
@@ -233,6 +292,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsSubscribed(false);
             setState('sync_error');
             setErrorMessage('Đăng ký thông báo của thiết bị đã hết hạn. Vui lòng bấm để kết nối lại.');
+            writeStoredPush(false, 'sync_error');
             return;
           }
 
@@ -242,6 +302,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setState('key_mismatch');
             setIsSubscribed(false);
             setErrorMessage('Khóa thông báo trên máy chủ đã thay đổi. Vui lòng bấm để kết nối lại.');
+            writeStoredPush(false, 'key_mismatch');
             return;
           }
 
@@ -263,6 +324,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsSubscribed(true);
               setState('granted');
               setErrorMessage(null);
+              writeStoredPush(true, 'granted');
               return;
             } catch (err: any) {
               if (isStale()) return;
@@ -282,19 +344,35 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsSubscribed(false);
               setState('sync_error');
               setErrorMessage('Chưa đồng bộ được thông báo với máy chủ quán. Vui lòng bấm để kết nối lại.');
+              writeStoredPush(false, 'sync_error');
               return;
             }
           }
         }
       }
       if (isStale()) return;
-      setIsSubscribed(false);
-      setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
-      setErrorMessage(null);
+      const storedEnabled = readStoredPushEnabled();
+      if (storedEnabled && (hasNotification ? Notification.permission !== 'denied' : true)) {
+        setIsSubscribed(true);
+        setState('granted');
+        setErrorMessage(null);
+        writeStoredPush(true, 'granted');
+      } else {
+        setIsSubscribed(false);
+        setState(hasNotification && Notification.permission === 'granted' ? 'granted' : 'default');
+        setErrorMessage(null);
+      }
     } catch {
       if (isStale()) return;
-      setState('default');
-      setIsSubscribed(false);
+      const storedEnabled = readStoredPushEnabled();
+      if (storedEnabled) {
+        setIsSubscribed(true);
+        setState('granted');
+        writeStoredPush(true, 'granted');
+      } else {
+        setState('default');
+        setIsSubscribed(false);
+      }
     }
   }, [user, currentTenant]);
 
@@ -470,6 +548,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setState('granted');
       setIsSubscribed(true);
       setErrorMessage(null);
+      writeStoredPush(true, 'granted');
     } catch (err: any) {
       if (isStale()) return;
       setIsSubscribed(false);
@@ -481,6 +560,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setState(targetState);
       setErrorMessage(err.message || 'Lỗi khi bật thông báo');
+      writeStoredPush(false, targetState);
       throw err;
     } finally {
       if (!isStale() && activeOperationIdRef.current === opId) {
@@ -534,6 +614,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isStale()) return;
       setIsSubscribed(false);
       setState('default');
+      writeStoredPush(false, 'default');
     } catch (err: any) {
       if (isStale()) return;
       let targetState: PushPermissionState = 'sync_error';
@@ -542,6 +623,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setState(targetState);
       setErrorMessage(err.message || 'Lỗi khi tắt thông báo');
+      writeStoredPush(false, targetState);
       throw err;
     } finally {
       if (!isStale() && activeOperationIdRef.current === opId) {
@@ -628,6 +710,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsSubscribed(false);
         setState('sync_error');
         setErrorMessage('Đăng ký thông báo của thiết bị đã hết hạn tại APNs/FCM. Vui lòng bấm để kết nối lại thiết bị.');
+        writeStoredPush(false, 'sync_error');
         throw err;
       }
 
@@ -655,6 +738,7 @@ export const PushProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsSubscribed(false);
         setState('sync_error');
         setErrorMessage('Thiết bị chưa được đồng bộ trên hệ thống máy chủ quán. Vui lòng bấm để đồng bộ lại.');
+        writeStoredPush(false, 'sync_error');
         throw err;
       }
 
