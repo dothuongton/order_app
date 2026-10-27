@@ -7,16 +7,19 @@ export function orderSourceLabel({source,orderedByName}:OrderOrigin):string {
     ? `Nhân viên gọi hộ · ${orderedByName}` : 'Nhân viên gọi hộ · Chưa ghi nhận tên';
   return 'Chưa rõ nguồn gọi';
 }
-export const OrderSourceBadge:React.FC<OrderOrigin> = origin => (
-  <span className={`inline-block rounded-md border px-1.5 py-0.5 text-[10px] font-semibold whitespace-normal break-words ${origin.source==='STAFF_POS'
-    ? 'bg-violet-50 border-violet-200 text-violet-900' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-    {orderSourceLabel(origin)}
-  </span>
-);
+export const OrderSourceBadge:React.FC<OrderOrigin> = origin => {
+  if (!origin.source || origin.source === 'GUEST_WEB') return null;
+  return (
+    <span className="inline-block rounded-md border px-1.5 py-0.5 text-[10px] font-semibold whitespace-normal break-words bg-violet-50 border-violet-200 text-violet-900">
+      {orderSourceLabel(origin)}
+    </span>
+  );
+};
 export const InvoiceSourceSummary:React.FC<{origins:OrderOrigin[]}> = ({origins}) => {
-  const unique=[...new Map(origins.map(origin=>[orderSourceLabel(origin),origin])).values()];
+  const staffOrigins = origins.filter(origin => origin.source === 'STAFF_POS');
+  const unique=[...new Map(staffOrigins.map(origin=>[orderSourceLabel(origin),origin])).values()];
   if(!unique.length) return null;
   return <div className="flex flex-wrap items-center gap-1.5 text-xs font-sans" aria-label="Nguồn gọi món của hóa đơn">
-    <span className="font-semibold">Người gọi món:</span>{unique.map(origin=><OrderSourceBadge key={orderSourceLabel(origin)} {...origin} />)}
+    <span className="font-semibold text-slate-700">Người gọi món:</span>{unique.map(origin=><OrderSourceBadge key={orderSourceLabel(origin)} {...origin} />)}
   </div>;
 };

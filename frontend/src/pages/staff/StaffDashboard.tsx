@@ -1583,7 +1583,7 @@ export const StaffDashboard: React.FC = () => {
                             const roundTime = firstItem?.createdAt
                               ? new Date(firstItem.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
                               : null;
-                            const roundSource = firstItem ? orderSourceLabel(firstItem).replace(/^Khách tự gọi$/, 'khách tự gọi') : '';
+                            const roundSource = firstItem && firstItem.source === 'STAFF_POS' ? orderSourceLabel(firstItem) : '';
 
                             return (
                               <div
