@@ -538,13 +538,30 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   <InvoiceSourceSummary origins={billSummary.rounds || []} />
                   {/* Itemized Bill Breakdown */}
                   <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs divide-y divide-slate-100 overflow-hidden">
-                    <div className="p-3.5 sm:p-4 bg-slate-50/80 flex items-center justify-between border-b border-slate-100">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                        Chi tiết các món trong hóa đơn
-                      </span>
-                      <span className="text-xs font-semibold text-slate-400">
-                        {billSummary.rounds?.length || 0} lần gọi
-                      </span>
+                    <div className="p-3.5 sm:p-4 bg-slate-50/80 border-b border-slate-100 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                          Chi tiết các món trong hóa đơn
+                        </span>
+                        <span className="text-xs font-semibold text-slate-400">
+                          {billSummary.rounds?.length || 0} lần gọi
+                        </span>
+                      </div>
+                      {billSummary.appliedPromotions && billSummary.appliedPromotions.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          <span className="text-[11px] font-bold text-emerald-800 flex items-center gap-1">
+                            🎁 Khuyến mãi hóa đơn:
+                          </span>
+                          {billSummary.appliedPromotions.map((p: any) => (
+                            <span
+                              key={p.id}
+                              className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200/70"
+                            >
+                              {p.title}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {(!billSummary.rounds || billSummary.rounds.length === 0) && (
@@ -568,11 +585,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                               </span>
                             )}
                             <OrderSourceBadge {...round} />
-                            {round.appliedPromotion && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                                🎁 {round.appliedPromotion.title}
-                              </span>
-                            )}
                           </div>
                           <span className="text-slate-900 font-bold">{round.acceptedOrServedSubtotal.toLocaleString('vi-VN')}đ</span>
                         </div>
