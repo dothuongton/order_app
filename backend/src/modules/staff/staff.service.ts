@@ -912,12 +912,12 @@ export class StaffService {
 
             const item = itemRes.rows[0];
 
-            // Can cancel from PENDING or ACCEPTED (NOT SERVED)
+            // Can cancel from PENDING, ACCEPTED, or SERVED
             const partsRes = await client.query(`
                 SELECT id, status, quantity
                 FROM order_item_parts
-                WHERE order_item_id = $1 AND status IN ('PENDING', 'ACCEPTED')
-                ORDER BY CASE WHEN status = 'PENDING' THEN 1 ELSE 2 END
+                WHERE order_item_id = $1 AND status IN ('PENDING', 'ACCEPTED', 'SERVED')
+                ORDER BY CASE WHEN status = 'PENDING' THEN 1 WHEN status = 'ACCEPTED' THEN 2 ELSE 3 END
                 FOR UPDATE
             `, [orderItemId]);
 
@@ -925,8 +925,8 @@ export class StaffService {
             if (availableQty === 0) {
                 throw {
                     status: 400,
-                    code: 'CANNOT_CANCEL_SERVED',
-                    message: 'Món đã phục vụ không thể hủy do hết nguyên liệu (theo đặc tả v1.2)'
+                    code: 'NO_ACTIVE_QUANTITY',
+                    message: 'Không còn số lượng món khả dụng để hủy'
                 };
             }
 

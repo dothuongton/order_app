@@ -732,11 +732,29 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                     </div>
                                   )}
 
-                                  {isServed && (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50/90 px-2.5 py-1 rounded-xl border border-emerald-200/60">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                      <span>Đã phục vụ</span>
-                                    </span>
+                                  {isServed && item.itemId && (
+                                    <div className="flex items-center gap-1.5">
+                                      {hasPermission('order.cancel') && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
+                                            setCancelQty(item.quantity);
+                                            setCancelReason('Khách trả món / Đổi ý');
+                                            setMarkItemOutOfStock(false);
+                                          }}
+                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                          title="Hủy món đã phục vụ"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          <span>Hủy</span>
+                                        </button>
+                                      )}
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50/90 px-2.5 py-1 rounded-xl border border-emerald-200/60">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span>Đã phục vụ</span>
+                                      </span>
+                                    </div>
                                   )}
 
                                   {isCancelled && (
@@ -976,9 +994,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   onChange={(e) => setCancelReason(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                 >
+                  <option value="Khách trả món / Đổi ý">Khách trả món / Đổi ý</option>
                   <option value="Hết nguyên liệu">Hết nguyên liệu</option>
                   <option value="Hết món">Hết món</option>
-                  <option value="Khách đổi ý trước khi làm">Khách đổi ý</option>
+                  <option value="Khách đổi ý trước khi làm">Khách đổi ý trước khi làm</option>
+                  <option value="Lý do khác">Lý do khác</option>
                 </select>
               </div>
 

@@ -1697,7 +1697,7 @@ export const StaffDashboard: React.FC = () => {
                                           )}
 
                                           {/* 3-dots Cancel Trigger */}
-                                          {(isPending || isAccepted) && hasPermission('order.cancel') && (
+                                          {(isPending || isAccepted || isServed) && hasPermission('order.cancel') && (
                                             <button
                                               type="button"
                                               onClick={() => {
@@ -1708,11 +1708,11 @@ export const StaffDashboard: React.FC = () => {
                                                   tableNumber: table.table_number
                                                 });
                                                 setCancelQty(item.quantity);
-                                                setCancelReason('Hết nguyên liệu');
-                                                setMarkItemOutOfStock(true);
+                                                setCancelReason(isServed ? 'Khách trả món / Đổi ý' : 'Hết nguyên liệu');
+                                                setMarkItemOutOfStock(isServed ? false : true);
                                               }}
                                               className="flex-none w-[36px] sm:w-[40px] h-[52px] sm:h-[56px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition flex items-center justify-center cursor-pointer"
-                                              title="Hủy món này"
+                                              title={isServed ? "Hủy món đã phục vụ" : "Hủy món này"}
                                             >
                                               <MoreVertical className="w-4 h-4" />
                                             </button>
@@ -2373,6 +2373,7 @@ export const StaffDashboard: React.FC = () => {
                 onChange={(e) => setCancelReason(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold bg-white text-slate-800"
               >
+                <option value="Khách trả món / Đổi ý">Khách trả món / Đổi ý</option>
                 <option value="Hết nguyên liệu">Hết nguyên liệu</option>
                 <option value="Hết món">Hết món</option>
                 <option value="Khách đổi ý trước khi làm">Khách đổi ý trước khi làm</option>
