@@ -1,4 +1,4 @@
-import { OrderSourceBadge } from '../../components/OrderSourceBadge.js';
+import { OrderSourceBadge, orderSourceLabel } from '../../components/OrderSourceBadge.js';
 import React, { Suspense, lazy, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useNotification } from '../../context/NotificationContext.js';
@@ -1570,37 +1570,38 @@ export const StaffDashboard: React.FC = () => {
                                   {/* Row 3: Customer Note as in Image 2 with break-all protection */}
                                   {item.note && (
                                     <div className="pt-0.5 max-w-full overflow-hidden">
-                                      <span className="inline-flex max-w-full items-start gap-1 px-2 py-0.5 bg-[#FDF3D7] text-[#7A5005] font-semibold text-xs rounded-md border border-[#F5E5B8] break-all">
-                                        <span className="text-[#A16207] shrink-0 select-none text-[11px] mt-0.5">📌</span>
-                                        <span className="break-all whitespace-pre-wrap">{item.note}</span>
+                                      <span className="inline-flex max-w-full items-start gap-1 px-2 py-0.5 bg-[#FDF3D7] text-[#7A5005] rounded-md border border-[#F5E5B8] break-all">
+                                        <span className="text-[#A16207] shrink-0 select-none text-[10px] mt-0.5 not-italic">📌</span>
+                                        <span className="italic font-normal text-[11px] lowercase break-all whitespace-pre-wrap leading-relaxed">
+                                          {item.note}
+                                        </span>
                                       </span>
                                     </div>
                                   )}
 
-                                  {/* Row 4: Order Source, Round, and Time */}
-                                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-xs text-slate-500 font-medium">
-                                    <OrderSourceBadge {...item} />
-                                    <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-semibold text-[11px]">
-                                      Lượt #{item.orderNumber}
-                                    </span>
+                                  {/* Row 4: Order Source, Round, and Time - Subtle inline metadata, plain text without prominent blocks */}
+                                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[10px] text-slate-400 font-normal leading-tight">
+                                    <span>{orderSourceLabel(item)}</span>
+                                    <span className="text-slate-300">•</span>
+                                    <span>Lượt #{item.orderNumber}</span>
                                     {item.createdAt && (
-                                      <span className="flex items-center gap-0.5 text-slate-400 text-[11px]">
-                                        <Clock className="w-3 h-3 shrink-0" />
+                                      <>
+                                        <span className="text-slate-300">•</span>
                                         <span>
                                           {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                                         </span>
-                                      </span>
+                                      </>
                                     )}
                                   </div>
                                 </div>
 
-                                {/* Right Column: Actions (As in Image 2) */}
-                                <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 self-center">
+                                {/* Right Column: Actions (As in Image 2) - Guaranteed fixed size, touch-friendly, never squeezed */}
+                                <div className="flex-none shrink-0 flex items-center justify-end gap-1.5 self-center min-w-[124px] sm:min-w-[136px]">
                                   {isPending && hasPermission('order.manage') && (
                                     <button
                                       type="button"
                                       onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                      className="px-4 sm:px-5 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm sm:text-base rounded-xl shadow-xs min-w-[68px] sm:min-w-[76px] min-h-[42px] flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-sm sm:text-base rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
                                       title="Tiếp nhận món này"
                                     >
                                       <span>Nhận</span>
@@ -1611,7 +1612,7 @@ export const StaffDashboard: React.FC = () => {
                                     <button
                                       type="button"
                                       onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                      className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs min-w-[68px] sm:min-w-[76px] min-h-[42px] flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm sm:text-base rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
                                       title="Đánh dấu đã phục vụ"
                                     >
                                       <span>Phục vụ</span>
@@ -1619,14 +1620,14 @@ export const StaffDashboard: React.FC = () => {
                                   )}
 
                                   {isServed && (
-                                    <span className="text-emerald-700 font-semibold text-xs flex items-center gap-1 py-1 px-2 bg-emerald-50 rounded-lg border border-emerald-200/60">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-emerald-700 font-bold text-xs flex items-center justify-center gap-1 bg-emerald-50 rounded-2xl border border-emerald-200/60 text-center px-1">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                       <span>Đã phục vụ</span>
                                     </span>
                                   )}
 
                                   {isCancelled && (
-                                    <span className="text-rose-700 font-semibold text-xs py-1 px-2 bg-rose-50 rounded-lg border border-rose-200/60">
+                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-rose-700 font-bold text-xs flex items-center justify-center bg-rose-50 rounded-2xl border border-rose-200/60 text-center px-1">
                                       Đã hủy
                                     </span>
                                   )}
@@ -1646,7 +1647,7 @@ export const StaffDashboard: React.FC = () => {
                                         setCancelReason('Hết nguyên liệu');
                                         setMarkItemOutOfStock(true);
                                       }}
-                                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition min-w-[32px] min-h-[42px] flex items-center justify-center cursor-pointer"
+                                      className="flex-none w-[34px] sm:w-[36px] h-[48px] sm:h-[50px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition flex items-center justify-center cursor-pointer"
                                       title="Hủy món này"
                                     >
                                       <MoreVertical className="w-4 h-4" />
