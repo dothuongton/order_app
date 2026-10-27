@@ -53,6 +53,32 @@ class StaffScreenLoadBoundary extends React.Component<{
   }
 }
 
+export const TableRestaurantIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    {/* Table Top */}
+    <path d="M5 10h14" />
+    {/* Table Legs */}
+    <path d="M9 10v9" />
+    <path d="M15 10v9" />
+    {/* Left Chair: Backrest, Seat, Front Leg */}
+    <path d="M3 6v13" />
+    <path d="M3 13h3v6" />
+    {/* Right Chair: Backrest, Seat, Front Leg */}
+    <path d="M21 6v13" />
+    <path d="M21 13h-3v6" />
+  </svg>
+);
+
 export interface StaffOrderRoundGroup {
   orderNumber: number;
   createdAt?: string;
@@ -715,7 +741,7 @@ export const StaffDashboard: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
-            <LayoutGrid className="w-5 h-5 shrink-0" />
+            <TableRestaurantIcon className="w-5 h-5 shrink-0" />
             <span className="flex-1 text-left">Bàn</span>
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold">
               {tables.length}
@@ -758,7 +784,7 @@ export const StaffDashboard: React.FC = () => {
             )}
           </button>
 
-          {/* 4. Cài đặt */}
+          {/* 4. Tác vụ */}
           <button
             type="button"
             onClick={() => setActiveTab('settings')}
@@ -768,8 +794,8 @@ export const StaffDashboard: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
-            <Settings className="w-5 h-5 shrink-0" />
-            <span className="flex-1 text-left">Cài đặt</span>
+            <LayoutGrid className="w-5 h-5 shrink-0" />
+            <span className="flex-1 text-left">Tác vụ</span>
           </button>
         </nav>
 
@@ -1878,7 +1904,7 @@ export const StaffDashboard: React.FC = () => {
           <div className="space-y-4 max-w-2xl mx-auto animate-fade-in">
             {/* Header */}
             <div>
-              <h2 className="font-extrabold text-slate-900 text-lg">Cài đặt & Quản lý</h2>
+              <h2 className="font-extrabold text-slate-900 text-lg">Tác vụ & Quản lý</h2>
               <p className="text-xs text-slate-500">Trung tâm quản lý, báo cáo và thiết lập hệ thống quán</p>
             </div>
 
@@ -2169,7 +2195,7 @@ export const StaffDashboard: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại Cài đặt</span>
+              <span>Quay lại Tác vụ</span>
             </button>
             <StaffReports />
           </div>
@@ -2187,7 +2213,7 @@ export const StaffDashboard: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại Cài đặt</span>
+              <span>Quay lại Tác vụ</span>
             </button>
             <StaffScreenLoadBoundary screenName="quản lý thực đơn">
               <Suspense fallback={<div role="status" className="min-h-32 rounded-2xl bg-white p-6 text-center text-sm text-slate-500">Đang tải quản lý thực đơn…</div>}>
@@ -2209,7 +2235,7 @@ export const StaffDashboard: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại Cài đặt</span>
+              <span>Quay lại Tác vụ</span>
             </button>
             <StaffScreenLoadBoundary screenName="thiết lập quán">
               <Suspense fallback={<div role="status" className="min-h-32 rounded-2xl bg-white p-6 text-center text-sm text-slate-500">Đang tải thiết lập quán…</div>}>
@@ -2231,7 +2257,7 @@ export const StaffDashboard: React.FC = () => {
             activeTab === 'tables' ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs' : 'text-slate-500 font-medium'
           }`}
         >
-          <LayoutGrid className="w-5 h-5" />
+          <TableRestaurantIcon className="w-5 h-5" />
           <span className="text-[10px] mt-1">Bàn</span>
           {pendingRequests.length > 0 && (
             <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[9px] font-black animate-pulse">
@@ -2274,7 +2300,7 @@ export const StaffDashboard: React.FC = () => {
           )}
         </button>
 
-        {/* 4. Cài đặt */}
+        {/* 4. Tác vụ */}
         <button
           type="button"
           onClick={() => setActiveTab('settings')}
@@ -2284,8 +2310,8 @@ export const StaffDashboard: React.FC = () => {
               : 'text-slate-500 font-medium'
           }`}
         >
-          <Settings className="w-5 h-5" />
-          <span className="text-[10px] mt-1">Cài đặt</span>
+          <LayoutGrid className="w-5 h-5" />
+          <span className="text-[10px] mt-1">Tác vụ</span>
         </button>
       </nav>
 
