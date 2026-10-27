@@ -1429,7 +1429,7 @@ export const StaffDashboard: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 sm:gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
                   {tablesWithFilteredItems.map(({ table, items }) => {
                     const pendingCount = items.filter(i => i.status === 'PENDING').length;
                     const acceptedCount = items.filter(i => i.status === 'ACCEPTED').length;
@@ -1451,12 +1451,13 @@ export const StaffDashboard: React.FC = () => {
                     return (
                       <div
                         key={table.table_id}
-                        className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden flex flex-col"
+                        className="bg-white rounded-3xl border-2 border-slate-300 shadow-md overflow-hidden flex flex-col transition hover:border-slate-400"
                       >
-                        {/* Table Header: Tên bàn + Thời gian đợi + Số món + Nút Bill + Nút Nhận tất cả (Image 2) */}
-                        <div className="bg-slate-50/90 px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+                        {/* Table Header: Tên bàn dạng khối + Thời gian đợi + Số món + Nút Bill + Nút Nhận tất cả */}
+                        <div className="bg-slate-100/95 px-4 py-3 sm:py-3.5 border-b-2 border-slate-200 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 flex-wrap min-w-0">
-                            <span className="font-bold text-slate-900 text-base sm:text-lg tracking-tight shrink-0">
+                            {/* Distinct Block Badge for Table Number */}
+                            <span className="px-3 py-1 bg-slate-900 text-white font-black text-base sm:text-lg rounded-xl tracking-tight shrink-0 shadow-xs">
                               Bàn {table.table_number}
                             </span>
 
@@ -1465,7 +1466,7 @@ export const StaffDashboard: React.FC = () => {
                                 className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
                                   elapsedMins >= 10
                                     ? 'bg-rose-50 text-rose-700 border border-rose-200/70'
-                                    : 'bg-slate-100 text-slate-600 border border-slate-200/70'
+                                    : 'bg-white text-slate-700 border border-slate-300/80 shadow-2xs'
                                 }`}
                                 title={`Thời gian từ khi gọi món: ${elapsedMins} phút`}
                               >
@@ -1474,7 +1475,7 @@ export const StaffDashboard: React.FC = () => {
                               </span>
                             )}
 
-                            <span className="text-xs sm:text-sm font-medium text-slate-500 shrink-0">
+                            <span className="text-xs sm:text-sm font-bold text-slate-600 shrink-0">
                               {items.length} món
                             </span>
                           </div>
@@ -1484,7 +1485,7 @@ export const StaffDashboard: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleQuickAcceptAll(table.active_session_id!)}
-                                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/70 font-semibold text-xs rounded-xl transition cursor-pointer"
+                                className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer"
                                 title={`Nhận tất cả ${pendingCount} món đang chờ`}
                               >
                                 Nhận tất cả ({pendingCount})
@@ -1495,18 +1496,18 @@ export const StaffDashboard: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleQuickServeAll(table.active_session_id!)}
-                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/70 font-semibold text-xs rounded-xl transition cursor-pointer"
+                                className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer"
                                 title={`Đã phục vụ tất cả ${acceptedCount} món`}
                               >
                                 Phục vụ tất cả ({acceptedCount})
                               </button>
                             )}
 
-                            {/* Bill icon button as in Image 2 (top right of card) */}
+                            {/* Bill icon button (top right of card) */}
                             <button
                               type="button"
                               onClick={() => setSelectedTable(table)}
-                              className="w-9 h-9 rounded-xl bg-[#EDF5F0] hover:bg-emerald-100/70 border border-emerald-100 text-[#2A7E4F] flex items-center justify-center transition cursor-pointer shrink-0"
+                              className="w-10 h-10 rounded-xl bg-white hover:bg-emerald-50 border border-slate-300 text-emerald-700 flex items-center justify-center transition shadow-2xs cursor-pointer shrink-0"
                               title="Xem hóa đơn & Chốt bill"
                             >
                               <Receipt className="w-4 h-4" />
@@ -1514,8 +1515,8 @@ export const StaffDashboard: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Itemized Dish List: Grouped inside table block (Image 2) */}
-                        <div className="p-3.5 sm:p-4 space-y-3 divide-y divide-slate-100">
+                        {/* Itemized Dish List: Grouped inside table block */}
+                        <div className="p-4 sm:p-5 space-y-3.5 divide-y divide-slate-100">
                           {items.map((item, idx) => {
                             const isPending = item.status === 'PENDING';
                             const isAccepted = item.status === 'ACCEPTED';
@@ -1525,11 +1526,11 @@ export const StaffDashboard: React.FC = () => {
                             return (
                               <div
                                 key={item.partId || item.orderItemId || idx}
-                                className="relative flex items-center justify-between gap-3 pt-3 first:pt-0"
+                                className="relative flex items-center justify-between gap-3 pt-3.5 first:pt-0"
                               >
-                                {/* Left side vertical accent bar (Image 2) - Soft tones */}
+                                {/* Left side vertical accent bar - Slightly thicker 6px */}
                                 <div
-                                  className={`w-1 self-stretch rounded-full shrink-0 ${
+                                  className={`w-1.5 self-stretch rounded-full shrink-0 ${
                                     isPending
                                       ? 'bg-amber-400'
                                       : isAccepted
@@ -1541,10 +1542,10 @@ export const StaffDashboard: React.FC = () => {
                                 />
 
                                 {/* Middle Column: Dish Info */}
-                                <div className="min-w-0 flex-1 space-y-1 overflow-hidden">
+                                <div className="min-w-0 flex-1 space-y-1 overflow-hidden pr-1">
                                   {/* Row 1: Quantity + Dish Name */}
                                   <div className="flex items-baseline gap-1.5 flex-wrap">
-                                    <span className="font-bold text-slate-900 text-base sm:text-lg shrink-0">
+                                    <span className="font-black text-slate-900 text-base sm:text-lg shrink-0">
                                       {item.quantity}×
                                     </span>
                                     <span className="font-bold text-slate-900 text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug">
@@ -1552,23 +1553,19 @@ export const StaffDashboard: React.FC = () => {
                                     </span>
                                   </div>
 
-                                  {/* Row 2: Variant Details - Bold as requested */}
+                                  {/* Row 2: Variant Details - Bold */}
                                   {item.variantName && (
                                     <p className="text-xs sm:text-[13px] font-bold text-slate-700 leading-tight">
                                       {item.variantName}
                                     </p>
                                   )}
 
-                                  {/* Row 3: Customer Note as in Image 2 with break-all protection - Soft warm tint */}
+                                  {/* Row 3: Customer Note - Italic text in warm amber-brown with pin icon */}
                                   {item.note && (
-                                    <div className="pt-0.5 max-w-full overflow-hidden">
-                                      <span className="inline-flex max-w-full items-start gap-1 px-2 py-0.5 bg-[#FFFBEB] text-[#92400E] rounded-md border border-[#FDE68A] break-all">
-                                        <span className="text-[#B45309] shrink-0 select-none text-[10px] mt-0.5 not-italic">📌</span>
-                                        <span className="italic font-normal text-[11px] lowercase break-all whitespace-pre-wrap leading-relaxed">
-                                          {item.note}
-                                        </span>
-                                      </span>
-                                    </div>
+                                    <p className="flex items-start gap-1 text-xs sm:text-[13px] italic font-normal text-[#9A3412] break-all [overflow-wrap:anywhere] leading-snug">
+                                      <span className="not-italic shrink-0 select-none text-[11px] mt-0.5">📌</span>
+                                      <span>{item.note}</span>
+                                    </p>
                                   )}
 
                                   {/* Row 4: Round, Time, Order Source - Ordered as: Lần #2 • 20:09 • khách tự gọi */}
@@ -1587,13 +1584,13 @@ export const StaffDashboard: React.FC = () => {
                                   </div>
                                 </div>
 
-                                {/* Right Column: Actions (As in Image 2) - Guaranteed fixed size, touch-friendly, never squeezed */}
-                                <div className="flex-none shrink-0 flex items-center justify-end gap-1.5 self-center min-w-[124px] sm:min-w-[136px]">
+                                {/* Right Column: Actions - Bigger touch-friendly buttons (w-100-114px, h-54-58px) */}
+                                <div className="flex-none shrink-0 flex items-center justify-end gap-1.5 self-center min-w-[145px] sm:min-w-[164px]">
                                   {isPending && hasPermission('order.manage') && (
                                     <button
                                       type="button"
                                       onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white font-black text-sm sm:text-base rounded-2xl shadow-xs flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white font-black text-base sm:text-lg rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
                                       title="Tiếp nhận món này"
                                     >
                                       <span>Nhận</span>
@@ -1604,7 +1601,7 @@ export const StaffDashboard: React.FC = () => {
                                     <button
                                       type="button"
                                       onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-[#059669] hover:bg-[#047857] active:bg-[#065F46] text-white font-black text-sm sm:text-base rounded-2xl shadow-xs flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] bg-[#059669] hover:bg-[#047857] active:bg-[#065F46] text-white font-black text-sm sm:text-base rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
                                       title="Đánh dấu đã phục vụ"
                                     >
                                       <span>Phục vụ</span>
@@ -1612,19 +1609,19 @@ export const StaffDashboard: React.FC = () => {
                                   )}
 
                                   {isServed && (
-                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-emerald-800 font-bold text-xs flex items-center justify-center gap-1 bg-emerald-50/80 rounded-2xl border border-emerald-200/50 text-center px-1">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] text-emerald-800 font-bold text-xs sm:text-sm flex items-center justify-center gap-1 bg-emerald-50/80 rounded-2xl border border-emerald-200/50 text-center px-1">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                                       <span>Đã phục vụ</span>
                                     </span>
                                   )}
 
                                   {isCancelled && (
-                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-rose-700 font-bold text-xs flex items-center justify-center bg-rose-50/80 rounded-2xl border border-rose-200/50 text-center px-1">
+                                    <span className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] text-rose-700 font-bold text-xs sm:text-sm flex items-center justify-center bg-rose-50/80 rounded-2xl border border-rose-200/50 text-center px-1">
                                       Đã hủy
                                     </span>
                                   )}
 
-                                  {/* 3-dots Cancel Trigger (Image 2) */}
+                                  {/* 3-dots Cancel Trigger */}
                                   {(isPending || isAccepted) && hasPermission('order.cancel') && (
                                     <button
                                       type="button"
@@ -1639,7 +1636,7 @@ export const StaffDashboard: React.FC = () => {
                                         setCancelReason('Hết nguyên liệu');
                                         setMarkItemOutOfStock(true);
                                       }}
-                                      className="flex-none w-[34px] sm:w-[36px] h-[48px] sm:h-[50px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition flex items-center justify-center cursor-pointer"
+                                      className="flex-none w-[36px] sm:w-[40px] h-[52px] sm:h-[56px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition flex items-center justify-center cursor-pointer"
                                       title="Hủy món này"
                                     >
                                       <MoreVertical className="w-4 h-4" />
