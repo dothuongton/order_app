@@ -658,6 +658,22 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                   {/* Quick action buttons or status badge */}
                                   {isPending && item.itemId && (
                                     <div className="flex items-center gap-1.5">
+                                      {hasPermission('order.cancel') && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
+                                            setCancelQty(item.quantity);
+                                            setCancelReason('Hết nguyên liệu');
+                                            setMarkItemOutOfStock(true);
+                                          }}
+                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                          title="Hủy món"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          <span>Hủy</span>
+                                        </button>
+                                      )}
                                       {hasPermission('order.manage') && (
                                         <button
                                           type="button"
@@ -669,6 +685,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                           <span>Nhận</span>
                                         </button>
                                       )}
+                                    </div>
+                                  )}
+
+                                  {isAccepted && item.itemId && (
+                                    <div className="flex items-center gap-1.5">
                                       {hasPermission('order.cancel') && (
                                         <button
                                           type="button"
@@ -685,11 +706,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                           <span>Hủy</span>
                                         </button>
                                       )}
-                                    </div>
-                                  )}
-
-                                  {isAccepted && item.itemId && (
-                                    <div className="flex items-center gap-1.5">
                                       {hasPermission('order.serve') && (
                                         <button
                                           type="button"
@@ -699,22 +715,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                         >
                                           <UtensilsCrossed className="w-3.5 h-3.5" />
                                           <span>Phục vụ</span>
-                                        </button>
-                                      )}
-                                      {hasPermission('order.cancel') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
-                                            setCancelQty(item.quantity);
-                                            setCancelReason('Hết nguyên liệu');
-                                            setMarkItemOutOfStock(true);
-                                          }}
-                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                          title="Hủy món"
-                                        >
-                                          <X className="w-3.5 h-3.5" />
-                                          <span>Hủy</span>
                                         </button>
                                       )}
                                     </div>
