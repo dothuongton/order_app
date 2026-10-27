@@ -987,7 +987,6 @@ export const StaffDashboard: React.FC = () => {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="font-extrabold text-slate-900 text-lg">Danh sách bàn</h2>
-                <p className="text-xs text-slate-500">Trạng thái thời gian thực của các bàn phục vụ</p>
               </div>
               <div className="flex items-center gap-1.5">
                 {hasPermission('table.manage') && (
