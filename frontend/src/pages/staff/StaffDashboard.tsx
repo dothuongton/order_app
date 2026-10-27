@@ -1437,7 +1437,7 @@ export const StaffDashboard: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 sm:gap-6">
                   {tablesWithFilteredItems.map(({ table, items }) => {
                     const pendingCount = items.filter(i => i.status === 'PENDING').length;
                     const acceptedCount = items.filter(i => i.status === 'ACCEPTED').length;
@@ -1457,20 +1457,23 @@ export const StaffDashboard: React.FC = () => {
                       : null;
 
                     return (
-                      <div key={table.table_id} className="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
-                        {/* Table Header: Tên bàn + Thời gian đợi + Số món + Nút Bill + Nút Nhận tất cả */}
-                        <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                      <div
+                        key={table.table_id}
+                        className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden flex flex-col"
+                      >
+                        {/* Table Header: Tên bàn + Thời gian đợi + Số món + Nút Bill + Nút Nhận tất cả (Image 2) */}
+                        <div className="bg-slate-50/90 px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            <span className="font-bold text-slate-900 text-base sm:text-lg tracking-tight shrink-0">
                               Bàn {table.table_number}
                             </span>
 
                             {elapsedMins !== null && (
                               <span
-                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                                   elapsedMins >= 10
-                                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 animate-pulse'
-                                    : 'bg-amber-50 text-amber-800 border border-amber-200/70'
+                                    ? 'bg-rose-100/80 text-rose-700 border border-rose-200/80 animate-pulse'
+                                    : 'bg-[#FCECE8] text-[#C0422B] border border-rose-100'
                                 }`}
                                 title={`Thời gian từ khi gọi món: ${elapsedMins} phút`}
                               >
@@ -1479,17 +1482,17 @@ export const StaffDashboard: React.FC = () => {
                               </span>
                             )}
 
-                            <span className="text-xs sm:text-sm font-semibold text-slate-500">
+                            <span className="text-xs sm:text-sm font-medium text-slate-500 shrink-0">
                               {items.length} món
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-2 shrink-0">
                             {pendingCount > 0 && hasPermission('order.manage') && (
                               <button
                                 type="button"
                                 onClick={() => handleQuickAcceptAll(table.active_session_id!)}
-                                className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
                                 title={`Nhận tất cả ${pendingCount} món đang chờ`}
                               >
                                 Nhận tất cả ({pendingCount})
@@ -1500,17 +1503,18 @@ export const StaffDashboard: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleQuickServeAll(table.active_session_id!)}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
                                 title={`Đã phục vụ tất cả ${acceptedCount} món`}
                               >
                                 Phục vụ tất cả ({acceptedCount})
                               </button>
                             )}
 
+                            {/* Bill icon button as in Image 2 (top right of card) */}
                             <button
                               type="button"
                               onClick={() => setSelectedTable(table)}
-                              className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/90 text-emerald-700 hover:text-emerald-800 flex items-center justify-center transition min-w-[36px] min-h-[36px] cursor-pointer"
+                              className="w-9 h-9 rounded-xl bg-[#EDF5F0] hover:bg-emerald-100/70 border border-emerald-100 text-[#2A7E4F] flex items-center justify-center transition cursor-pointer shrink-0"
                               title="Xem hóa đơn & Chốt bill"
                             >
                               <Receipt className="w-4 h-4" />
@@ -1518,8 +1522,8 @@ export const StaffDashboard: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Itemized Dish List with Reference Card UX (Image 2) */}
-                        <div className="space-y-2.5">
+                        {/* Itemized Dish List: Grouped inside table block (Image 2) */}
+                        <div className="p-3.5 sm:p-4 space-y-3 divide-y divide-slate-100">
                           {items.map((item, idx) => {
                             const isPending = item.status === 'PENDING';
                             const isAccepted = item.status === 'ACCEPTED';
@@ -1529,146 +1533,129 @@ export const StaffDashboard: React.FC = () => {
                             return (
                               <div
                                 key={item.partId || item.orderItemId || idx}
-                                className={`rounded-2xl border transition-all p-3 sm:p-3.5 ${
-                                  isPending
-                                    ? 'bg-amber-50/30 border-amber-200/90 border-l-[4px] border-l-amber-500 shadow-2xs'
-                                    : isAccepted
-                                    ? 'bg-blue-50/20 border-blue-200/80 border-l-[4px] border-l-blue-500 shadow-2xs'
-                                    : isServed
-                                    ? 'bg-slate-50/70 border-slate-200/90 border-l-[4px] border-l-emerald-500 opacity-90'
-                                    : 'bg-slate-50 border-slate-200/80 border-l-[4px] border-l-rose-400 opacity-60'
-                                }`}
+                                className="relative flex items-center justify-between gap-3 pt-3 first:pt-0"
                               >
-                                <div className="flex items-center justify-between gap-2.5">
-                                  {/* Left Column: Dish Info */}
-                                  <div className="min-w-0 flex-1 space-y-1">
-                                    {/* Row 1: Quantity + Dish Name */}
-                                    <div className="flex items-baseline gap-1.5 flex-wrap">
-                                      <span className="font-black text-slate-900 text-base sm:text-lg shrink-0">
-                                        {item.quantity}×
-                                      </span>
-                                      <span className="font-extrabold text-slate-900 text-sm sm:text-base break-words leading-snug">
-                                        {item.name}
-                                      </span>
-                                    </div>
+                                {/* Left side vertical accent bar (Image 2) */}
+                                <div
+                                  className={`w-1 self-stretch rounded-full shrink-0 ${
+                                    isPending
+                                      ? 'bg-amber-500'
+                                      : isAccepted
+                                      ? 'bg-blue-500'
+                                      : isServed
+                                      ? 'bg-emerald-500'
+                                      : 'bg-rose-400'
+                                  }`}
+                                />
 
-                                    {/* Row 2: Variant Details */}
-                                    {item.variantName && (
-                                      <p className="text-xs font-semibold text-slate-500 leading-tight">
-                                        {item.variantName}
-                                      </p>
-                                    )}
-
-                                    {/* Row 3: Customer Note as in Image 2 */}
-                                    {item.note && (
-                                      <div className="pt-0.5">
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-100 text-amber-950 font-bold text-xs rounded-lg border border-amber-200/80">
-                                          <span className="text-amber-700">📌</span>
-                                          <span className="break-words">{item.note}</span>
-                                        </span>
-                                      </div>
-                                    )}
-
-                                    {/* Row 4: Order Source, Round, and Time */}
-                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px] text-slate-500 font-medium">
-                                      <OrderSourceBadge {...item} />
-                                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-bold">
-                                        Lượt #{item.orderNumber}
-                                      </span>
-                                      {item.createdAt && (
-                                        <span className="flex items-center gap-0.5 text-slate-400">
-                                          <Clock className="w-3 h-3 shrink-0" />
-                                          <span>
-                                            {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                                          </span>
-                                        </span>
-                                      )}
-                                    </div>
+                                {/* Middle Column: Dish Info */}
+                                <div className="min-w-0 flex-1 space-y-1 overflow-hidden">
+                                  {/* Row 1: Quantity + Dish Name */}
+                                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                                    <span className="font-bold text-slate-900 text-base sm:text-lg shrink-0">
+                                      {item.quantity}×
+                                    </span>
+                                    <span className="font-bold text-slate-900 text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug">
+                                      {item.name}
+                                    </span>
                                   </div>
 
-                                  {/* Right Column: Actions (As in Image 2) */}
-                                  <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 self-center">
-                                    {isPending && hasPermission('order.manage') && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                        className="px-4 sm:px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-sm sm:text-base rounded-2xl shadow-sm min-w-[68px] sm:min-w-[76px] min-h-[44px] flex items-center justify-center transition active:scale-95 cursor-pointer"
-                                        title="Tiếp nhận món này"
-                                      >
-                                        <span>Nhận</span>
-                                      </button>
-                                    )}
+                                  {/* Row 2: Variant Details */}
+                                  {item.variantName && (
+                                    <p className="text-xs text-slate-500 font-medium leading-tight">
+                                      {item.variantName}
+                                    </p>
+                                  )}
 
-                                    {isAccepted && hasPermission('order.serve') && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                        className="px-3.5 sm:px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-xs sm:text-sm rounded-2xl shadow-sm min-w-[68px] sm:min-w-[76px] min-h-[44px] flex items-center justify-center transition active:scale-95 cursor-pointer"
-                                        title="Đánh dấu đã phục vụ"
-                                      >
-                                        <span>Phục vụ</span>
-                                      </button>
-                                    )}
-
-                                    {isServed && (
-                                      <span className="text-emerald-700 font-bold text-xs flex items-center gap-1 py-1.5 px-2 bg-emerald-50 rounded-xl border border-emerald-200/60">
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                        <span>Đã phục vụ</span>
+                                  {/* Row 3: Customer Note as in Image 2 with break-all protection */}
+                                  {item.note && (
+                                    <div className="pt-0.5 max-w-full overflow-hidden">
+                                      <span className="inline-flex max-w-full items-start gap-1 px-2 py-0.5 bg-[#FDF3D7] text-[#7A5005] font-semibold text-xs rounded-md border border-[#F5E5B8] break-all">
+                                        <span className="text-[#A16207] shrink-0 select-none text-[11px] mt-0.5">📌</span>
+                                        <span className="break-all whitespace-pre-wrap">{item.note}</span>
                                       </span>
-                                    )}
+                                    </div>
+                                  )}
 
-                                    {isCancelled && (
-                                      <span className="text-rose-700 font-bold text-xs py-1.5 px-2 bg-rose-50 rounded-xl border border-rose-200/60">
-                                        Đã hủy
+                                  {/* Row 4: Order Source, Round, and Time */}
+                                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-xs text-slate-500 font-medium">
+                                    <OrderSourceBadge {...item} />
+                                    <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-semibold text-[11px]">
+                                      Lượt #{item.orderNumber}
+                                    </span>
+                                    {item.createdAt && (
+                                      <span className="flex items-center gap-0.5 text-slate-400 text-[11px]">
+                                        <Clock className="w-3 h-3 shrink-0" />
+                                        <span>
+                                          {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
                                       </span>
-                                    )}
-
-                                    {/* 3-dots Cancel Trigger (Minimal, unobtrusive, icon as in Image 2) */}
-                                    {(isPending || isAccepted) && hasPermission('order.cancel') && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setCancelModalItem({
-                                            id: item.orderItemId,
-                                            name: item.name,
-                                            quantity: item.quantity,
-                                            tableNumber: table.table_number
-                                          });
-                                          setCancelQty(item.quantity);
-                                          setCancelReason('Hết nguyên liệu');
-                                          setMarkItemOutOfStock(true);
-                                        }}
-                                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition min-w-[36px] min-h-[44px] flex items-center justify-center cursor-pointer"
-                                        title="Hủy món này"
-                                      >
-                                        <MoreVertical className="w-4 h-4" />
-                                      </button>
                                     )}
                                   </div>
+                                </div>
+
+                                {/* Right Column: Actions (As in Image 2) */}
+                                <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 self-center">
+                                  {isPending && hasPermission('order.manage') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
+                                      className="px-4 sm:px-5 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm sm:text-base rounded-xl shadow-xs min-w-[68px] sm:min-w-[76px] min-h-[42px] flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      title="Tiếp nhận món này"
+                                    >
+                                      <span>Nhận</span>
+                                    </button>
+                                  )}
+
+                                  {isAccepted && hasPermission('order.serve') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
+                                      className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs min-w-[68px] sm:min-w-[76px] min-h-[42px] flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      title="Đánh dấu đã phục vụ"
+                                    >
+                                      <span>Phục vụ</span>
+                                    </button>
+                                  )}
+
+                                  {isServed && (
+                                    <span className="text-emerald-700 font-semibold text-xs flex items-center gap-1 py-1 px-2 bg-emerald-50 rounded-lg border border-emerald-200/60">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>Đã phục vụ</span>
+                                    </span>
+                                  )}
+
+                                  {isCancelled && (
+                                    <span className="text-rose-700 font-semibold text-xs py-1 px-2 bg-rose-50 rounded-lg border border-rose-200/60">
+                                      Đã hủy
+                                    </span>
+                                  )}
+
+                                  {/* 3-dots Cancel Trigger (Image 2) */}
+                                  {(isPending || isAccepted) && hasPermission('order.cancel') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCancelModalItem({
+                                          id: item.orderItemId,
+                                          name: item.name,
+                                          quantity: item.quantity,
+                                          tableNumber: table.table_number
+                                        });
+                                        setCancelQty(item.quantity);
+                                        setCancelReason('Hết nguyên liệu');
+                                        setMarkItemOutOfStock(true);
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition min-w-[32px] min-h-[42px] flex items-center justify-center cursor-pointer"
+                                      title="Hủy món này"
+                                    >
+                                      <MoreVertical className="w-4 h-4" />
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             );
                           })}
-                        </div>
-
-                        {/* Footer Actions */}
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                          <span className="text-slate-400 flex items-center gap-1.5 flex-wrap">
-                            <span>{items.length} món • Lượt #{items[items.length - 1]?.orderNumber || 1}</span>
-                            {items[items.length - 1]?.createdAt && (
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                                <span>{new Date(items[items.length - 1].createdAt!).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
-                              </span>
-                            )}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTable(table)}
-                            className="font-bold text-[var(--brand-accent-text)] hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
-                          >
-                            <span>Xem hóa đơn & Chốt bill &rarr;</span>
-                          </button>
                         </div>
                       </div>
                     );
