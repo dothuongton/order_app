@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSessionCancelled, formatCancelReason, getSessionReportStatus } from '../pages/staff/StaffReports.js';
+import { isSessionCancelled, formatCancelReason, getSessionReportStatus, isReportReceiptVisible } from '../pages/staff/StaffReports.js';
 import { getReceiptItemsForDisplay } from '../pages/staff/ReceiptDetailModal.js';
 
 describe('Reports Status Badge Logic (Issue #140 Follow-up)', () => {
@@ -197,5 +197,51 @@ describe('Guest Search Priority (Name matches before Description matches)', () =
     ];
     const results = filterAndSort(items, 'cà phê');
     expect(results[0].name).toBe('Cà phê');
+  });
+});
+
+describe('Report Receipt Filter for Phantom 0đ Sessions (#A4572161)', () => {
+  it('hides phantom 0đ sessions that have no guest opening and no orders', () => {
+    // Like session #A4572161: opened by staff and closed empty with 0 orders, no guest
+    const phantomSession = {
+      confirmed_amount: 0,
+      opening_guest_name: null,
+      order_count: 0
+    };
+    expect(isReportReceiptVisible(phantomSession)).toBe(false);
+
+    const phantomWithEmptyGuest = {
+      confirmed_amount: '0',
+      opening_guest_name: '   ',
+      order_count: 0
+    };
+    expect(isReportReceiptVisible(phantomWithEmptyGuest)).toBe(false);
+  });
+
+  it('keeps 0đ sessions that had actual customer opening request', () => {
+    const customerRequestedSession = {
+      confirmed_amount: 0,
+      opening_guest_name: 'Nguyễn An',
+      order_count: 0
+    };
+    expect(isReportReceiptVisible(customerRequestedSession)).toBe(true);
+  });
+
+  it('keeps 0đ sessions that had orders placed (customer or staff assisted)', () => {
+    const sessionWithCancelledOrders = {
+      confirmed_amount: 0,
+      opening_guest_name: null,
+      order_count: 2
+    };
+    expect(isReportReceiptVisible(sessionWithCancelledOrders)).toBe(true);
+  });
+
+  it('always keeps confirmed/paid sessions with positive amount', () => {
+    const paidSession = {
+      confirmed_amount: 512000,
+      opening_guest_name: null,
+      order_count: 0
+    };
+    expect(isReportReceiptVisible(paidSession)).toBe(true);
   });
 });
