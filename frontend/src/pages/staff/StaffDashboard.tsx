@@ -1367,33 +1367,27 @@ export const StaffDashboard: React.FC = () => {
                 </button>
               </div>
 
-              {/* Classification Segmented Control Bar: Cần xử lý vs Hoàn tất */}
-              <div className="grid grid-cols-2 p-1.5 bg-slate-200/80 rounded-2xl gap-1.5 text-xs sm:text-sm font-bold shadow-2xs">
+              {/* Classification Segmented Control Bar: Eye-friendly soft palette */}
+              <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl gap-1 text-xs sm:text-sm border border-slate-200/80">
                 <button
                   type="button"
                   onClick={() => setOrderStatusFilter('actionable')}
-                  className={`py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+                  className={`py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
                     orderStatusFilter === 'actionable'
-                      ? 'bg-amber-500 text-white shadow-xs font-black'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90 font-bold'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-white/50 font-medium'
                   }`}
                 >
                   <span>Cần xử lý</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-black ${
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
                     orderStatusFilter === 'actionable'
-                      ? 'bg-amber-700/80 text-white'
-                      : countActionable > 0
-                      ? 'bg-amber-200 text-amber-900 font-black'
-                      : 'bg-slate-300 text-slate-600'
+                      ? 'bg-slate-100 text-slate-700 border border-slate-200/70'
+                      : 'bg-slate-200/60 text-slate-500'
                   }`}>
                     {countActionable}
                   </span>
                   {countPending > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold shrink-0 ${
-                      orderStatusFilter === 'actionable'
-                        ? 'bg-white/20 text-white'
-                        : 'bg-amber-100 text-amber-900 font-black'
-                    }`}>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold shrink-0 bg-amber-50 text-amber-800 border border-amber-200/70">
                       {countPending} mới
                     </span>
                   )}
@@ -1402,19 +1396,17 @@ export const StaffDashboard: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setOrderStatusFilter('served')}
-                  className={`py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+                  className={`py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
                     orderStatusFilter === 'served'
-                      ? 'bg-emerald-600 text-white shadow-xs font-black'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90 font-bold'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-white/50 font-medium'
                   }`}
                 >
                   <span>Hoàn tất</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-black ${
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
                     orderStatusFilter === 'served'
-                      ? 'bg-emerald-800/80 text-white'
-                      : countServed > 0
-                      ? 'bg-emerald-100 text-emerald-900 font-black'
-                      : 'bg-slate-300 text-slate-600'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/70'
+                      : 'bg-slate-200/60 text-slate-500'
                   }`}>
                     {countServed}
                   </span>
@@ -1470,10 +1462,10 @@ export const StaffDashboard: React.FC = () => {
 
                             {elapsedMins !== null && (
                               <span
-                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
                                   elapsedMins >= 10
-                                    ? 'bg-rose-100/80 text-rose-700 border border-rose-200/80 animate-pulse'
-                                    : 'bg-[#FCECE8] text-[#C0422B] border border-rose-100'
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200/70'
+                                    : 'bg-slate-100 text-slate-600 border border-slate-200/70'
                                 }`}
                                 title={`Thời gian từ khi gọi món: ${elapsedMins} phút`}
                               >
@@ -1492,7 +1484,7 @@ export const StaffDashboard: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleQuickAcceptAll(table.active_session_id!)}
-                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/70 font-semibold text-xs rounded-xl transition cursor-pointer"
                                 title={`Nhận tất cả ${pendingCount} món đang chờ`}
                               >
                                 Nhận tất cả ({pendingCount})
@@ -1503,7 +1495,7 @@ export const StaffDashboard: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleQuickServeAll(table.active_session_id!)}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/70 font-semibold text-xs rounded-xl transition cursor-pointer"
                                 title={`Đã phục vụ tất cả ${acceptedCount} món`}
                               >
                                 Phục vụ tất cả ({acceptedCount})
@@ -1535,16 +1527,16 @@ export const StaffDashboard: React.FC = () => {
                                 key={item.partId || item.orderItemId || idx}
                                 className="relative flex items-center justify-between gap-3 pt-3 first:pt-0"
                               >
-                                {/* Left side vertical accent bar (Image 2) */}
+                                {/* Left side vertical accent bar (Image 2) - Soft tones */}
                                 <div
                                   className={`w-1 self-stretch rounded-full shrink-0 ${
                                     isPending
-                                      ? 'bg-amber-500'
+                                      ? 'bg-amber-400'
                                       : isAccepted
-                                      ? 'bg-blue-500'
+                                      ? 'bg-sky-400'
                                       : isServed
-                                      ? 'bg-emerald-500'
-                                      : 'bg-rose-400'
+                                      ? 'bg-emerald-400'
+                                      : 'bg-rose-300'
                                   }`}
                                 />
 
@@ -1567,11 +1559,11 @@ export const StaffDashboard: React.FC = () => {
                                     </p>
                                   )}
 
-                                  {/* Row 3: Customer Note as in Image 2 with break-all protection */}
+                                  {/* Row 3: Customer Note as in Image 2 with break-all protection - Soft warm tint */}
                                   {item.note && (
                                     <div className="pt-0.5 max-w-full overflow-hidden">
-                                      <span className="inline-flex max-w-full items-start gap-1 px-2 py-0.5 bg-[#FDF3D7] text-[#7A5005] rounded-md border border-[#F5E5B8] break-all">
-                                        <span className="text-[#A16207] shrink-0 select-none text-[10px] mt-0.5 not-italic">📌</span>
+                                      <span className="inline-flex max-w-full items-start gap-1 px-2 py-0.5 bg-[#FFFBEB] text-[#92400E] rounded-md border border-[#FDE68A] break-all">
+                                        <span className="text-[#B45309] shrink-0 select-none text-[10px] mt-0.5 not-italic">📌</span>
                                         <span className="italic font-normal text-[11px] lowercase break-all whitespace-pre-wrap leading-relaxed">
                                           {item.note}
                                         </span>
@@ -1601,7 +1593,7 @@ export const StaffDashboard: React.FC = () => {
                                     <button
                                       type="button"
                                       onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-sm sm:text-base rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white font-black text-sm sm:text-base rounded-2xl shadow-xs flex items-center justify-center transition active:scale-95 cursor-pointer"
                                       title="Tiếp nhận món này"
                                     >
                                       <span>Nhận</span>
@@ -1612,7 +1604,7 @@ export const StaffDashboard: React.FC = () => {
                                     <button
                                       type="button"
                                       onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm sm:text-base rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                      className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] bg-[#059669] hover:bg-[#047857] active:bg-[#065F46] text-white font-black text-sm sm:text-base rounded-2xl shadow-xs flex items-center justify-center transition active:scale-95 cursor-pointer"
                                       title="Đánh dấu đã phục vụ"
                                     >
                                       <span>Phục vụ</span>
@@ -1620,14 +1612,14 @@ export const StaffDashboard: React.FC = () => {
                                   )}
 
                                   {isServed && (
-                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-emerald-700 font-bold text-xs flex items-center justify-center gap-1 bg-emerald-50 rounded-2xl border border-emerald-200/60 text-center px-1">
+                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-emerald-800 font-bold text-xs flex items-center justify-center gap-1 bg-emerald-50/80 rounded-2xl border border-emerald-200/50 text-center px-1">
                                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                       <span>Đã phục vụ</span>
                                     </span>
                                   )}
 
                                   {isCancelled && (
-                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-rose-700 font-bold text-xs flex items-center justify-center bg-rose-50 rounded-2xl border border-rose-200/60 text-center px-1">
+                                    <span className="flex-none w-[86px] sm:w-[96px] h-[48px] sm:h-[50px] text-rose-700 font-bold text-xs flex items-center justify-center bg-rose-50/80 rounded-2xl border border-rose-200/50 text-center px-1">
                                       Đã hủy
                                     </span>
                                   )}
