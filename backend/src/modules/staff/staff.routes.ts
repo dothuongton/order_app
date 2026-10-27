@@ -308,7 +308,7 @@ staffRouter.post(
         try {
             const staff = req.staff!;
             const sessionId = req.params.id;
-            const { settlementVersion, note, requestId, expectedAmount } = req.body || {};
+            const { settlementVersion, note, requestId, expectedAmount, paymentMethod } = req.body || {};
 
             if (expectedAmount === undefined || typeof expectedAmount !== 'number' || isNaN(expectedAmount) || expectedAmount < 0) {
                 return res.status(400).json({
@@ -324,7 +324,8 @@ staffRouter.post(
                 staff.id,
                 note,
                 requestId,
-                Number(expectedAmount)
+                Number(expectedAmount),
+                paymentMethod
             );
 
             return res.json(result);

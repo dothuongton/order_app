@@ -5,6 +5,7 @@ import { BillSummary } from '../../types/index.js';
 import { X, Printer, Receipt, XCircle, RefreshCw, Download, UserCheck, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { isSessionCancelled, formatCancelReason, getSessionReportStatus } from './StaffReports.js';
+import { formatPaymentMethodLabel } from './TableDetailModal.js';
 
 interface ReceiptDetailModalProps {
   session: {
@@ -14,6 +15,7 @@ interface ReceiptDetailModalProps {
     confirmed_at: string;
     confirmed_by_name: string;
     settlement_note?: string;
+    payment_method?: string;
     opened_at?: string;
     session_status?: string;
     close_reason?: string;
@@ -44,6 +46,7 @@ export interface GenerateReceiptHtmlOptions {
     confirmed_at: string;
     confirmed_by_name: string;
     settlement_note?: string;
+    payment_method?: string;
     opened_at?: string;
     session_status?: string;
     close_reason?: string;
@@ -229,6 +232,12 @@ export function generateReceiptHtml(options: GenerateReceiptHtmlOptions): string
           <span style="color: #64748b;">${isZero ? 'Người xử lý:' : 'Thu ngân:'}</span>
           <span>${escapeReceiptHtml(session.confirmed_by_name)}</span>
         </div>
+        ${!isZero ? `
+        <div style="display: flex; justify-content: space-between; padding: 2px 0;">
+          <span style="color: #64748b;">Phương thức thanh toán:</span>
+          <span style="font-weight: 600;">${escapeReceiptHtml(formatPaymentMethodLabel(session.payment_method))}</span>
+        </div>
+        ` : ''}
         ${openingGuestHtml}
         ${statusBadgeHtml}
         ${settlementNoteHtml}
@@ -328,7 +337,8 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
   // Flatten items for printing summary
   const allItems = billSummary?.rounds?.flatMap(r => r.items) || [];
   const originByItem = new Map(billSummary?.rounds?.flatMap(round => round.items.map(item => [item.itemId, round] as const)) || []);
-  const showZeroValueItems = Number(session.confirmed_amount) === 0;
+  const isZero = Number(session.confirmed_amount) === 0;
+  const showZeroValueItems = isZero;
   const displayItems = getReceiptItemsForDisplay(allItems, session.confirmed_amount);
   const isCancelled = isSessionCancelled(session);
   const receiptStatus = getSessionReportStatus(session);
@@ -431,6 +441,14 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
                     <span>{Number(session.confirmed_amount) === 0 ? 'Người xử lý:' : 'Thu ngân:'}</span>
                     <span>{session.confirmed_by_name}</span>
                   </div>
+                  {!isZero && (
+                    <div className="flex justify-between items-center">
+                      <span>Phương thức thanh toán:</span>
+                      <span className="font-semibold text-slate-900 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 text-[11px] font-sans">
+                        {formatPaymentMethodLabel(session.payment_method)}
+                      </span>
+                    </div>
+                  )}
                   {showOrderSource && (
                     <div className="flex justify-between gap-3">
                       <span className="shrink-0">Người yêu cầu mở bàn:</span>

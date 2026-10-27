@@ -85,6 +85,7 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
                 COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) as confirmed_at,
                 COALESCE(u.full_name, 'Nhân viên') as confirmed_by_name,
                 msc.note as settlement_note,
+                COALESCE(msc.payment_method, b.payment_method, 'CASH') as payment_method,
                 ts.opened_at,
                 ts.status as session_status,
                 ts.close_reason,

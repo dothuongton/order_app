@@ -15,10 +15,10 @@ interface TableDetailModalProps {
   onRefresh: () => void;
 }
 
-export function formatSettlementNote(paymentMethod: 'CASH' | 'TRANSFER' | 'OTHER', customNote?: string): string {
-  const methodLabel = paymentMethod === 'CASH' ? 'Tiền mặt' : paymentMethod === 'TRANSFER' ? 'Chuyển khoản' : 'Khác';
-  const trimmed = customNote?.trim();
-  return trimmed ? `${methodLabel} · ${trimmed}` : methodLabel;
+export function formatPaymentMethodLabel(method?: string | null): string {
+  if (method === 'TRANSFER') return 'Chuyển khoản';
+  if (method === 'OTHER') return 'Khác';
+  return 'Tiền mặt';
 }
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
@@ -253,14 +253,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         return;
       }
 
-      const formattedNote = formatSettlementNote(paymentMethod, settlementNote);
-
       await request(`/staff/sessions/${targetSessionId}/confirm-payment-and-close`, {
         method: 'POST',
         body: JSON.stringify({
           settlementVersion: displayedVersion,
           expectedAmount: displayedAmount,
-          note: formattedNote,
+          note: settlementNote.trim() || undefined,
+          paymentMethod,
           requestId: `pay-${Date.now()}`
         })
       });

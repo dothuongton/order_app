@@ -207,6 +207,7 @@ describe('ReceiptDetailModal View Toggles & HTML Generator', () => {
     confirmed_amount: 150000,
     confirmed_at: '2026-10-27T10:30:00.000Z',
     confirmed_by_name: 'Nguyễn Văn Thu Ngân',
+    payment_method: 'TRANSFER',
     settlement_note: 'Ghi chú thanh toán rất dài: Khách trả bằng thẻ tín dụng Sacombank, đã trừ voucher 20k và yêu cầu gửi bill qua Zalo cho anh Tuấn 0901234567.',
     opening_guest_name: 'Khách bàn 5'
   };
@@ -259,6 +260,8 @@ describe('ReceiptDetailModal View Toggles & HTML Generator', () => {
 
     expect(html).toContain('Quán Cà Phê Mẫu');
     expect(html).toContain('Bàn B05');
+    expect(html).toContain('Phương thức thanh toán:');
+    expect(html).toContain('Chuyển khoản');
     expect(html).toContain('Trà Sữa Trân Châu Đường Đen');
     expect(html).toContain('Size L, 50% đường');
     // Order source elements
