@@ -1638,14 +1638,14 @@ export const StaffDashboard: React.FC = () => {
                                             <span className="font-black text-slate-900 text-base sm:text-lg shrink-0">
                                               {item.quantity}×
                                             </span>
-                                            <span className="font-bold text-slate-900 text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug">
+                                            <span className="font-normal text-slate-900 text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug">
                                               {item.name}
                                             </span>
                                           </div>
 
-                                          {/* Row 2: Variant Details - Bold */}
+                                          {/* Row 2: Variant Details */}
                                           {item.variantName && (
-                                            <p className="text-xs sm:text-[13px] font-bold text-slate-700 leading-tight">
+                                            <p className="text-xs sm:text-[13px] font-normal text-slate-500 leading-tight">
                                               {item.variantName}
                                             </p>
                                           )}

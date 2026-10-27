@@ -85,10 +85,12 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
                 COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) as confirmed_at,
                 COALESCE(u.full_name, 'Nhân viên') as confirmed_by_name,
                 msc.note as settlement_note,
+                COALESCE(msc.payment_method, b.payment_method, 'CASH') as payment_method,
                 ts.opened_at,
                 ts.status as session_status,
                 ts.close_reason,
-                b.status as bill_status
+                b.status as bill_status,
+                (SELECT COUNT(*)::int FROM orders o WHERE o.session_id = ts.id) as order_count
             FROM table_sessions ts
             JOIN tables t ON t.id = ts.table_id
             JOIN bills b ON b.session_id = ts.id
@@ -102,6 +104,10 @@ reportsRouter.get('/summary', async (req: Request, res: Response) => {
                     AND (
                         b.status = 'CANCELLED'
                         OR (b.status = 'CONFIRMED' AND COALESCE(msc.amount, b.total_amount, 0) = 0)
+                    )
+                    AND (
+                        (ts.requester_guest_name IS NOT NULL AND TRIM(ts.requester_guest_name) != '')
+                        OR EXISTS (SELECT 1 FROM orders o WHERE o.session_id = ts.id)
                     )
                 )
               )

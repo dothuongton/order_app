@@ -1014,8 +1014,10 @@ export class StaffService {
         userId: string,
         note?: string,
         requestId?: string,
-        expectedAmount?: number
+        expectedAmount?: number,
+        paymentMethod?: string
     ) {
+        const validPaymentMethod = paymentMethod === 'TRANSFER' || paymentMethod === 'OTHER' ? paymentMethod : 'CASH';
         return await withTransaction(async (client) => {
             // 1. Lock Session row
             const sessionRes = await client.query(`
@@ -1230,10 +1232,10 @@ export class StaffService {
             // 5. Insert Manual Settlement Confirmation record
             await client.query(`
                 INSERT INTO manual_settlement_confirmations (
-                    tenant_id, bill_id, session_id, amount, confirmed_by, request_id, note
+                    tenant_id, bill_id, session_id, amount, confirmed_by, request_id, note, payment_method
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-            `, [tenantId, bill.id, sessionId, finalAmount, userId, requestId || null, note || null]);
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `, [tenantId, bill.id, sessionId, finalAmount, userId, requestId || null, note || null, validPaymentMethod]);
 
             // 6. Snapshot Bill Lines
             for (const line of billLinesToInsert) {
@@ -1249,9 +1251,9 @@ export class StaffService {
             // 7. Update Bill to CONFIRMED
             await client.query(`
                 UPDATE bills
-                SET status = 'CONFIRMED', total_amount = $1, confirmed_at = NOW(), updated_at = NOW()
+                SET status = 'CONFIRMED', total_amount = $1, payment_method = $3, confirmed_at = NOW(), updated_at = NOW()
                 WHERE id = $2
-            `, [finalAmount, bill.id]);
+            `, [finalAmount, bill.id, validPaymentMethod]);
 
             // 8. Update Table Session to CLOSED
             await client.query(`

@@ -6,13 +6,19 @@ import { useAuth } from '../../context/AuthContext.js';
 import {
   X, Check, CheckCheck, Ban, CreditCard, Sparkles, AlertTriangle, AlertCircle,
   Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed, Plus, Store,
-  Edit3, Trash2, CheckCircle2
+  Edit3, Trash2, CheckCircle2, Banknote, QrCode
 } from 'lucide-react';
 
 interface TableDetailModalProps {
   table: StaffTable | null;
   onClose: () => void;
   onRefresh: () => void;
+}
+
+export function formatPaymentMethodLabel(method?: string | null): string {
+  if (method === 'TRANSFER') return 'Chuyển khoản';
+  if (method === 'OTHER') return 'Khác';
+  return 'Tiền mặt';
 }
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
@@ -47,6 +53,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   // Confirm settlement modal state
   const [showConfirmSettlement, setShowConfirmSettlement] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'OTHER'>('CASH');
   const [settlementNote, setSettlementNote] = useState('');
   const [isSettling, setIsSettling] = useState(false);
 
@@ -73,6 +80,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     setShowReleaseModal(false);
     setSelectedReleaseReason('Khách đặt ảo');
     setCustomReleaseReason('');
+    setPaymentMethod('CASH');
     setSettlementNote('');
     setActionError(null);
     setActionSuccess(null);
@@ -251,6 +259,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
           settlementVersion: displayedVersion,
           expectedAmount: displayedAmount,
           note: settlementNote.trim() || undefined,
+          paymentMethod,
           requestId: `pay-${Date.now()}`
         })
       });
@@ -622,16 +631,16 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                                     <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">
                                       {item.quantity}×
                                     </span>
-                                    <span className={`font-bold text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug ${
+                                    <span className={`font-normal text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug ${
                                       isCancelled ? 'line-through text-slate-400' : 'text-slate-900'
                                     }`}>
                                       {item.name}
                                     </span>
                                   </div>
 
-                                  {/* Row 2: Variant Details - Bold */}
+                                  {/* Row 2: Variant Details */}
                                   {item.variantName && (
-                                    <p className="text-xs sm:text-[13px] font-bold text-slate-700 leading-tight">
+                                    <p className="text-xs sm:text-[13px] font-normal text-slate-500 leading-tight">
                                       {item.variantName}
                                     </p>
                                   )}
@@ -1064,6 +1073,52 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                 )}
               </div>
 
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  Hình thức thanh toán:
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('CASH')}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
+                      paymentMethod === 'CASH'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs ring-1 ring-emerald-500'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4 shrink-0" />
+                    <span>Tiền mặt</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('TRANSFER')}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
+                      paymentMethod === 'TRANSFER'
+                        ? 'bg-blue-50 border-blue-500 text-blue-800 shadow-xs ring-1 ring-blue-500'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <QrCode className="w-4 h-4 shrink-0" />
+                    <span>Chuyển khoản</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('OTHER')}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
+                      paymentMethod === 'OTHER'
+                        ? 'bg-amber-50 border-amber-500 text-amber-800 shadow-xs ring-1 ring-amber-500'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4 shrink-0" />
+                    <span>Khác</span>
+                  </button>
+                </div>
+              </div>
+
               <p className="text-xs text-slate-500">
                 Sau khi xác nhận:
                 <br />• Phiên bàn sẽ <strong>kết thúc</strong> ngay lập tức.
@@ -1077,7 +1132,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
                   type="text"
                   value={settlementNote}
                   onChange={(e) => setSettlementNote(e.target.value)}
-                  placeholder="Ví dụ: Tiền mặt đủ, chuyển khoản qua QR cá nhân..."
+                  placeholder={
+                    paymentMethod === 'CASH'
+                      ? 'Ví dụ: Khách đưa 500k thối 200k...'
+                      : paymentMethod === 'TRANSFER'
+                      ? 'Ví dụ: QR VietQR/ACB, mã GD...'
+                      : 'Ví dụ: Thẻ POS, ví điện tử...'
+                  }
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
                 />
               </div>

@@ -41,6 +41,17 @@ export const getSessionReportStatus = (session: any): { kind: 'cancelled' | 'zer
   return null;
 };
 
+export const isReportReceiptVisible = (s: {
+  confirmed_amount: number | string;
+  opening_guest_name?: string | null;
+  order_count?: number;
+}): boolean => {
+  if (Number(s.confirmed_amount) > 0) return true;
+  if (s.opening_guest_name && s.opening_guest_name.trim()) return true;
+  if (s.order_count !== undefined) return s.order_count > 0;
+  return true;
+};
+
 export const StaffReports: React.FC = () => {
   const [data, setData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +81,7 @@ export const StaffReports: React.FC = () => {
   }
 
   const metrics = data?.metrics || {};
+  const recentSessions = (data?.recentSettledSessions || []).filter(isReportReceiptVisible);
 
   return (
     <div className="space-y-4">
@@ -139,7 +151,7 @@ export const StaffReports: React.FC = () => {
         </div>
 
         <div className="divide-y divide-slate-100">
-          {(data?.recentSettledSessions || []).map((s: any, idx: number) => {
+          {recentSessions.map((s: any, idx: number) => {
             const status = getSessionReportStatus(s);
             const isCancelled = status?.kind === 'cancelled';
 
@@ -198,7 +210,7 @@ export const StaffReports: React.FC = () => {
             );
           })}
 
-          {(!data?.recentSettledSessions || data.recentSettledSessions.length === 0) && (
+          {recentSessions.length === 0 && (
             <p className="text-xs text-slate-400 py-3 text-center">Chưa có phiên nào được thanh toán</p>
           )}
         </div>

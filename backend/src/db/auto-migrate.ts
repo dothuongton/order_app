@@ -387,6 +387,10 @@ export async function ensureSchemaOnBoot() {
                 CREATE INDEX IF NOT EXISTS idx_table_sessions_claimed_device
                 ON table_sessions (tenant_id, claimed_device_hash)
                 WHERE status = 'OPEN';
+
+                -- Payment method column for manual settlements and bills
+                ALTER TABLE manual_settlement_confirmations ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) DEFAULT 'CASH';
+                ALTER TABLE bills ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) DEFAULT 'CASH';
             END $$;
         `);
 

@@ -262,6 +262,7 @@ CREATE TABLE IF NOT EXISTS bills (
     session_id UUID NOT NULL UNIQUE REFERENCES table_sessions(id) ON DELETE CASCADE,
     status VARCHAR(32) NOT NULL DEFAULT 'OPEN', -- 'OPEN', 'CONFIRMED', 'CANCELLED'
     total_amount BIGINT NOT NULL DEFAULT 0,
+    payment_method VARCHAR(32) DEFAULT 'CASH',
     confirmed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -291,7 +292,8 @@ CREATE TABLE IF NOT EXISTS manual_settlement_confirmations (
     confirmed_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     request_id VARCHAR(128),
-    note TEXT
+    note TEXT,
+    payment_method VARCHAR(32) DEFAULT 'CASH'
 );
 
 -- 18. Idempotency Records (Chống trùng lặp request theo mục 11.4)
