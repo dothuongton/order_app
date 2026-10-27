@@ -1,9 +1,9 @@
-import { OrderSourceBadge } from '../../components/OrderSourceBadge.js';
+import { OrderSourceBadge, orderSourceLabel } from '../../components/OrderSourceBadge.js';
 import React, { Suspense, lazy, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useNotification } from '../../context/NotificationContext.js';
 import { request } from '../../api/client.js';
-import { StaffTable, ServiceRequest, PendingTableRequest } from '../../types/index.js';
+import { StaffTable, ServiceRequest, PendingTableRequest, TableActiveItem } from '../../types/index.js';
 import { TableDetailModal } from './TableDetailModal.js';
 import { QRModal } from '../../components/QRModal.js';
 import { StaffReports } from './StaffReports.js';
@@ -16,7 +16,7 @@ import {
   CreditCard, Sparkles, RefreshCw, Mic, Ban, X, XCircle, Receipt,
   Smartphone, BellRing, Search, ShieldAlert, Palette, Settings, AlertTriangle,
   ChevronRight, ArrowLeft, UserCheck, Sliders, Radio, Tag, Image as ImageIcon,
-  Edit3, User, Loader2, Layers, KeyRound
+  Edit3, User, Loader2, Layers, KeyRound, MoreVertical
 } from 'lucide-react';
 import { StaffChangePasswordModal } from './StaffChangePasswordModal.js';
 import { TableManageModal } from './TableManageModal.js';
@@ -53,6 +53,94 @@ class StaffScreenLoadBoundary extends React.Component<{
   }
 }
 
+export const TableRestaurantIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    {/* Table Top */}
+    <path d="M5 10h14" />
+    {/* Table Legs */}
+    <path d="M9 10v9" />
+    <path d="M15 10v9" />
+    {/* Left Chair: Backrest, Seat, Front Leg */}
+    <path d="M3 6v13" />
+    <path d="M3 13h3v6" />
+    {/* Right Chair: Backrest, Seat, Front Leg */}
+    <path d="M21 6v13" />
+    <path d="M21 13h-3v6" />
+  </svg>
+);
+
+export interface StaffOrderRoundGroup {
+  orderNumber: number;
+  createdAt?: string;
+  source?: string | null;
+  orderedByName?: string | null;
+  roundItems: TableActiveItem[];
+}
+
+export function filterAndSortStaffOrderItems(
+  rawItems: TableActiveItem[],
+  orderStatusFilter: 'actionable' | 'served'
+): TableActiveItem[] {
+  const filtered = (rawItems || []).filter(item => {
+    if (orderStatusFilter === 'actionable') return item.status === 'PENDING' || item.status === 'ACCEPTED';
+    if (orderStatusFilter === 'served') return item.status === 'SERVED';
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    // 1. Primary: Sort by round (orderNumber ASC) -> Hiển thị theo lần trong bàn
+    const roundA = a.orderNumber ?? 0;
+    const roundB = b.orderNumber ?? 0;
+    if (roundA !== roundB) return roundA - roundB;
+
+    // 2. Secondary: Within round, actionable priority (PENDING first, then ACCEPTED)
+    const priorityA = a.status === 'PENDING' ? 0 : a.status === 'ACCEPTED' ? 1 : 2;
+    const priorityB = b.status === 'PENDING' ? 0 : b.status === 'ACCEPTED' ? 1 : 2;
+    if (priorityA !== priorityB) return priorityA - priorityB;
+
+    // 3. Tertiary: Time created ASC
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeA - timeB;
+  });
+}
+
+export function groupStaffOrderItemsByRound(items: TableActiveItem[]): StaffOrderRoundGroup[] {
+  return items.reduce<StaffOrderRoundGroup[]>((acc, item) => {
+    const roundNum = item.orderNumber || 1;
+    const lastGroup = acc[acc.length - 1];
+    if (lastGroup && lastGroup.orderNumber === roundNum) {
+      lastGroup.roundItems.push(item);
+    } else {
+      acc.push({
+        orderNumber: roundNum,
+        createdAt: item.createdAt,
+        source: item.source,
+        orderedByName: item.orderedByName,
+        roundItems: [item]
+      });
+    }
+    return acc;
+  }, []);
+}
+
+export function formatElapsedWaitingDisplay(elapsedMins: number | null | undefined): string | null {
+  if (elapsedMins === null || elapsedMins === undefined) return null;
+  if (elapsedMins < 1) return "<1'";
+  if (elapsedMins > 120) return ">120'";
+  return `${elapsedMins}'`;
+}
+
 export const StaffDashboard: React.FC = () => {
   const { user, currentTenant, logout, hasPermission, updateUserProfile } = useAuth();
   const {
@@ -71,7 +159,7 @@ export const StaffDashboard: React.FC = () => {
   } = useNotification();
 
   const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'requests' | 'settings' | 'reports' | 'menu' | 'cms'>('tables');
-  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'served'>('pending');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'actionable' | 'served'>('actionable');
   const [tableStatusFilter, setTableStatusFilter] = useState<'all' | 'pending' | 'checkout' | 'serving' | 'assistance' | 'empty' | 'zero'>('all');
   const [tableSearch, setTableSearch] = useState<string>('');
   const [tables, setTables] = useState<StaffTable[]>([]);
@@ -653,7 +741,7 @@ export const StaffDashboard: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
-            <LayoutGrid className="w-5 h-5 shrink-0" />
+            <TableRestaurantIcon className="w-5 h-5 shrink-0" />
             <span className="flex-1 text-left">Bàn</span>
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold">
               {tables.length}
@@ -696,7 +784,7 @@ export const StaffDashboard: React.FC = () => {
             )}
           </button>
 
-          {/* 4. Cài đặt */}
+          {/* 4. Tác vụ */}
           <button
             type="button"
             onClick={() => setActiveTab('settings')}
@@ -706,8 +794,8 @@ export const StaffDashboard: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900 hover:bg-[var(--brand-surface-soft)]'
             }`}
           >
-            <Settings className="w-5 h-5 shrink-0" />
-            <span className="flex-1 text-left">Cài đặt</span>
+            <LayoutGrid className="w-5 h-5 shrink-0" />
+            <span className="flex-1 text-left">Tác vụ</span>
           </button>
         </nav>
 
@@ -1312,17 +1400,13 @@ export const StaffDashboard: React.FC = () => {
           const allActiveItems = tables.flatMap(t => (t.active_session_id ? t.activeItems || [] : []));
           const countPending = allActiveItems.filter(i => i.status === 'PENDING').length;
           const countAccepted = allActiveItems.filter(i => i.status === 'ACCEPTED').length;
+          const countActionable = countPending + countAccepted;
           const countServed = allActiveItems.filter(i => i.status === 'SERVED').length;
 
           const tablesWithFilteredItems = tables
             .filter(t => t.active_session_id && t.activeItems && t.activeItems.length > 0)
             .map(table => {
-              const items = (table.activeItems || []).filter(item => {
-                if (orderStatusFilter === 'pending') return item.status === 'PENDING';
-                if (orderStatusFilter === 'accepted') return item.status === 'ACCEPTED';
-                if (orderStatusFilter === 'served') return item.status === 'SERVED';
-                return true;
-              });
+              const items = filterAndSortStaffOrderItems(table.activeItems || [], orderStatusFilter);
               return { table, items };
             })
             .filter(({ items }) => items.length > 0);
@@ -1335,86 +1419,55 @@ export const StaffDashboard: React.FC = () => {
                   <p className="text-xs text-slate-500">Phân loại & xử lý món trực tiếp tại các bàn</p>
                 </div>
                 <button
+                  type="button"
                   onClick={fetchDashboard}
-                  className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition"
+                  className="p-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-white min-h-[44px] min-w-[44px] flex items-center justify-center transition cursor-pointer"
+                  title="Làm mới danh sách"
                 >
                   <RefreshCw className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Classification Segmented Control Bar */}
-              <div className="grid grid-cols-4 p-1 bg-slate-200/80 rounded-2xl gap-1 text-[10px] sm:text-[11px] font-bold">
+              {/* Classification Segmented Control Bar: Eye-friendly soft palette */}
+              <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl gap-1 text-xs sm:text-sm border border-slate-200/80">
                 <button
-                  onClick={() => setOrderStatusFilter('all')}
-                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
-                    orderStatusFilter === 'all'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                  type="button"
+                  onClick={() => setOrderStatusFilter('actionable')}
+                  className={`py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+                    orderStatusFilter === 'actionable'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90 font-bold'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-white/50 font-medium'
                   }`}
                 >
-                  <span className="truncate">Tất cả</span>
-                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                    orderStatusFilter === 'all' ? 'bg-slate-100 text-slate-700' : 'bg-slate-300 text-slate-600'
+                  <span>Cần xử lý</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                    orderStatusFilter === 'actionable'
+                      ? 'bg-slate-100 text-slate-700 border border-slate-200/70'
+                      : 'bg-slate-200/60 text-slate-500'
                   }`}>
-                    {allActiveItems.length}
+                    {countActionable}
                   </span>
+                  {countPending > 0 && (
+                    <span className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold shrink-0 bg-amber-50 text-amber-800 border border-amber-200/70">
+                      {countPending} mới
+                    </span>
+                  )}
                 </button>
 
                 <button
-                  onClick={() => setOrderStatusFilter('pending')}
-                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
-                    orderStatusFilter === 'pending'
-                      ? 'bg-amber-500 text-white shadow-xs font-black'
-                      : 'text-slate-600 hover:text-amber-700'
-                  }`}
-                >
-                  <span className="truncate">Chờ nhận</span>
-                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                    orderStatusFilter === 'pending'
-                      ? 'bg-amber-700 text-white'
-                      : countPending > 0
-                      ? 'bg-amber-200 text-amber-900 animate-pulse font-black'
-                      : 'bg-slate-300 text-slate-600'
-                  }`}>
-                    {countPending}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => setOrderStatusFilter('accepted')}
-                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
-                    orderStatusFilter === 'accepted'
-                      ? 'bg-blue-600 text-white shadow-xs font-black'
-                      : 'text-slate-600 hover:text-blue-700'
-                  }`}
-                >
-                  <span className="truncate">Chờ phục vụ</span>
-                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                    orderStatusFilter === 'accepted'
-                      ? 'bg-blue-800 text-white'
-                      : countAccepted > 0
-                      ? 'bg-blue-100 text-blue-900 font-black'
-                      : 'bg-slate-300 text-slate-600'
-                  }`}>
-                    {countAccepted}
-                  </span>
-                </button>
-
-                <button
+                  type="button"
                   onClick={() => setOrderStatusFilter('served')}
-                  className={`py-2 px-1 rounded-xl transition flex flex-col items-center justify-center gap-0.5 ${
+                  className={`py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
                     orderStatusFilter === 'served'
-                      ? 'bg-emerald-600 text-white shadow-xs font-black'
-                      : 'text-slate-600 hover:text-emerald-700'
+                      ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90 font-bold'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-white/50 font-medium'
                   }`}
                 >
-                  <span className="truncate">Hoàn tất</span>
-                  <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  <span>Hoàn tất</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
                     orderStatusFilter === 'served'
-                      ? 'bg-emerald-800 text-white'
-                      : countServed > 0
-                      ? 'bg-emerald-100 text-emerald-900 font-black'
-                      : 'bg-slate-300 text-slate-600'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/70'
+                      : 'bg-slate-200/60 text-slate-500'
                   }`}>
                     {countServed}
                   </span>
@@ -1426,213 +1479,260 @@ export const StaffDashboard: React.FC = () => {
                 <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-6">
                   <UtensilsCrossed className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                   <h3 className="font-bold text-slate-800 text-base">
-                    {orderStatusFilter === 'pending'
-                      ? 'Không có món nào chờ xác nhận'
-                      : orderStatusFilter === 'accepted'
-                      ? 'Không có món nào cần phục vụ'
-                      : orderStatusFilter === 'served'
-                      ? 'Chưa có món nào đã hoàn tất'
-                      : 'Không có món nào đang xử lý'}
+                    {orderStatusFilter === 'actionable'
+                      ? 'Không có món nào cần xử lý'
+                      : 'Chưa có món nào đã hoàn tất'}
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    {orderStatusFilter === 'pending'
-                      ? 'Tất cả các món khách gọi đều đã được tiếp nhận!'
-                      : orderStatusFilter === 'accepted'
-                      ? 'Bếp đang làm hoặc tất cả món đã được mang ra bàn!'
-                      : orderStatusFilter === 'served'
-                      ? 'Các món ăn sau khi phục vụ ra bàn sẽ hiển thị tại đây.'
-                      : 'Khi khách gọi món, danh sách món và ghi chú sẽ hiển thị ngay tại đây'}
+                    {orderStatusFilter === 'actionable'
+                      ? 'Tất cả các món khách gọi đều đã được tiếp nhận và phục vụ!'
+                      : 'Các món ăn sau khi phục vụ ra bàn sẽ hiển thị tại đây.'}
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8">
                   {tablesWithFilteredItems.map(({ table, items }) => {
-                  const pendingCount = items.filter(i => i.status === 'PENDING').length;
-                  const acceptedCount = items.filter(i => i.status === 'ACCEPTED').length;
-                  const servedCount = items.filter(i => i.status === 'SERVED').length;
+                    const pendingCount = items.filter(i => i.status === 'PENDING').length;
+                    const acceptedCount = items.filter(i => i.status === 'ACCEPTED').length;
+                    const servedCount = items.filter(i => i.status === 'SERVED').length;
 
-                  return (
-                    <div key={table.table_id} className="bg-white rounded-3xl border border-slate-200/90 p-4 shadow-sm space-y-3">
-                      {/* Table Header & Action Buttons */}
-                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-slate-900 text-base">Bàn {table.table_number}</span>
-                          {pendingCount > 0 ? (
-                            <span className="text-[11px] font-bold bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full animate-pulse">
-                              {pendingCount} món chờ nhận
+                    // Calculate elapsed waiting minutes from earliest unserved or available item
+                    const unservedItems = items.filter(i => i.status === 'PENDING' || i.status === 'ACCEPTED');
+                    const targetItems = unservedItems.length > 0 ? unservedItems : items;
+                    const earliestCreatedAt = targetItems.reduce((earliest, cur) => {
+                      if (!cur.createdAt) return earliest;
+                      if (!earliest) return cur.createdAt;
+                      return new Date(cur.createdAt).getTime() < new Date(earliest).getTime() ? cur.createdAt : earliest;
+                    }, null as string | null);
+
+                    const elapsedMins = earliestCreatedAt
+                      ? Math.max(0, Math.floor((Date.now() - new Date(earliestCreatedAt).getTime()) / 60000))
+                      : null;
+
+                    return (
+                      <div
+                        key={table.table_id}
+                        className="bg-white rounded-3xl border-2 border-slate-300 shadow-md overflow-hidden flex flex-col transition hover:border-slate-400"
+                      >
+                        {/* Table Header: Tên bàn dạng khối + Thời gian đợi + Số món + Nút Bill + Nút Nhận cả bàn / Phục vụ cả bàn */}
+                        <div className="bg-slate-100/95 px-4 py-3 sm:py-3.5 border-b-2 border-slate-200 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            {/* Distinct Block Badge for Table Number */}
+                            <span className="px-3 py-1 bg-slate-900 text-white font-black text-base sm:text-lg rounded-xl tracking-tight shrink-0 shadow-xs">
+                              Bàn {table.table_number}
                             </span>
-                          ) : acceptedCount > 0 ? (
-                            <span className="text-[11px] font-bold bg-blue-100 text-blue-900 px-2.5 py-0.5 rounded-full">
-                              {acceptedCount} món cần phục vụ
+
+                            {elapsedMins !== null && (
+                              <span
+                                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                                  elapsedMins >= 10
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200/70'
+                                    : 'bg-white text-slate-700 border border-slate-300/80 shadow-2xs'
+                                }`}
+                                title={`Thời gian từ khi gọi món: ${elapsedMins} phút`}
+                              >
+                                <Clock className="w-3 h-3 shrink-0" />
+                                <span>{formatElapsedWaitingDisplay(elapsedMins)}</span>
+                              </span>
+                            )}
+
+                            <span className="text-xs sm:text-sm font-bold text-slate-600 shrink-0">
+                              {items.length} món
                             </span>
-                          ) : (
-                            <span className="text-[11px] font-semibold bg-emerald-100 text-emerald-900 px-2.5 py-0.5 rounded-full">
-                              {servedCount} món đã hoàn tất
-                            </span>
-                          )}
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {pendingCount > 0 && hasPermission('order.manage') && (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickAcceptAll(table.active_session_id!)}
+                                className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer"
+                                title={`Nhận cả bàn (${pendingCount} món đang chờ)`}
+                              >
+                                Nhận cả bàn ({pendingCount})
+                              </button>
+                            )}
+
+                            {pendingCount === 0 && acceptedCount > 0 && hasPermission('order.serve') && (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickServeAll(table.active_session_id!)}
+                                className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer"
+                                title={`Phục vụ cả bàn (${acceptedCount} món)`}
+                              >
+                                Phục vụ cả bàn ({acceptedCount})
+                              </button>
+                            )}
+
+                            {/* Bill icon button (top right of card) */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTable(table)}
+                              className="w-10 h-10 rounded-xl bg-white hover:bg-emerald-50 border border-slate-300 text-emerald-700 flex items-center justify-center transition shadow-2xs cursor-pointer shrink-0"
+                              title="Xem hóa đơn & Chốt bill"
+                            >
+                              <Receipt className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5">
-                          {pendingCount > 0 && hasPermission('order.manage') && (
-                            <button
-                              onClick={() => handleQuickAcceptAll(table.active_session_id!)}
-                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
-                            >
-                              Nhận tất cả ({pendingCount})
-                            </button>
-                          )}
-                          {acceptedCount > 0 && hasPermission('order.serve') && (
-                            <button
-                              onClick={() => handleQuickServeAll(table.active_session_id!)}
-                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
-                            >
-                              Phục vụ tất cả ({acceptedCount})
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setSelectedTable(table)}
-                            className="p-1.5 text-slate-400 hover:text-slate-800 rounded-xl hover:bg-slate-100"
-                            title="Mở toàn bộ hóa đơn"
-                          >
-                            <CreditCard className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
+                        {/* Itemized Dish List: Grouped by round inside table block */}
+                        <div className="p-4 sm:p-5 space-y-4">
+                          {groupStaffOrderItemsByRound(items).map((group, groupIdx) => {
+                            const firstItem = group.roundItems[0];
+                            const roundTime = firstItem?.createdAt
+                              ? new Date(firstItem.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                              : null;
+                            const roundSource = firstItem && firstItem.source === 'STAFF_POS' ? orderSourceLabel(firstItem) : '';
 
-                      {/* Itemized Dish List */}
-                      <div className="space-y-2">
-                        {items.map((item, idx) => (
-                          <div
-                            key={idx}
-                            className={`p-3 rounded-2xl border transition ${
-                              item.status === 'PENDING'
-                                ? 'bg-amber-50/70 border-amber-200'
-                                : item.status === 'ACCEPTED'
-                                ? 'bg-blue-50/50 border-blue-200'
-                                : item.status === 'SERVED'
-                                ? 'bg-emerald-50/40 border-emerald-200'
-                                : 'bg-slate-50 border-slate-200 opacity-60'
-                            }`}
-                          >
-                            <div className="space-y-2">
-                              {/* Row 1: Quantity + Dish Name + Status (Full Width, never truncated) */}
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-baseline gap-2 min-w-0 flex-1 flex-wrap">
-                                  <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">{item.quantity}x</span>
-                                  <span className="font-extrabold text-slate-900 text-sm sm:text-base break-words line-clamp-2 leading-tight">{item.name}</span>
-                                  {item.variantName && (
-                                    <span className="text-[11px] font-bold px-2 py-0.5 bg-[var(--brand-accent-tint)] text-[var(--brand-accent-dark)] rounded-md shrink-0">
-                                      {item.variantName}
-                                    </span>
+                            return (
+                              <div
+                                key={group.orderNumber || groupIdx}
+                                className={groupIdx > 0 ? 'pt-3.5 border-t border-slate-200/80' : ''}
+                              >
+                                {/* Round Header: Lần #X • HH:mm • ai đặt */}
+                                <div className="flex flex-wrap items-center gap-1.5 pb-2.5 text-[10px] sm:text-[11px] text-slate-400 font-normal leading-tight">
+                                  <span className="font-semibold text-slate-600">Lần #{group.orderNumber}</span>
+                                  {roundTime && (
+                                    <>
+                                      <span className="text-slate-300">•</span>
+                                      <span>{roundTime}</span>
+                                    </>
+                                  )}
+                                  {roundSource && (
+                                    <>
+                                      <span className="text-slate-300">•</span>
+                                      <span>{roundSource}</span>
+                                    </>
                                   )}
                                 </div>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                                  item.status === 'PENDING' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
-                                  item.status === 'ACCEPTED' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
-                                  item.status === 'SERVED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800'
-                                }`}>
-                                  {item.status === 'PENDING' ? 'Chờ nhận' :
-                                   item.status === 'ACCEPTED' ? 'Chờ phục vụ' :
-                                   item.status === 'SERVED' ? 'Đã phục vụ' : 'Đã hủy'}
-                                </span>
-                              </div>
 
-                              {/* Row 1b: Order Round & Time */}
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
-                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-bold">
-                                  Lượt #{item.orderNumber}
-                                </span><OrderSourceBadge {...item} />
-                                {item.createdAt && (
-                                  <span className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
-                                    <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <span>
-                                      {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                  </span>
-                                )}
-                              </div>
+                                {/* Dishes in this round */}
+                                <div className="divide-y divide-slate-100">
+                                  {group.roundItems.map((item, idx) => {
+                                    const isPending = item.status === 'PENDING';
+                                    const isAccepted = item.status === 'ACCEPTED';
+                                    const isServed = item.status === 'SERVED';
+                                    const isCancelled = item.status === 'CANCELLED';
 
-                              {/* Row 2: Customer Note (if any) */}
-                              {item.note && (
-                                <div className="px-2.5 py-1.5 bg-amber-100/90 text-amber-950 font-bold text-xs rounded-xl border border-amber-300 flex items-start gap-1.5 shadow-2xs">
-                                  <span className="text-amber-700 shrink-0">📌 Ghi chú:</span>
-                                  <span className="break-words font-medium">{item.note}</span>
+                                    return (
+                                      <div
+                                        key={item.partId || item.orderItemId || idx}
+                                        className="relative flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                                      >
+                                        {/* Left side vertical accent bar - Slightly thicker 6px */}
+                                        <div
+                                          className={`w-1.5 self-stretch rounded-full shrink-0 ${
+                                            isPending
+                                              ? 'bg-amber-400'
+                                              : isAccepted
+                                              ? 'bg-sky-400'
+                                              : isServed
+                                              ? 'bg-emerald-400'
+                                              : 'bg-rose-300'
+                                          }`}
+                                        />
+
+                                        {/* Middle Column: Dish Info */}
+                                        <div className="min-w-0 flex-1 space-y-1 overflow-hidden pr-1">
+                                          {/* Row 1: Quantity + Dish Name */}
+                                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                                            <span className="font-black text-slate-900 text-base sm:text-lg shrink-0">
+                                              {item.quantity}×
+                                            </span>
+                                            <span className="font-bold text-slate-900 text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug">
+                                              {item.name}
+                                            </span>
+                                          </div>
+
+                                          {/* Row 2: Variant Details - Bold */}
+                                          {item.variantName && (
+                                            <p className="text-xs sm:text-[13px] font-bold text-slate-700 leading-tight">
+                                              {item.variantName}
+                                            </p>
+                                          )}
+
+                                          {/* Row 3: Customer Note - Italic text in warm amber-brown with pin icon */}
+                                          {item.note && (
+                                            <p className="flex items-start gap-1 text-xs sm:text-[13px] italic font-normal text-[#9A3412] break-all [overflow-wrap:anywhere] leading-snug">
+                                              <span className="not-italic shrink-0 select-none text-[11px] mt-0.5">📌</span>
+                                              <span>{item.note}</span>
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        {/* Right Column: Actions - Bigger touch-friendly buttons (w-100-114px, h-54-58px) */}
+                                        <div className="flex-none shrink-0 flex items-center justify-end gap-1.5 self-center min-w-[145px] sm:min-w-[164px]">
+                                          {isPending && hasPermission('order.manage') && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
+                                              className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white font-black text-base sm:text-lg rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                              title="Tiếp nhận món này"
+                                            >
+                                              <span>Nhận</span>
+                                            </button>
+                                          )}
+
+                                          {isAccepted && hasPermission('order.serve') && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
+                                              className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] bg-[#059669] hover:bg-[#047857] active:bg-[#065F46] text-white font-black text-sm sm:text-base rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                              title="Đánh dấu đã phục vụ"
+                                            >
+                                              <span>Phục vụ</span>
+                                            </button>
+                                          )}
+
+                                          {isServed && (
+                                            <span className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] text-emerald-800 font-bold text-xs sm:text-sm flex items-center justify-center gap-1 bg-emerald-50/80 rounded-2xl border border-emerald-200/50 text-center px-1">
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                              <span>Đã phục vụ</span>
+                                            </span>
+                                          )}
+
+                                          {isCancelled && (
+                                            <span className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] text-rose-700 font-bold text-xs sm:text-sm flex items-center justify-center bg-rose-50/80 rounded-2xl border border-rose-200/50 text-center px-1">
+                                              Đã hủy
+                                            </span>
+                                          )}
+
+                                          {/* 3-dots Cancel Trigger */}
+                                          {(isPending || isAccepted) && hasPermission('order.cancel') && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setCancelModalItem({
+                                                  id: item.orderItemId,
+                                                  name: item.name,
+                                                  quantity: item.quantity,
+                                                  tableNumber: table.table_number
+                                                });
+                                                setCancelQty(item.quantity);
+                                                setCancelReason('Hết nguyên liệu');
+                                                setMarkItemOutOfStock(true);
+                                              }}
+                                              className="flex-none w-[36px] sm:w-[40px] h-[52px] sm:h-[56px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition flex items-center justify-center cursor-pointer"
+                                              title="Hủy món này"
+                                            >
+                                              <MoreVertical className="w-4 h-4" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
-                              )}
-
-                              {/* Row 3: Action Buttons (Spacious on mobile) */}
-                              <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100/80">
-                                {item.status === 'PENDING' && hasPermission('order.manage') && (
-                                  <button
-                                    onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs min-h-[40px] flex items-center justify-center gap-1"
-                                  >
-                                    <span>Nhận món</span>
-                                  </button>
-                                )}
-                                {item.status === 'ACCEPTED' && hasPermission('order.serve') && (
-                                  <button
-                                    onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs min-h-[40px] flex items-center justify-center gap-1"
-                                  >
-                                    <span>Đã phục vụ</span>
-                                  </button>
-                                )}
-                                {(item.status === 'PENDING' || item.status === 'ACCEPTED') && hasPermission('order.cancel') && (
-                                  <button
-                                    onClick={() => {
-                                      setCancelModalItem({
-                                        id: item.orderItemId,
-                                        name: item.name,
-                                        quantity: item.quantity,
-                                        tableNumber: table.table_number
-                                      });
-                                      setCancelQty(item.quantity);
-                                      setCancelReason('Hết nguyên liệu');
-                                      setMarkItemOutOfStock(true);
-                                    }}
-                                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition min-h-[40px] flex items-center gap-1 text-xs font-bold"
-                                    title="Hủy món vì hết nguyên liệu"
-                                  >
-                                    <Ban className="w-3.5 h-3.5" />
-                                    <span>Hủy món</span>
-                                  </button>
-                                )}
-                                {item.status === 'SERVED' && (
-                                  <span className="text-emerald-700 font-bold text-xs flex items-center gap-1 py-1">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                    <span>Hoàn tất</span>
-                                  </span>
-                                )}
                               </div>
-                            </div>
-                          </div>
-                        ))}
+                            );
+                          })}
+                        </div>
                       </div>
-
-                      {/* Footer Actions */}
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                        <span className="text-slate-400 flex items-center gap-1.5 flex-wrap">
-                          <span>{items.length} món • Lượt #{items[items.length - 1]?.orderNumber || 1}</span>
-                          {items[items.length - 1]?.createdAt && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                              <span>{new Date(items[items.length - 1].createdAt!).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
-                            </span>
-                          )}
-                        </span>
-                        <button
-                          onClick={() => setSelectedTable(table)}
-                          className="font-bold text-[var(--brand-accent-text)] hover:underline flex items-center gap-1 shrink-0"
-                        >
-                          <span>Xem hóa đơn & Chốt bill &rarr;</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
           </div>
         );
         })()}
@@ -1804,7 +1904,7 @@ export const StaffDashboard: React.FC = () => {
           <div className="space-y-4 max-w-2xl mx-auto animate-fade-in">
             {/* Header */}
             <div>
-              <h2 className="font-extrabold text-slate-900 text-lg">Cài đặt & Quản lý</h2>
+              <h2 className="font-extrabold text-slate-900 text-lg">Tác vụ & Quản lý</h2>
               <p className="text-xs text-slate-500">Trung tâm quản lý, báo cáo và thiết lập hệ thống quán</p>
             </div>
 
@@ -2095,7 +2195,7 @@ export const StaffDashboard: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại Cài đặt</span>
+              <span>Quay lại Tác vụ</span>
             </button>
             <StaffReports />
           </div>
@@ -2113,7 +2213,7 @@ export const StaffDashboard: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại Cài đặt</span>
+              <span>Quay lại Tác vụ</span>
             </button>
             <StaffScreenLoadBoundary screenName="quản lý thực đơn">
               <Suspense fallback={<div role="status" className="min-h-32 rounded-2xl bg-white p-6 text-center text-sm text-slate-500">Đang tải quản lý thực đơn…</div>}>
@@ -2135,7 +2235,7 @@ export const StaffDashboard: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 font-bold text-xs shadow-xs transition cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Quay lại Cài đặt</span>
+              <span>Quay lại Tác vụ</span>
             </button>
             <StaffScreenLoadBoundary screenName="thiết lập quán">
               <Suspense fallback={<div role="status" className="min-h-32 rounded-2xl bg-white p-6 text-center text-sm text-slate-500">Đang tải thiết lập quán…</div>}>
@@ -2157,7 +2257,7 @@ export const StaffDashboard: React.FC = () => {
             activeTab === 'tables' ? 'text-[var(--brand-accent-text)] bg-[var(--brand-accent-tint)] font-extrabold shadow-2xs' : 'text-slate-500 font-medium'
           }`}
         >
-          <LayoutGrid className="w-5 h-5" />
+          <TableRestaurantIcon className="w-5 h-5" />
           <span className="text-[10px] mt-1">Bàn</span>
           {pendingRequests.length > 0 && (
             <span className="absolute top-1.5 right-4 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[9px] font-black animate-pulse">
@@ -2200,7 +2300,7 @@ export const StaffDashboard: React.FC = () => {
           )}
         </button>
 
-        {/* 4. Cài đặt */}
+        {/* 4. Tác vụ */}
         <button
           type="button"
           onClick={() => setActiveTab('settings')}
@@ -2210,8 +2310,8 @@ export const StaffDashboard: React.FC = () => {
               : 'text-slate-500 font-medium'
           }`}
         >
-          <Settings className="w-5 h-5" />
-          <span className="text-[10px] mt-1">Cài đặt</span>
+          <LayoutGrid className="w-5 h-5" />
+          <span className="text-[10px] mt-1">Tác vụ</span>
         </button>
       </nav>
 
