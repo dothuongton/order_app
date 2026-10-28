@@ -42,14 +42,21 @@ export async function migrate() {
                 if (checkRes.rowCount === 0) {
                     console.log(`➡️ Running migration: ${file}`);
                     const migrationSql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
-                    await client.query('BEGIN');
-                    try {
+                    const isNoTransaction = migrationSql.includes('-- no-transaction');
+
+                    if (isNoTransaction) {
                         await client.query(migrationSql);
                         await client.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [file]);
-                        await client.query('COMMIT');
-                    } catch (mErr) {
-                        await client.query('ROLLBACK');
-                        throw mErr;
+                    } else {
+                        await client.query('BEGIN');
+                        try {
+                            await client.query(migrationSql);
+                            await client.query('INSERT INTO schema_migrations (filename) VALUES ($1)', [file]);
+                            await client.query('COMMIT');
+                        } catch (mErr) {
+                            await client.query('ROLLBACK');
+                            throw mErr;
+                        }
                     }
                 } else {
                     console.log(`⏩ Skipping already applied migration: ${file}`);

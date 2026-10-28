@@ -4,6 +4,7 @@ import { config } from '../config/index.js';
 import { query } from '../db/pool.js';
 import { hashToken } from '../utils/crypto.js';
 import { getOrSetDeviceCookie } from '../utils/device-cookie.js';
+import { getCachedStaffAuth, setCachedStaffAuth } from '../utils/auth-cache.js';
 
 export interface StaffUser {
     id: string;
@@ -73,31 +74,40 @@ export async function authenticateStaff(req: Request, res: Response, next: NextF
         const decoded = verifyStaffTokenSignature(token);
         const userId = decoded.userId;
         const tenantId = req.headers['x-tenant-id'] as string || decoded.tenantId;
+        const tokenHash = hashToken(token);
 
-        // Fetch token state, user and active membership for tenant together.
-        const resMem = await query(`
-            WITH token_state AS (
-                SELECT EXISTS (
-                    SELECT 1 FROM revoked_staff_tokens
-                    WHERE token_hash = $3 AND expires_at > NOW()
-                ) AS is_revoked
-            )
-            SELECT 
-                token_state.is_revoked,
-                u.id, u.email, u.full_name, u.is_platform_admin,
-                m.tenant_id, m.role, m.permissions, m.is_active,
-                t.name as tenant_name, t.slug as tenant_slug, t.status as tenant_status,
-                t.logo_url as tenant_logo_url, t.cover_url as tenant_cover_url,
-                t.description as tenant_description, t.phone as tenant_phone,
-                t.address as tenant_address, t.opening_hours as tenant_opening_hours,
-                t.active_theme_config as tenant_theme_config
-            FROM token_state
-            LEFT JOIN users u ON u.id = $1
-            LEFT JOIN memberships m ON m.user_id = u.id AND m.tenant_id = $2 AND m.is_active = true
-            LEFT JOIN tenants t ON t.id = m.tenant_id
-        `, [userId, tenantId, hashToken(token)]);
+        let row = getCachedStaffAuth(tokenHash, tenantId);
 
-        const row = resMem.rows[0];
+        if (!row) {
+            // Fetch token state, user and active membership for tenant together.
+            const resMem = await query(`
+                WITH token_state AS (
+                    SELECT EXISTS (
+                        SELECT 1 FROM revoked_staff_tokens
+                        WHERE token_hash = $3 AND expires_at > NOW()
+                    ) AS is_revoked
+                )
+                SELECT 
+                    token_state.is_revoked,
+                    u.id, u.email, u.full_name, u.is_platform_admin,
+                    m.tenant_id, m.role, m.permissions, m.is_active,
+                    t.name as tenant_name, t.slug as tenant_slug, t.status as tenant_status,
+                    t.logo_url as tenant_logo_url, t.cover_url as tenant_cover_url,
+                    t.description as tenant_description, t.phone as tenant_phone,
+                    t.address as tenant_address, t.opening_hours as tenant_opening_hours,
+                    t.active_theme_config as tenant_theme_config
+                FROM token_state
+                LEFT JOIN users u ON u.id = $1
+                LEFT JOIN memberships m ON m.user_id = u.id AND m.tenant_id = $2 AND m.is_active = true
+                LEFT JOIN tenants t ON t.id = m.tenant_id
+            `, [userId, tenantId, tokenHash]);
+
+            row = resMem.rows[0];
+            if (row && !row.is_revoked && row.id && row.tenant_id) {
+                setCachedStaffAuth(tokenHash, tenantId, row);
+            }
+        }
+
         if (row.is_revoked) {
             return res.status(401).json({
                 error: 'INVALID_TOKEN',

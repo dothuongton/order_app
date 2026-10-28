@@ -9,6 +9,7 @@ import { config } from '../../config/index.js';
 import { query, withTransaction } from '../../db/pool.js';
 import { validate } from '../../utils/validation.js';
 import { generatePublicQrId } from '../../utils/crypto.js';
+import { clearTenantMenuCatalogCache } from '../../utils/menu-cache.js';
 
 export const staffRouter = Router();
 staffRouter.param('id', (req, res, next, id) => {
@@ -18,6 +19,18 @@ staffRouter.param('id', (req, res, next, id) => {
 
 staffRouter.use(authenticateStaff);
 staffRouter.use(staffMutationLimiter);
+
+// Invalidate public menu catalog cache on menu mutations (Issue #142 / Datbantaicho)
+staffRouter.use('/menu', (req: Request, res: Response, next) => {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+        res.on('finish', () => {
+            if (res.statusCode >= 200 && res.statusCode < 300 && req.staff?.tenantId) {
+                clearTenantMenuCatalogCache(req.staff.tenantId);
+            }
+        });
+    }
+    next();
+});
 
 // Staff ordering uses authenticated identity; public guest claims are unchanged.
 staffRouter.post('/sessions/:id/orders', requirePermission('order.manage'), async (req: Request, res: Response) => {

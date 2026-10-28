@@ -6,6 +6,9 @@ import { app } from '../app.js';
 import { query } from '../db/pool.js';
 import { seed } from '../db/seed.js';
 import { StaffService } from '../modules/staff/staff.service.js';
+import { GuestService } from '../modules/guest/guest.service.js';
+import { getCachedTenantCatalog, clearTenantMenuCatalogCache } from '../utils/menu-cache.js';
+import { getCachedStaffAuth, setCachedStaffAuth, invalidateStaffAuth, setAuthCacheEnabledForTest } from '../utils/auth-cache.js';
 
 describe('Staff Performance, Asset Caching, and Snapshot Parallelism (Issue #142)', () => {
     let server: any;
@@ -73,6 +76,7 @@ describe('Staff Performance, Asset Caching, and Snapshot Parallelism (Issue #142
             expect(snapshot).toBeDefined();
             expect(snapshot.tables).toBeInstanceOf(Array);
             expect(snapshot.openRequests).toBeInstanceOf(Array);
+            expect(snapshot.pendingRequests).toBeInstanceOf(Array);
             expect(snapshot.tables.length).toBeGreaterThan(0);
 
             // Verify table properties
@@ -85,6 +89,42 @@ describe('Staff Performance, Asset Caching, and Snapshot Parallelism (Issue #142
             expect(firstTable.counts).toHaveProperty('pending');
             expect(firstTable.counts).toHaveProperty('accepted');
             expect(firstTable.counts).toHaveProperty('served');
+        });
+
+        it('caches tenant menu catalog in memory and invalidates on request', async () => {
+            clearTenantMenuCatalogCache(tenantId);
+            expect(getCachedTenantCatalog(tenantId)).toBeNull();
+
+            // First call loads and caches
+            const res1 = await GuestService.getPublicTableMenu('qr-phoco-a01');
+            expect(res1).not.toBeNull();
+            const cached = getCachedTenantCatalog(tenantId);
+            expect(cached).not.toBeNull();
+            expect(cached?.categories.length).toBeGreaterThan(0);
+
+            // Second call reuses cache
+            const res2 = await GuestService.getPublicTableMenu('qr-phoco-a01');
+            expect(res2?.categories).toEqual(cached?.categories);
+
+            // Invalidate clears cache
+            clearTenantMenuCatalogCache(tenantId);
+            expect(getCachedTenantCatalog(tenantId)).toBeNull();
+        });
+
+        it('caches staff auth row and purges on invalidation', () => {
+            setAuthCacheEnabledForTest(true);
+            try {
+                const tokenHash = 'test-token-hash-123';
+                const sampleRow = { id: 'u-1', tenant_id: tenantId, role: 'waiter' };
+
+                setCachedStaffAuth(tokenHash, tenantId, sampleRow, 5000);
+                expect(getCachedStaffAuth(tokenHash, tenantId)).toEqual(sampleRow);
+
+                invalidateStaffAuth(tokenHash);
+                expect(getCachedStaffAuth(tokenHash, tenantId)).toBeNull();
+            } finally {
+                setAuthCacheEnabledForTest(false);
+            }
         });
     });
 

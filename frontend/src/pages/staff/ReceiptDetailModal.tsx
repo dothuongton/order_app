@@ -278,6 +278,8 @@ export function generateReceiptHtml(options: GenerateReceiptHtmlOptions): string
 </html>`;
 }
 
+const receiptSummaryCache = new Map<string, BillSummary>();
+
 export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session, onClose }) => {
   const { currentTenant } = useAuth();
   const [billSummary, setBillSummary] = useState<BillSummary | null>(null);
@@ -289,16 +291,23 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({ session,
   useEffect(() => {
     if (!session?.session_id) return;
     let cancelled = false;
-    setBillSummary(null);
+    const cached = receiptSummaryCache.get(session.session_id);
+    if (cached) {
+      setBillSummary(cached);
+    } else {
+      setBillSummary(null);
+    }
+
     const fetchBill = async () => {
-      setIsLoading(true);
+      if (!cached) setIsLoading(true);
       setError(null);
       try {
         const data = await request<BillSummary>(`/staff/sessions/${session.session_id}/bill-summary`);
         if (cancelled) return;
         setBillSummary(data);
+        receiptSummaryCache.set(session.session_id, data);
       } catch (err: unknown) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Không thể tải chi tiết hóa đơn');
+        if (!cancelled && !cached) setError(err instanceof Error ? err.message : 'Không thể tải chi tiết hóa đơn');
       } finally {
         if (!cancelled) setIsLoading(false);
       }

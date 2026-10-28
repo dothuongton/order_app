@@ -6,6 +6,7 @@ import { broadcastToStaff, broadcastToSession, broadcastToTable } from '../../re
 import { PushService } from '../push/push.service.js';
 import { PricingService } from '../pricing/pricing.service.js';
 import { config } from '../../config/index.js';
+import { getCachedTenantCatalog, setCachedTenantCatalog } from '../../utils/menu-cache.js';
 
 import { z } from 'zod';
 import { validate, orderInputSchema } from '../../utils/validation.js';
@@ -265,157 +266,112 @@ export class GuestService {
             }
         }
 
-        // Fetch categories and items
-        const catRes = await query(`
-            SELECT id, name, sort_order
-            FROM menu_categories
-            WHERE tenant_id = $1 AND is_active = true
-            ORDER BY sort_order ASC, name ASC
-        `, [table.tenant_id]);
+        // Fetch categories, items, banners, promotions (cached per tenant for high concurrency)
+        let catalog = getCachedTenantCatalog(table.tenant_id);
+        if (!catalog) {
+            const catRes = await query(`
+                SELECT id, name, sort_order
+                FROM menu_categories
+                WHERE tenant_id = $1 AND is_active = true
+                ORDER BY sort_order ASC, name ASC
+            `, [table.tenant_id]);
 
-        const itemsRes = await query(`
-            SELECT
-                mi.id,
-                mi.category_id,
-                mi.name,
-                mi.description,
-                mi.price,
-                mi.image_url,
-                mi.is_available,
-                mi.sort_order,
-                COALESCE(
-                    (
-                        SELECT json_agg(
-                            json_build_object(
-                                'id', iog.id,
-                                'name', iog.name,
-                                'selection_mode', iog.selection_mode,
-                                'selectionMode', iog.selection_mode,
-                                'min_selections', iog.min_selections,
-                                'minSelections', iog.min_selections,
-                                'max_selections', iog.max_selections,
-                                'maxSelections', iog.max_selections,
-                                'pricing_mode', iog.pricing_mode,
-                                'pricingMode', iog.pricing_mode,
-                                'sort_order', iog.sort_order,
-                                'sortOrder', iog.sort_order,
-                                'options', COALESCE(
-                                    (
-                                        SELECT json_agg(
-                                            json_build_object(
-                                                'id', io.id,
-                                                'name', io.name,
-                                                'price_delta', io.price_delta,
-                                                'priceDelta', io.price_delta,
-                                                'is_default', io.is_default,
-                                                'isDefault', io.is_default,
-                                                'is_available', io.is_available,
-                                                'isAvailable', io.is_available,
-                                                'sort_order', io.sort_order,
-                                                'sortOrder', io.sort_order
-                                            ) ORDER BY io.sort_order ASC, io.price_delta ASC, io.name ASC
-                                        )
-                                        FROM item_options io
-                                        WHERE io.group_id = iog.id AND io.is_available = true
-                                    ),
-                                    '[]'::json
-                                )
-                            ) ORDER BY iog.sort_order ASC, iog.created_at ASC
-                        )
-                        FROM item_option_groups iog
-                        WHERE iog.menu_item_id = mi.id AND iog.tenant_id = $1 AND iog.is_active = true
-                    ),
-                    '[]'::json
-                ) as option_groups,
-                COALESCE(
-                    (
-                        SELECT json_agg(
-                            json_build_object(
-                                'id', miv.id,
-                                'group_name', COALESCE(miv.group_name, 'Biến thể'),
-                                'name', miv.name,
-                                'price_adjustment', miv.price_adjustment,
-                                'is_available', miv.is_available
-                            ) ORDER BY miv.group_name ASC, miv.price_adjustment ASC, miv.name ASC
-                        )
-                        FROM menu_item_variants miv
-                        WHERE miv.menu_item_id = mi.id AND miv.tenant_id = $1 AND miv.is_available = true
-                    ),
-                    '[]'::json
-                ) as variants
-            FROM menu_items mi
-            WHERE mi.tenant_id = $1
-            ORDER BY mi.is_available DESC, mi.sort_order ASC, mi.name ASC, mi.id ASC
-        `, [table.tenant_id]);
+            const itemsRes = await query(`
+                SELECT
+                    mi.id,
+                    mi.category_id,
+                    mi.name,
+                    mi.description,
+                    mi.price,
+                    mi.image_url,
+                    mi.is_available,
+                    mi.sort_order,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', iog.id,
+                                    'name', iog.name,
+                                    'selection_mode', iog.selection_mode,
+                                    'selectionMode', iog.selection_mode,
+                                    'min_selections', iog.min_selections,
+                                    'minSelections', iog.min_selections,
+                                    'max_selections', iog.max_selections,
+                                    'maxSelections', iog.max_selections,
+                                    'pricing_mode', iog.pricing_mode,
+                                    'pricingMode', iog.pricing_mode,
+                                    'sort_order', iog.sort_order,
+                                    'sortOrder', iog.sort_order,
+                                    'options', COALESCE(
+                                        (
+                                            SELECT json_agg(
+                                                json_build_object(
+                                                    'id', io.id,
+                                                    'name', io.name,
+                                                    'price_delta', io.price_delta,
+                                                    'priceDelta', io.price_delta,
+                                                    'is_default', io.is_default,
+                                                    'isDefault', io.is_default,
+                                                    'is_available', io.is_available,
+                                                    'isAvailable', io.is_available,
+                                                    'sort_order', io.sort_order,
+                                                    'sortOrder', io.sort_order
+                                                ) ORDER BY io.sort_order ASC, io.price_delta ASC, io.name ASC
+                                            )
+                                            FROM item_options io
+                                            WHERE io.group_id = iog.id AND io.is_available = true
+                                        ),
+                                        '[]'::json
+                                    )
+                                ) ORDER BY iog.sort_order ASC, iog.created_at ASC
+                            )
+                            FROM item_option_groups iog
+                            WHERE iog.menu_item_id = mi.id AND iog.tenant_id = $1 AND iog.is_active = true
+                        ),
+                        '[]'::json
+                    ) as option_groups,
+                    COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', miv.id,
+                                    'group_name', COALESCE(miv.group_name, 'Biến thể'),
+                                    'name', miv.name,
+                                    'price_adjustment', miv.price_adjustment,
+                                    'is_available', miv.is_available
+                                ) ORDER BY miv.group_name ASC, miv.price_adjustment ASC, miv.name ASC
+                            )
+                            FROM menu_item_variants miv
+                            WHERE miv.menu_item_id = mi.id AND miv.tenant_id = $1 AND miv.is_available = true
+                        ),
+                        '[]'::json
+                    ) as variants
+                FROM menu_items mi
+                WHERE mi.tenant_id = $1
+                ORDER BY mi.is_available DESC, mi.sort_order ASC, mi.name ASC, mi.id ASC
+            `, [table.tenant_id]);
 
-        // Fetch active banners for this shop
-        const bannersRes = await query(`
-            SELECT id, title, description, image_url, cta_link, sort_order
-            FROM banners
-            WHERE tenant_id = $1 AND is_active = true
-              AND (start_time IS NULL OR start_time <= NOW()) AND (end_time IS NULL OR end_time >= NOW())
-            ORDER BY sort_order ASC, created_at DESC
-        `, [table.tenant_id]);
+            // Fetch active banners for this shop
+            const bannersRes = await query(`
+                SELECT id, title, description, image_url, cta_link, sort_order
+                FROM banners
+                WHERE tenant_id = $1 AND is_active = true
+                  AND (start_time IS NULL OR start_time <= NOW()) AND (end_time IS NULL OR end_time >= NOW())
+                ORDER BY sort_order ASC, created_at DESC
+            `, [table.tenant_id]);
 
-        // Fetch active promotions for this shop
-        const promosRes = await query(`
-            SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority
-            FROM promotions
-            WHERE tenant_id = $1 AND is_active = true
-              AND (start_time IS NULL OR NOW() >= start_time)
-              AND (end_time IS NULL OR NOW() <= end_time)
-              AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
-            ORDER BY priority DESC, created_at DESC
-        `, [table.tenant_id]);
+            // Fetch active promotions for this shop
+            const promosRes = await query(`
+                SELECT id, code, title, description, discount_type, discount_value, min_order_amount, max_discount_amount, priority
+                FROM promotions
+                WHERE tenant_id = $1 AND is_active = true
+                  AND (start_time IS NULL OR NOW() >= start_time)
+                  AND (end_time IS NULL OR NOW() <= end_time)
+                  AND (max_redemptions IS NULL OR current_redemptions < max_redemptions)
+                ORDER BY priority DESC, created_at DESC
+            `, [table.tenant_id]);
 
-        return {
-            tenant: {
-                id: table.tenant_id,
-                name: table.tenant_name,
-                slug: table.tenant_slug,
-                currency: table.currency,
-                status: table.tenant_status || 'active',
-                description: table.tenant_description,
-                logoUrl: table.tenant_logo_url,
-                coverUrl: table.tenant_cover_url,
-                phone: table.tenant_phone,
-                address: table.tenant_address,
-                openingHours: table.tenant_opening_hours,
-                activeTemplateId: table.active_template_id || 'classic',
-                activeThemeConfig: table.active_theme_config || {},
-                activePublishedVersion: table.active_published_version || 1
-            },
-            table: {
-                id: table.table_id,
-                tableNumber: table.table_number,
-                table_number: table.table_number,
-                readiness: table.readiness,
-                capacity: table.capacity,
-                isEnabled: table.is_enabled,
-                is_enabled: table.is_enabled,
-                orderingMode: config.orderingMode,
-                ordering_mode: config.orderingMode,
-                sessionStatus: activeSession ? activeSession.status : null,
-                session_status: activeSession ? activeSession.status : null,
-                tableStatus,
-                table_status: tableStatus,
-                deviceState,
-                device_state: deviceState,
-                canOrder,
-                can_order: canOrder,
-                canRequest,
-                can_request: canRequest,
-                request: requesterInfo,
-                claimedGuestName: (activeSession && activeSession.status === 'OPEN') ? (activeSession.requester_guest_name || null) : null,
-                claimed_guest_name: (activeSession && activeSession.status === 'OPEN') ? (activeSession.requester_guest_name || null) : null
-            },
-            session: (activeSession && (deviceState === 'CLAIMED' || config.orderingMode === 'multi_device')) ? {
-                id: activeSession.id,
-                status: activeSession.status,
-                openedAt: activeSession.opened_at
-            } : null,
-            categories: catRes.rows,
-            menuItems: itemsRes.rows.map(item => {
+            const mappedMenuItems = itemsRes.rows.map(item => {
                 const rawVariants = (item.variants || []).map((v: any) => ({
                     ...v,
                     group_name: v.group_name || 'Biến thể',
@@ -472,9 +428,9 @@ export class GuestService {
                     option_groups,
                     optionGroups: option_groups
                 };
-            }),
-            banners: bannersRes.rows,
-            promotions: promosRes.rows.map(p => ({
+            });
+
+            const mappedPromotions = promosRes.rows.map(p => ({
                 id: p.id,
                 code: p.code,
                 title: p.title,
@@ -488,7 +444,67 @@ export class GuestService {
                 maxDiscountAmount: p.max_discount_amount ? parseInt(p.max_discount_amount, 10) : undefined,
                 max_discount_amount: p.max_discount_amount ? parseInt(p.max_discount_amount, 10) : undefined,
                 priority: parseInt(p.priority || '0', 10)
-            }))
+            }));
+
+            catalog = {
+                categories: catRes.rows,
+                menuItems: mappedMenuItems,
+                banners: bannersRes.rows,
+                promotions: mappedPromotions
+            };
+            setCachedTenantCatalog(table.tenant_id, catalog);
+        }
+
+        return {
+            tenant: {
+                id: table.tenant_id,
+                name: table.tenant_name,
+                slug: table.tenant_slug,
+                currency: table.currency,
+                status: table.tenant_status || 'active',
+                description: table.tenant_description,
+                logoUrl: table.tenant_logo_url,
+                coverUrl: table.tenant_cover_url,
+                phone: table.tenant_phone,
+                address: table.tenant_address,
+                openingHours: table.tenant_opening_hours,
+                activeTemplateId: table.active_template_id || 'classic',
+                activeThemeConfig: table.active_theme_config || {},
+                activePublishedVersion: table.active_published_version || 1
+            },
+            table: {
+                id: table.table_id,
+                tableNumber: table.table_number,
+                table_number: table.table_number,
+                readiness: table.readiness,
+                capacity: table.capacity,
+                isEnabled: table.is_enabled,
+                is_enabled: table.is_enabled,
+                orderingMode: config.orderingMode,
+                ordering_mode: config.orderingMode,
+                sessionStatus: activeSession ? activeSession.status : null,
+                session_status: activeSession ? activeSession.status : null,
+                tableStatus,
+                table_status: tableStatus,
+                deviceState,
+                device_state: deviceState,
+                canOrder,
+                can_order: canOrder,
+                canRequest,
+                can_request: canRequest,
+                request: requesterInfo,
+                claimedGuestName: (activeSession && activeSession.status === 'OPEN') ? (activeSession.requester_guest_name || null) : null,
+                claimed_guest_name: (activeSession && activeSession.status === 'OPEN') ? (activeSession.requester_guest_name || null) : null
+            },
+            session: (activeSession && (deviceState === 'CLAIMED' || config.orderingMode === 'multi_device')) ? {
+                id: activeSession.id,
+                status: activeSession.status,
+                openedAt: activeSession.opened_at
+            } : null,
+            categories: catalog.categories,
+            menuItems: catalog.menuItems,
+            banners: catalog.banners,
+            promotions: catalog.promotions
         };
     }
 
@@ -1104,49 +1120,62 @@ export class GuestService {
 
             const createdItems = [];
 
-            // Insert order_items and initial order_item_parts
-            for (const item of pricing.items) {
-                const orderItemRes = await client.query(`
+            // Batch insert order_items and initial order_item_parts in 2 roundtrips instead of 2*N sequential queries
+            if (pricing.items.length > 0) {
+                const itemValues: any[] = [];
+                const itemPlaceholders = pricing.items.map((item, idx) => {
+                    const offset = idx * 11;
+                    itemValues.push(
+                        tenantId,
+                        order.id,
+                        item.menuItemId,
+                        item.name,
+                        item.variantName || null,
+                        item.basePrice,
+                        item.quantity,
+                        item.note || null,
+                        item.discountAmount,
+                        item.appliedPromotionId,
+                        item.finalPrice
+                    );
+                    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11})`;
+                });
+
+                const orderItemsRes = await client.query(`
                     INSERT INTO order_items (
                         tenant_id, order_id, menu_item_id,
                         snapshot_name, snapshot_variant_name, snapshot_price,
                         quantity, note, discount_amount, applied_promotion_id, final_price
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    VALUES ${itemPlaceholders.join(', ')}
                     RETURNING id, snapshot_name, snapshot_variant_name, snapshot_price, quantity, note, discount_amount, final_price
-                `, [
-                    tenantId,
-                    order.id,
-                    item.menuItemId,
-                    item.name,
-                    item.variantName || null,
-                    item.basePrice,
-                    item.quantity,
-                    item.note || null,
-                    item.discountAmount,
-                    item.appliedPromotionId,
-                    item.finalPrice
-                ]);
+                `, itemValues);
 
-                const orderItem = orderItemRes.rows[0];
+                const partValues: any[] = [];
+                const partPlaceholders = orderItemsRes.rows.map((row, idx) => {
+                    const offset = idx * 3;
+                    partValues.push(tenantId, row.id, row.quantity);
+                    return `($${offset + 1}, $${offset + 2}, 'PENDING', $${offset + 3})`;
+                });
 
-                // Create initial part: all quantity in PENDING status
                 await client.query(`
                     INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
-                    VALUES ($1, $2, 'PENDING', $3)
-                `, [tenantId, orderItem.id, orderItem.quantity]);
+                    VALUES ${partPlaceholders.join(', ')}
+                `, partValues);
 
-                createdItems.push({
-                    id: orderItem.id,
-                    name: orderItem.snapshot_name,
-                    variantName: orderItem.snapshot_variant_name || undefined,
-                    price: parseInt(orderItem.snapshot_price, 10),
-                    quantity: orderItem.quantity,
-                    discountAmount: parseInt(orderItem.discount_amount || '0', 10),
-                    finalPrice: parseInt(orderItem.final_price || '0', 10),
-                    status: 'PENDING',
-                    note: orderItem.note
-                });
+                for (const orderItem of orderItemsRes.rows) {
+                    createdItems.push({
+                        id: orderItem.id,
+                        name: orderItem.snapshot_name,
+                        variantName: orderItem.snapshot_variant_name || undefined,
+                        price: parseInt(orderItem.snapshot_price, 10),
+                        quantity: orderItem.quantity,
+                        discountAmount: parseInt(orderItem.discount_amount || '0', 10),
+                        finalPrice: parseInt(orderItem.final_price || '0', 10),
+                        status: 'PENDING',
+                        note: orderItem.note
+                    });
+                }
             }
 
             // Increment settlement_version to protect payment race conditions (AT13, AT14)

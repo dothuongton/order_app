@@ -391,6 +391,20 @@ export async function ensureSchemaOnBoot() {
                 -- Payment method column for manual settlements and bills
                 ALTER TABLE manual_settlement_confirmations ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) DEFAULT 'CASH';
                 ALTER TABLE bills ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) DEFAULT 'CASH';
+
+                -- 016 Performance Optimization Indexes
+                DROP INDEX IF EXISTS idx_guest_sessions_token;
+                DROP INDEX IF EXISTS idx_order_item_parts_status;
+                CREATE INDEX IF NOT EXISTS idx_table_sessions_open ON table_sessions (tenant_id) WHERE status = 'OPEN';
+                CREATE INDEX IF NOT EXISTS idx_promotion_redemptions_session ON promotion_redemptions (session_id);
+                CREATE INDEX IF NOT EXISTS idx_guest_sessions_session ON guest_sessions (session_id);
+                CREATE INDEX IF NOT EXISTS idx_order_items_menu_item ON order_items (menu_item_id);
+                CREATE INDEX IF NOT EXISTS idx_service_requests_table ON service_requests (table_id);
+                CREATE INDEX IF NOT EXISTS idx_order_item_events_item ON order_item_events (order_item_id);
+                CREATE INDEX IF NOT EXISTS idx_menu_item_variants_item ON menu_item_variants (menu_item_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_staff_order_source ON audit_logs (tenant_id, resource_id, created_at, id) WHERE action='STAFF_CREATE_ORDER' AND resource_type='order';
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_created ON audit_logs (tenant_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_orders_tenant_created ON orders (tenant_id, created_at DESC);
             END $$;
         `);
 

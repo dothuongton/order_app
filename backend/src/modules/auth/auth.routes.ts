@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import { query } from '../../db/pool.js';
 import { config } from '../../config/index.js';
 import { authenticateStaff } from '../../middleware/auth.js';
+import { invalidateStaffAuth } from '../../utils/auth-cache.js';
 
 export const authRouter = Router();
 
@@ -156,6 +157,7 @@ authRouter.patch('/profile', authenticateStaff, async (req: Request, res: Respon
         }
 
         const updated = result.rows[0];
+        invalidateStaffAuth();
         return res.json({
             success: true,
             user: {
@@ -201,6 +203,7 @@ authRouter.patch('/change-password', authenticateStaff, async (req: Request, res
 
         const newHash = await bcrypt.hash(newPassword, 10);
         await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [newHash, userId]);
+        invalidateStaffAuth();
 
         return res.json({ success: true, message: 'Đổi mật khẩu thành công' });
     } catch (err: any) {

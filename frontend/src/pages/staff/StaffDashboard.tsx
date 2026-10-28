@@ -244,9 +244,16 @@ export const StaffDashboard: React.FC = () => {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const data = await request<{ tables: StaffTable[]; openRequests: ServiceRequest[] }>('/staff/dashboard/snapshot');
+      const data = await request<{
+        tables: StaffTable[];
+        openRequests: ServiceRequest[];
+        pendingRequests?: PendingTableRequest[];
+      }>('/staff/dashboard/snapshot');
       setTables(data.tables || []);
       setOpenRequests(data.openRequests || []);
+      if (data.pendingRequests) {
+        setPendingRequests(data.pendingRequests);
+      }
     } catch (err) {
       console.error('Failed to fetch dashboard', err);
     }
@@ -294,8 +301,7 @@ export const StaffDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchDashboard();
-    fetchPendingRequests();
-  }, [fetchDashboard, fetchPendingRequests]);
+  }, [fetchDashboard]);
 
   const handleApproveRequest = async (tableId: string) => {
     try {
@@ -322,7 +328,6 @@ export const StaffDashboard: React.FC = () => {
     const handleWakeup = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         fetchDashboard();
-        fetchPendingRequests();
       }
     };
 
@@ -333,7 +338,7 @@ export const StaffDashboard: React.FC = () => {
       document.removeEventListener('visibilitychange', handleWakeup);
       window.removeEventListener('focus', handleWakeup);
     };
-  }, [fetchDashboard, fetchPendingRequests]);
+  }, [fetchDashboard]);
 
   // Keep screen awake while on staff dashboard
   useEffect(() => {
@@ -418,14 +423,13 @@ export const StaffDashboard: React.FC = () => {
     socket.on('table_session:opened', handleUpdate);
     socket.on('table_session:rejected', handleUpdate);
 
-    // Backup polling (20s) as safety net; pauses when tab is hidden to save DB load for 100+ stores
+    // Backup polling (30s) as safety net; pauses when tab is hidden to save DB load for 100+ stores
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         return;
       }
       fetchDashboard();
-      fetchPendingRequests();
-    }, 20000);
+    }, 30000);
 
     return () => {
       socket.emit('leave_staff_room');
@@ -441,7 +445,7 @@ export const StaffDashboard: React.FC = () => {
       socket.off('table_session:rejected', handleUpdate);
       clearInterval(interval);
     };
-  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard, fetchPendingRequests, scheduleDashboardRefresh]);
+  }, [socket, currentTenant?.id, playOrderSound, playAlertSound, showToast, fetchDashboard, scheduleDashboardRefresh]);
 
   // Permission safeguard: automatically switch to tables tab if current tab is locked for current role
   useEffect(() => {

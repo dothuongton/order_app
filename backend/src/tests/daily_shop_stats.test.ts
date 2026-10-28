@@ -3,6 +3,7 @@ import { createServer, Server } from 'http';
 import { app } from '../app.js';
 import { query } from '../db/pool.js';
 import { ReportingService } from '../modules/reports/reporting.service.js';
+import { StaffService } from '../modules/staff/staff.service.js';
 
 describe('Daily Shop Stats Read Model (Issue #45)', () => {
     let server: Server;
@@ -124,5 +125,69 @@ describe('Daily Shop Stats Read Model (Issue #45)', () => {
         const fakeTenantId = '22222222-2222-2222-2222-222222222222';
         const stats = await ReportingService.getDailyShopStats(fakeTenantId);
         expect(stats.length).toBe(0);
+    });
+
+    it('6. auto-updates daily_shop_stats upon confirmPaymentAndCloseSession (PERF-01)', async () => {
+        const tableRes = await query(`SELECT id FROM tables WHERE tenant_id = $1 LIMIT 1`, [seedTenantId]);
+        const seedTableId = tableRes.rows[0].id;
+
+        // Open a session
+        const openRes = await fetch(`${baseUrl}/api/v1/staff/tables/${seedTableId}/open`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${managerToken}` }
+        });
+        expect(openRes.status).toBe(201);
+        const { sessionId } = await openRes.json() as any;
+
+        // Place an order
+        const itemRes = await query(`SELECT id, name, price FROM menu_items WHERE tenant_id = $1 LIMIT 1`, [seedTenantId]);
+        const item = itemRes.rows[0];
+
+        const orderRes = await query(`
+            INSERT INTO orders (tenant_id, session_id, order_number, source, idempotency_key)
+            VALUES ($1, $2, 1, 'STAFF_POS', $3)
+            RETURNING id
+        `, [seedTenantId, sessionId, `perf-01-order-${Date.now()}`]);
+        const orderId = orderRes.rows[0].id;
+
+        const orderItemRes = await query(`
+            INSERT INTO order_items (tenant_id, order_id, menu_item_id, snapshot_name, snapshot_price, quantity)
+            VALUES ($1, $2, $3, $4, $5, 1)
+            RETURNING id
+        `, [seedTenantId, orderId, item.id, item.name, item.price]);
+        const orderItemId = orderItemRes.rows[0].id;
+
+        await query(`
+            INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
+            VALUES ($1, $2, 'SERVED', 1)
+        `, [seedTenantId, orderItemId]);
+
+        // Settle session
+        const managerUserRes = await query(`SELECT id FROM users WHERE email = 'admin@phoco.vn' LIMIT 1`);
+        const managerId = managerUserRes.rows[0].id;
+
+        try {
+            await StaffService.confirmPaymentAndCloseSession(
+                seedTenantId,
+                sessionId,
+                1,
+                managerId,
+                'PERF-01 auto update test'
+            );
+        } catch (err) {
+            console.error('CONFIRM ERROR IN TEST 6:', err);
+        }
+
+        // Verify daily_shop_stats contains record for today
+        const todayDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+        const statsRes = await fetch(`${baseUrl}/api/v1/staff/reports/daily-stats?from=${todayDate}&to=${todayDate}`, {
+            headers: { 'Authorization': `Bearer ${managerToken}` }
+        });
+        const statsData = await statsRes.json() as any;
+        expect(statsRes.status).toBe(200);
+        expect(statsData.stats.length).toBe(1);
+        expect(statsData.stats[0].statDate).toBe(todayDate);
+        expect(statsData.stats[0].confirmedSessionsCount).toBeGreaterThanOrEqual(1);
+        expect(Number(statsData.stats[0].netAmount)).toBeGreaterThanOrEqual(Number(item.price));
     });
 });
