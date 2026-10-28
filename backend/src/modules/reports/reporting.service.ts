@@ -19,6 +19,13 @@ export class ReportingService {
      * Uses Asia/Ho_Chi_Minh (UTC+7) timezone to align business days consistently.
      */
     static async computeDailyShopStats(tenantId: string, statDate: string): Promise<DailyShopStat> {
+        // Sargable timestamp boundaries according to Asia/Ho_Chi_Minh (UTC+7)
+        const startOfDay = `${statDate}T00:00:00+07:00`;
+        const [year, month, day] = statDate.split('-').map(Number);
+        const nextDay = new Date(Date.UTC(year, month - 1, day + 1));
+        const nextDateStr = nextDay.toISOString().slice(0, 10);
+        const endOfDay = `${nextDateStr}T00:00:00+07:00`;
+
         const aggSql = `
             WITH settled_sessions AS (
                 SELECT 
@@ -34,7 +41,8 @@ export class ReportingService {
                 LEFT JOIN manual_settlement_confirmations msc ON msc.session_id = ts.id
                 WHERE ts.tenant_id = $1
                   AND (b.status = 'CONFIRMED' OR msc.id IS NOT NULL OR ts.close_reason = 'CONFIRMED_SETTLED')
-                  AND (COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = $2::date
+                  AND COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) >= $2::timestamptz
+                  AND COALESCE(msc.confirmed_at, ts.closed_at, ts.updated_at) < $3::timestamptz
                   AND COALESCE(msc.amount, b.total_amount, 0) > 0
             ),
             served_items AS (
@@ -52,7 +60,7 @@ export class ReportingService {
             FROM settled_sessions ss
         `;
 
-        const aggRes = await query(aggSql, [tenantId, statDate]);
+        const aggRes = await query(aggSql, [tenantId, startOfDay, endOfDay]);
         const agg = aggRes.rows[0] || {
             confirmed_sessions_count: 0,
             gross_amount: 0,

@@ -1,6 +1,6 @@
 import { OrderSourceBadge, InvoiceSourceSummary } from '../../components/OrderSourceBadge.js';
 import React, { useState, useEffect, useRef } from 'react';
-import { StaffTable, BillSummary } from '../../types/index.js';
+import { StaffTable, BillSummary, BillRound } from '../../types/index.js';
 import { request } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
@@ -19,6 +19,86 @@ export function formatPaymentMethodLabel(method?: string | null): string {
   if (method === 'TRANSFER') return 'Chuyển khoản';
   if (method === 'OTHER') return 'Khác';
   return 'Tiền mặt';
+}
+
+// In-memory SWR cache for instant modal opening without network delay
+const sessionBillCache = new Map<string, BillSummary>();
+
+function buildOptimisticBillSummary(table: StaffTable): BillSummary | null {
+  if (!table.active_session_id) return null;
+  const items = table.activeItems || [];
+  if (items.length === 0) return null;
+
+  const roundsMap = new Map<number, BillRound>();
+  let servedTotal = 0;
+  let pendingTotal = 0;
+  let rawBillTotal = 0;
+  let unresolvedCount = 0;
+
+  for (const item of items) {
+    const roundNum = item.orderNumber || 1;
+    if (!roundsMap.has(roundNum)) {
+      roundsMap.set(roundNum, {
+        orderNumber: roundNum,
+        source: item.source || null,
+        orderedByName: item.orderedByName || null,
+        createdAt: item.createdAt,
+        rawSubtotal: 0,
+        discountTotal: 0,
+        acceptedOrServedSubtotal: 0,
+        pendingSubtotal: 0,
+        appliedPromotion: null,
+        items: []
+      });
+    }
+    const round = roundsMap.get(roundNum)!;
+    const qty = item.quantity || 1;
+    const price = Number(item.price) || 0;
+    const subtotal = item.status === 'CANCELLED' ? 0 : price * qty;
+    rawBillTotal += subtotal;
+
+    if (item.status === 'SERVED') {
+      servedTotal += subtotal;
+      round.acceptedOrServedSubtotal = (round.acceptedOrServedSubtotal || 0) + subtotal;
+    } else if (item.status === 'ACCEPTED') {
+      unresolvedCount += qty;
+      round.acceptedOrServedSubtotal = (round.acceptedOrServedSubtotal || 0) + subtotal;
+    } else if (item.status === 'PENDING') {
+      pendingTotal += subtotal;
+      unresolvedCount += qty;
+      round.pendingSubtotal = (round.pendingSubtotal || 0) + subtotal;
+    }
+
+    round.items.push({
+      itemId: item.orderItemId,
+      name: item.name,
+      variantName: item.variantName,
+      price,
+      quantity: qty,
+      rawPrice: price * qty,
+      discountAmount: 0,
+      note: item.note,
+      status: item.status,
+      cancelReason: item.cancelReason,
+      subtotal,
+      createdAt: item.createdAt
+    });
+  }
+
+  const rounds = Array.from(roundsMap.values()).sort((a, b) => a.orderNumber - b.orderNumber);
+  return {
+    sessionId: table.active_session_id,
+    sessionStatus: 'OPEN',
+    settlementVersion: table.settlement_version || 1,
+    rawBillTotal,
+    totalDiscount: 0,
+    validBillTotal: servedTotal,
+    servedTotal,
+    pendingTotal,
+    unresolvedCount,
+    rounds,
+    canConfirmPayment: unresolvedCount === 0 && servedTotal > 0
+  };
 }
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
@@ -86,6 +166,18 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
     setActionSuccess(null);
 
     if (currentSessionId) {
+      // 1. Instant display from memory cache or optimistic items (Zero-Wait UI)
+      const cached = sessionBillCache.get(currentSessionId);
+      if (cached) {
+        setBillSummary(cached);
+      } else if (table) {
+        const optimistic = buildOptimisticBillSummary(table);
+        if (optimistic) setBillSummary(optimistic);
+        else setBillSummary(null);
+      } else {
+        setBillSummary(null);
+      }
+      // 2. Background revalidation
       loadSessionData(currentSessionId);
     } else {
       setBillSummary(null);
@@ -102,6 +194,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       const summary = await request<BillSummary>(`/staff/sessions/${sessionId}/bill-summary`);
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setBillSummary(summary);
+      sessionBillCache.set(sessionId, summary);
     } catch (err: any) {
       if (modalScopeRef.current !== capturedScope || currentSessionRef.current !== sessionId) return;
       setActionError(err.message || 'Lỗi tải dữ liệu phiên');
@@ -271,6 +364,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       }
 
       setShowConfirmSettlement(false);
+      sessionBillCache.delete(targetSessionId);
       onRefresh();
       onClose();
     } catch (err: any) {
@@ -319,6 +413,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
       }
 
       setShowReleaseModal(false);
+      sessionBillCache.delete(targetSessionId);
       onRefresh();
       onClose();
     } catch (err: any) {

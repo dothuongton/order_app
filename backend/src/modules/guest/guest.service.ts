@@ -1104,49 +1104,62 @@ export class GuestService {
 
             const createdItems = [];
 
-            // Insert order_items and initial order_item_parts
-            for (const item of pricing.items) {
-                const orderItemRes = await client.query(`
+            // Batch insert order_items and initial order_item_parts in 2 roundtrips instead of 2*N sequential queries
+            if (pricing.items.length > 0) {
+                const itemValues: any[] = [];
+                const itemPlaceholders = pricing.items.map((item, idx) => {
+                    const offset = idx * 11;
+                    itemValues.push(
+                        tenantId,
+                        order.id,
+                        item.menuItemId,
+                        item.name,
+                        item.variantName || null,
+                        item.basePrice,
+                        item.quantity,
+                        item.note || null,
+                        item.discountAmount,
+                        item.appliedPromotionId,
+                        item.finalPrice
+                    );
+                    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11})`;
+                });
+
+                const orderItemsRes = await client.query(`
                     INSERT INTO order_items (
                         tenant_id, order_id, menu_item_id,
                         snapshot_name, snapshot_variant_name, snapshot_price,
                         quantity, note, discount_amount, applied_promotion_id, final_price
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    VALUES ${itemPlaceholders.join(', ')}
                     RETURNING id, snapshot_name, snapshot_variant_name, snapshot_price, quantity, note, discount_amount, final_price
-                `, [
-                    tenantId,
-                    order.id,
-                    item.menuItemId,
-                    item.name,
-                    item.variantName || null,
-                    item.basePrice,
-                    item.quantity,
-                    item.note || null,
-                    item.discountAmount,
-                    item.appliedPromotionId,
-                    item.finalPrice
-                ]);
+                `, itemValues);
 
-                const orderItem = orderItemRes.rows[0];
+                const partValues: any[] = [];
+                const partPlaceholders = orderItemsRes.rows.map((row, idx) => {
+                    const offset = idx * 3;
+                    partValues.push(tenantId, row.id, row.quantity);
+                    return `($${offset + 1}, $${offset + 2}, 'PENDING', $${offset + 3})`;
+                });
 
-                // Create initial part: all quantity in PENDING status
                 await client.query(`
                     INSERT INTO order_item_parts (tenant_id, order_item_id, status, quantity)
-                    VALUES ($1, $2, 'PENDING', $3)
-                `, [tenantId, orderItem.id, orderItem.quantity]);
+                    VALUES ${partPlaceholders.join(', ')}
+                `, partValues);
 
-                createdItems.push({
-                    id: orderItem.id,
-                    name: orderItem.snapshot_name,
-                    variantName: orderItem.snapshot_variant_name || undefined,
-                    price: parseInt(orderItem.snapshot_price, 10),
-                    quantity: orderItem.quantity,
-                    discountAmount: parseInt(orderItem.discount_amount || '0', 10),
-                    finalPrice: parseInt(orderItem.final_price || '0', 10),
-                    status: 'PENDING',
-                    note: orderItem.note
-                });
+                for (const orderItem of orderItemsRes.rows) {
+                    createdItems.push({
+                        id: orderItem.id,
+                        name: orderItem.snapshot_name,
+                        variantName: orderItem.snapshot_variant_name || undefined,
+                        price: parseInt(orderItem.snapshot_price, 10),
+                        quantity: orderItem.quantity,
+                        discountAmount: parseInt(orderItem.discount_amount || '0', 10),
+                        finalPrice: parseInt(orderItem.final_price || '0', 10),
+                        status: 'PENDING',
+                        note: orderItem.note
+                    });
+                }
             }
 
             // Increment settlement_version to protect payment race conditions (AT13, AT14)

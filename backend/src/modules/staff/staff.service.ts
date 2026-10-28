@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { validate, requestedQuantity } from '../../utils/validation.js';
 import { partAmount } from '../../utils/billing.js';
 import { PricingService } from '../pricing/pricing.service.js';
+import { ReportingService } from '../reports/reporting.service.js';
 import { PoolClient } from 'pg';
 
 async function lockOpenSession(client: PoolClient, tenantId: string, sessionId: string) {
@@ -1018,7 +1019,7 @@ export class StaffService {
         paymentMethod?: string
     ) {
         const validPaymentMethod = paymentMethod === 'TRANSFER' || paymentMethod === 'OTHER' ? paymentMethod : 'CASH';
-        return await withTransaction(async (client) => {
+        const result = await withTransaction(async (client) => {
             // 1. Lock Session row
             const sessionRes = await client.query(`
                 SELECT ts.id, ts.tenant_id, ts.table_id, ts.status, ts.settlement_version, t.table_number
@@ -1310,6 +1311,14 @@ export class StaffService {
                 message: `Đã xác nhận thanh toán ${finalAmount.toLocaleString('vi-VN')}đ và kết thúc phiên bàn ${session.table_number}`
             };
         });
+
+        // PERF-01: Auto-refresh daily reporting read model after transaction successfully commits
+        const statDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+        await ReportingService.computeDailyShopStats(tenantId, statDate).catch(err => {
+            console.error('Failed to compute daily shop stats on settlement:', err);
+        });
+
+        return result;
     }
 
     // 7. Close Session Without Charge (F12)
