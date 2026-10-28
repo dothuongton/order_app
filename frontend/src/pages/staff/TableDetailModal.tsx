@@ -8,6 +8,14 @@ import {
   Receipt, Clock, RefreshCw, MessageSquare, XCircle, UtensilsCrossed, Plus, Store,
   Edit3, Trash2, CheckCircle2, Banknote, QrCode
 } from 'lucide-react';
+import {
+  sessionBillCache,
+  buildOptimisticBillSummary,
+  setCachedBillSummary,
+  invalidateSessionBill
+} from '../../utils/staff-bill-cache.js';
+import { CancelItemModal, CancelModalTarget } from '../../components/staff/CancelItemModal.js';
+import { StaffOrderItemRow } from '../../components/staff/StaffOrderItemRow.js';
 
 interface TableDetailModalProps {
   table: StaffTable | null;
@@ -19,86 +27,6 @@ export function formatPaymentMethodLabel(method?: string | null): string {
   if (method === 'TRANSFER') return 'Chuyển khoản';
   if (method === 'OTHER') return 'Khác';
   return 'Tiền mặt';
-}
-
-// In-memory SWR cache for instant modal opening without network delay
-const sessionBillCache = new Map<string, BillSummary>();
-
-function buildOptimisticBillSummary(table: StaffTable): BillSummary | null {
-  if (!table.active_session_id) return null;
-  const items = table.activeItems || [];
-  if (items.length === 0) return null;
-
-  const roundsMap = new Map<number, BillRound>();
-  let servedTotal = 0;
-  let pendingTotal = 0;
-  let rawBillTotal = 0;
-  let unresolvedCount = 0;
-
-  for (const item of items) {
-    const roundNum = item.orderNumber || 1;
-    if (!roundsMap.has(roundNum)) {
-      roundsMap.set(roundNum, {
-        orderNumber: roundNum,
-        source: item.source || null,
-        orderedByName: item.orderedByName || null,
-        createdAt: item.createdAt,
-        rawSubtotal: 0,
-        discountTotal: 0,
-        acceptedOrServedSubtotal: 0,
-        pendingSubtotal: 0,
-        appliedPromotion: null,
-        items: []
-      });
-    }
-    const round = roundsMap.get(roundNum)!;
-    const qty = item.quantity || 1;
-    const price = Number(item.price) || 0;
-    const subtotal = item.status === 'CANCELLED' ? 0 : price * qty;
-    rawBillTotal += subtotal;
-
-    if (item.status === 'SERVED') {
-      servedTotal += subtotal;
-      round.acceptedOrServedSubtotal = (round.acceptedOrServedSubtotal || 0) + subtotal;
-    } else if (item.status === 'ACCEPTED') {
-      unresolvedCount += qty;
-      round.acceptedOrServedSubtotal = (round.acceptedOrServedSubtotal || 0) + subtotal;
-    } else if (item.status === 'PENDING') {
-      pendingTotal += subtotal;
-      unresolvedCount += qty;
-      round.pendingSubtotal = (round.pendingSubtotal || 0) + subtotal;
-    }
-
-    round.items.push({
-      itemId: item.orderItemId,
-      name: item.name,
-      variantName: item.variantName,
-      price,
-      quantity: qty,
-      rawPrice: price * qty,
-      discountAmount: 0,
-      note: item.note,
-      status: item.status,
-      cancelReason: item.cancelReason,
-      subtotal,
-      createdAt: item.createdAt
-    });
-  }
-
-  const rounds = Array.from(roundsMap.values()).sort((a, b) => a.orderNumber - b.orderNumber);
-  return {
-    sessionId: table.active_session_id,
-    sessionStatus: 'OPEN',
-    settlementVersion: table.settlement_version || 1,
-    rawBillTotal,
-    totalDiscount: 0,
-    validBillTotal: servedTotal,
-    servedTotal,
-    pendingTotal,
-    unresolvedCount,
-    rounds,
-    canConfirmPayment: unresolvedCount === 0 && servedTotal > 0
-  };
 }
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClose, onRefresh }) => {
@@ -126,10 +54,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
   }, [table]);
 
   // Cancellation modal state
-  const [cancelModalItem, setCancelModalItem] = useState<any | null>(null);
-  const [cancelQty, setCancelQty] = useState<number>(1);
-  const [cancelReason, setCancelReason] = useState<string>('Hết nguyên liệu');
-  const [markItemOutOfStock, setMarkItemOutOfStock] = useState<boolean>(false);
+  const [cancelModalTarget, setCancelModalTarget] = useState<CancelModalTarget | null>(null);
 
   // Confirm settlement modal state
   const [showConfirmSettlement, setShowConfirmSettlement] = useState(false);
@@ -219,88 +144,251 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
   if (!table) return null;
 
-  // Handlers
+  // Handlers with Optimistic UI Update (0ms)
   const handleAcceptItem = async (orderItemId: string, quantity?: number) => {
+    if (!billSummary) return;
+    const prevSummary = billSummary;
+
+    // Optimistic local state update
+    const updatedRounds = billSummary.rounds.map(round => ({
+      ...round,
+      items: round.items.map(item =>
+        item.itemId === orderItemId ? { ...item, status: 'ACCEPTED' } : item
+      )
+    }));
+    const newSummary: BillSummary = {
+      ...billSummary,
+      rounds: updatedRounds
+    };
+    setBillSummary(newSummary);
+    if (table?.active_session_id) setCachedBillSummary(table.active_session_id, newSummary);
+    onRefresh();
+
     try {
       await request(`/staff/order-items/${orderItemId}/accept`, {
         method: 'POST',
         body: JSON.stringify({ quantity })
       });
       setActionSuccess('Đã tiếp nhận món');
-      onRefresh();
-      await loadSessionData();
     } catch (err: any) {
+      setBillSummary(prevSummary);
+      if (table?.active_session_id) setCachedBillSummary(table.active_session_id, prevSummary);
       setActionError(err.message || 'Lỗi tiếp nhận món');
     }
   };
 
   const handleAcceptAll = async () => {
-    if (!table.active_session_id) return;
+    if (!table.active_session_id || !billSummary) return;
+    const prevSummary = billSummary;
+
+    // Optimistic update
+    const updatedRounds = billSummary.rounds.map(round => ({
+      ...round,
+      items: round.items.map(item =>
+        item.status === 'PENDING' ? { ...item, status: 'ACCEPTED' } : item
+      )
+    }));
+    const newSummary: BillSummary = {
+      ...billSummary,
+      rounds: updatedRounds
+    };
+    setBillSummary(newSummary);
+    if (table.active_session_id) setCachedBillSummary(table.active_session_id, newSummary);
+    onRefresh();
+
     try {
       await request(`/staff/sessions/${table.active_session_id}/accept-all`, { method: 'POST' });
       setActionSuccess('Đã tiếp nhận toàn bộ món chờ');
-      onRefresh();
-      await loadSessionData();
     } catch (err: any) {
+      setBillSummary(prevSummary);
+      if (table.active_session_id) setCachedBillSummary(table.active_session_id, prevSummary);
       setActionError(err.message || 'Lỗi tiếp nhận toàn bộ');
     }
   };
 
   const handleServeItem = async (orderItemId: string, quantity?: number) => {
+    if (!billSummary) return;
+    const prevSummary = billSummary;
+    const qty = quantity || 1;
+
+    let addedServedSubtotal = 0;
+    const updatedRounds = billSummary.rounds.map(round => ({
+      ...round,
+      items: round.items.map(item => {
+        if (item.itemId === orderItemId) {
+          addedServedSubtotal = item.subtotal;
+          return { ...item, status: 'SERVED' };
+        }
+        return item;
+      })
+    }));
+
+    const newServedTotal = billSummary.servedTotal + addedServedSubtotal;
+    const newUnresolvedCount = Math.max(0, billSummary.unresolvedCount - qty);
+    const newSummary: BillSummary = {
+      ...billSummary,
+      servedTotal: newServedTotal,
+      validBillTotal: newServedTotal,
+      unresolvedCount: newUnresolvedCount,
+      canConfirmPayment: newUnresolvedCount === 0 && newServedTotal > 0,
+      rounds: updatedRounds
+    };
+    setBillSummary(newSummary);
+    if (table?.active_session_id) setCachedBillSummary(table.active_session_id, newSummary);
+    onRefresh();
+
     try {
       await request(`/staff/order-items/${orderItemId}/serve`, {
         method: 'POST',
         body: JSON.stringify({ quantity })
       });
       setActionSuccess('Đã đánh dấu phục vụ');
-      onRefresh();
-      await loadSessionData();
     } catch (err: any) {
+      setBillSummary(prevSummary);
+      if (table?.active_session_id) setCachedBillSummary(table.active_session_id, prevSummary);
       setActionError(err.message || 'Lỗi phục vụ món');
     }
   };
 
   const handleServeAll = async () => {
-    if (!table.active_session_id) return;
+    if (!table.active_session_id || !billSummary) return;
+    const prevSummary = billSummary;
+
+    let totalSubtotal = 0;
+    const updatedRounds = billSummary.rounds.map(round => ({
+      ...round,
+      items: round.items.map(item => {
+        if (item.status === 'ACCEPTED' || item.status === 'PENDING') {
+          totalSubtotal += item.subtotal;
+          return { ...item, status: 'SERVED' };
+        }
+        return item;
+      })
+    }));
+
+    const newServedTotal = billSummary.servedTotal + totalSubtotal;
+    const newSummary: BillSummary = {
+      ...billSummary,
+      servedTotal: newServedTotal,
+      validBillTotal: newServedTotal,
+      unresolvedCount: 0,
+      canConfirmPayment: newServedTotal > 0,
+      rounds: updatedRounds
+    };
+    setBillSummary(newSummary);
+    if (table.active_session_id) setCachedBillSummary(table.active_session_id, newSummary);
+    onRefresh();
+
     try {
       await request(`/staff/sessions/${table.active_session_id}/serve-all`, { method: 'POST' });
       setActionSuccess('Đã đánh dấu phục vụ toàn bộ món');
-      onRefresh();
-      await loadSessionData();
     } catch (err: any) {
+      setBillSummary(prevSummary);
+      if (table.active_session_id) setCachedBillSummary(table.active_session_id, prevSummary);
       setActionError(err.message || 'Lỗi phục vụ toàn bộ');
     }
   };
 
   const handleAcceptAndServeAll = async () => {
-    if (!table.active_session_id) return;
+    if (!table.active_session_id || !billSummary) return;
+    const prevSummary = billSummary;
+
+    let totalSubtotal = 0;
+    const updatedRounds = billSummary.rounds.map(round => ({
+      ...round,
+      items: round.items.map(item => {
+        if (item.status === 'ACCEPTED' || item.status === 'PENDING') {
+          totalSubtotal += item.subtotal;
+          return { ...item, status: 'SERVED' };
+        }
+        return item;
+      })
+    }));
+
+    const newServedTotal = billSummary.servedTotal + totalSubtotal;
+    const newSummary: BillSummary = {
+      ...billSummary,
+      servedTotal: newServedTotal,
+      validBillTotal: newServedTotal,
+      unresolvedCount: 0,
+      canConfirmPayment: newServedTotal > 0,
+      rounds: updatedRounds
+    };
+    setBillSummary(newSummary);
+    if (table.active_session_id) setCachedBillSummary(table.active_session_id, newSummary);
+    onRefresh();
+
     try {
       await request(`/staff/sessions/${table.active_session_id}/accept-all`, { method: 'POST' });
       await request(`/staff/sessions/${table.active_session_id}/serve-all`, { method: 'POST' });
       setActionSuccess('Đã tiếp nhận và phục vụ toàn bộ món!');
-      onRefresh();
-      await loadSessionData();
     } catch (err: any) {
+      setBillSummary(prevSummary);
+      if (table.active_session_id) setCachedBillSummary(table.active_session_id, prevSummary);
       setActionError(err.message || 'Lỗi tiếp nhận và phục vụ');
     }
   };
 
-  const handleConfirmCancel = async () => {
-    if (!cancelModalItem) return;
+  const handleConfirmCancel = async (payload: { quantity: number; reason: string; markOutOfStock: boolean }) => {
+    if (!cancelModalTarget || !billSummary) return;
+    const prevSummary = billSummary;
+    const targetItemId = cancelModalTarget.id;
+
+    let reducedServedSubtotal = 0;
+    let wasUnresolved = false;
+    const updatedRounds = billSummary.rounds.map(round => ({
+      ...round,
+      items: round.items.map(item => {
+        if (item.itemId === targetItemId) {
+          if (item.status === 'SERVED') {
+            reducedServedSubtotal = item.subtotal;
+          } else if (item.status === 'PENDING' || item.status === 'ACCEPTED') {
+            wasUnresolved = true;
+          }
+          return {
+            ...item,
+            status: 'CANCELLED',
+            cancelReason: payload.reason,
+            subtotal: 0
+          };
+        }
+        return item;
+      })
+    }));
+
+    const newServedTotal = Math.max(0, billSummary.servedTotal - reducedServedSubtotal);
+    const newUnresolvedCount = wasUnresolved
+      ? Math.max(0, billSummary.unresolvedCount - payload.quantity)
+      : billSummary.unresolvedCount;
+    const newRawBillTotal = Math.max(0, (billSummary.rawBillTotal || 0) - reducedServedSubtotal);
+
+    const newSummary: BillSummary = {
+      ...billSummary,
+      rawBillTotal: newRawBillTotal,
+      servedTotal: newServedTotal,
+      validBillTotal: newServedTotal,
+      unresolvedCount: newUnresolvedCount,
+      canConfirmPayment: newUnresolvedCount === 0 && newServedTotal > 0,
+      rounds: updatedRounds
+    };
+    setBillSummary(newSummary);
+    if (table?.active_session_id) setCachedBillSummary(table.active_session_id, newSummary);
+    setCancelModalTarget(null);
+    onRefresh();
+
     try {
-      await request(`/staff/order-items/${cancelModalItem.id}/cancel`, {
+      await request(`/staff/order-items/${targetItemId}/cancel`, {
         method: 'POST',
         body: JSON.stringify({
-          quantity: cancelQty,
-          reason: cancelReason,
-          markItemOutOfStock
+          quantity: payload.quantity,
+          reason: payload.reason,
+          markItemOutOfStock: payload.markOutOfStock
         })
       });
-      setCancelModalItem(null);
       setActionSuccess('Đã hủy món');
-      onRefresh();
-      await loadSessionData();
     } catch (err: any) {
+      setBillSummary(prevSummary);
+      if (table?.active_session_id) setCachedBillSummary(table.active_session_id, prevSummary);
       setActionError(err.message || 'Lỗi hủy món');
     }
   };
@@ -695,181 +783,29 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
 
                         {/* Round Items List */}
                         <div className="divide-y divide-slate-100">
-                          {round.items.map((item, idx) => {
-                            const isPending = item.status === 'PENDING';
-                            const isAccepted = item.status === 'ACCEPTED';
-                            const isServed = item.status === 'SERVED';
-                            const isCancelled = item.status === 'CANCELLED';
-
-                            return (
-                              <div
-                                key={idx}
-                                className="relative flex items-center justify-between gap-2.5 sm:gap-3 py-2.5 first:pt-1 last:pb-1"
-                              >
-                                {/* Left side vertical accent bar - 6px */}
-                                <div
-                                  className={`w-1.5 self-stretch rounded-full shrink-0 ${
-                                    isPending
-                                      ? 'bg-amber-400'
-                                      : isAccepted
-                                      ? 'bg-sky-400'
-                                      : isServed
-                                      ? 'bg-emerald-400'
-                                      : 'bg-rose-300'
-                                  }`}
-                                />
-
-                                {/* Middle Column: Dish Info */}
-                                <div className="min-w-0 flex-1 space-y-1 overflow-hidden pr-1">
-                                  {/* Row 1: Quantity + Dish Name */}
-                                  <div className="flex items-baseline gap-1.5 flex-wrap">
-                                    <span className="font-black text-slate-900 text-sm sm:text-base shrink-0">
-                                      {item.quantity}×
-                                    </span>
-                                    <span className={`font-normal text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug ${
-                                      isCancelled ? 'line-through text-slate-400' : 'text-slate-900'
-                                    }`}>
-                                      {item.name}
-                                    </span>
-                                  </div>
-
-                                  {/* Row 2: Variant Details */}
-                                  {item.variantName && (
-                                    <p className="text-xs sm:text-[13px] font-normal text-slate-500 leading-tight">
-                                      {item.variantName}
-                                    </p>
-                                  )}
-
-                                  {/* Row 3: Customer Note - Italic text in warm amber-brown with pin icon */}
-                                  {item.note && (
-                                    <p className="flex items-start gap-1 text-xs sm:text-[13px] italic font-normal text-[#9A3412] break-all [overflow-wrap:anywhere] leading-snug">
-                                      <span className="not-italic shrink-0 select-none text-[11px] mt-0.5">📌</span>
-                                      <span>{item.note}</span>
-                                    </p>
-                                  )}
-
-                                  {/* Row 4: Cancel Reason */}
-                                  {isCancelled && item.cancelReason && (
-                                    <p className="text-[11px] text-rose-500 italic">
-                                      Lý do hủy: {item.cancelReason}
-                                    </p>
-                                  )}
-                                </div>
-
-                                {/* Right Column: Price & Actions */}
-                                <div className="flex flex-col items-end justify-center gap-1.5 shrink-0 self-center">
-                                  <div className="text-right">
-                                    <span className={`font-black text-xs sm:text-sm ${
-                                      isCancelled ? 'line-through text-slate-400' : 'text-slate-900'
-                                    }`}>
-                                      {isCancelled ? '0đ' : `${item.subtotal.toLocaleString('vi-VN')}đ`}
-                                    </span>
-                                    {!isCancelled && typeof item.rawPrice === 'number' && item.rawPrice > item.subtotal && (
-                                      <span className="block text-[10px] text-slate-400 line-through">
-                                        {item.rawPrice.toLocaleString('vi-VN')}đ
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Quick action buttons or status badge */}
-                                  {isPending && item.itemId && (
-                                    <div className="flex items-center gap-1.5">
-                                      {hasPermission('order.cancel') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
-                                            setCancelQty(item.quantity);
-                                            setCancelReason('Hết nguyên liệu');
-                                            setMarkItemOutOfStock(true);
-                                          }}
-                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                          title="Hủy món"
-                                        >
-                                          <X className="w-3.5 h-3.5" />
-                                          <span>Hủy</span>
-                                        </button>
-                                      )}
-                                      {hasPermission('order.manage') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAcceptItem(item.itemId)}
-                                          className="px-2.5 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer"
-                                          title="Nhận món"
-                                        >
-                                          <Check className="w-3.5 h-3.5" />
-                                          <span>Nhận</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {isAccepted && item.itemId && (
-                                    <div className="flex items-center gap-1.5">
-                                      {hasPermission('order.cancel') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
-                                            setCancelQty(item.quantity);
-                                            setCancelReason('Hết nguyên liệu');
-                                            setMarkItemOutOfStock(true);
-                                          }}
-                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                          title="Hủy món"
-                                        >
-                                          <X className="w-3.5 h-3.5" />
-                                          <span>Hủy</span>
-                                        </button>
-                                      )}
-                                      {hasPermission('order.serve') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleServeItem(item.itemId)}
-                                          className="px-2.5 py-1.5 bg-[#059669] hover:bg-[#047857] active:bg-[#065F46] text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer"
-                                          title="Phục vụ món"
-                                        >
-                                          <UtensilsCrossed className="w-3.5 h-3.5" />
-                                          <span>Phục vụ</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {isServed && item.itemId && (
-                                    <div className="flex items-center gap-1.5">
-                                      {hasPermission('order.cancel') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setCancelModalItem({ id: item.itemId, name: item.name, quantity: item.quantity, tableNumber: table.table_number });
-                                            setCancelQty(item.quantity);
-                                            setCancelReason('Khách trả món / Đổi ý');
-                                            setMarkItemOutOfStock(false);
-                                          }}
-                                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                          title="Hủy món đã phục vụ"
-                                        >
-                                          <X className="w-3.5 h-3.5" />
-                                          <span>Hủy</span>
-                                        </button>
-                                      )}
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50/90 px-2.5 py-1 rounded-xl border border-emerald-200/60">
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                        <span>Đã phục vụ</span>
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  {isCancelled && (
-                                    <span className="inline-flex items-center text-[11px] font-bold text-rose-700 bg-rose-50/90 px-2.5 py-1 rounded-xl border border-rose-200/60">
-                                      Đã hủy
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
+                          {round.items.map((item, idx) => (
+                            <StaffOrderItemRow
+                              key={item.itemId || idx}
+                              item={{
+                                orderItemId: item.itemId,
+                                name: item.name,
+                                quantity: item.quantity,
+                                status: item.status,
+                                variantName: item.variantName,
+                                note: item.note,
+                                price: item.price,
+                                subtotal: item.subtotal,
+                                rawPrice: item.rawPrice,
+                                cancelReason: item.cancelReason
+                              }}
+                              tableNumber={table.table_number}
+                              mode="modal"
+                              hasPermission={hasPermission}
+                              onAccept={(itemId, qty) => handleAcceptItem(itemId, qty)}
+                              onServe={(itemId, qty) => handleServeItem(itemId, qty)}
+                              onOpenCancel={(target) => setCancelModalTarget(target)}
+                            />
+                          ))}
                         </div>
                       </div>
                     ))}
@@ -1071,68 +1007,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({ table, onClo
         </div>
 
         {/* Cancellation Modal */}
-        {cancelModalItem && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-            <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 animate-scale-in">
-              <h3 className="font-bold text-slate-900 text-base">Hủy món: {cancelModalItem.name}</h3>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Số lượng cần hủy</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min={1}
-                    max={cancelModalItem.quantity}
-                    value={cancelQty}
-                    onChange={(e) => setCancelQty(Math.max(1, Math.min(cancelModalItem.quantity, parseInt(e.target.value) || 1)))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-center"
-                  />
-                  <span className="text-xs text-slate-400 font-medium">/ {cancelModalItem.quantity}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Lý do hủy</label>
-                <select
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                >
-                  <option value="Khách trả món / Đổi ý">Khách trả món / Đổi ý</option>
-                  <option value="Hết nguyên liệu">Hết nguyên liệu</option>
-                  <option value="Hết món">Hết món</option>
-                  <option value="Khách đổi ý trước khi làm">Khách đổi ý trước khi làm</option>
-                  <option value="Lý do khác">Lý do khác</option>
-                </select>
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 pt-1">
-                <input
-                  type="checkbox"
-                  checked={markItemOutOfStock}
-                  onChange={(e) => setMarkItemOutOfStock(e.target.checked)}
-                  className="w-4 h-4 rounded text-[var(--brand-accent)] focus:ring-[var(--brand-accent)]"
-                />
-                <span>Đồng thời đánh dấu món này là <strong>Hết món</strong> trên menu</span>
-              </label>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => setCancelModalItem(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium text-xs min-h-[44px]"
-                >
-                  Đóng
-                </button>
-                <button
-                  onClick={handleConfirmCancel}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm min-h-[44px]"
-                >
-                  Xác nhận hủy
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <CancelItemModal
+          item={cancelModalTarget}
+          isOpen={!!cancelModalTarget}
+          onClose={() => setCancelModalTarget(null)}
+          onConfirm={handleConfirmCancel}
+        />
 
         {/* Confirmation Settlement Modal */}
         {showConfirmSettlement && billSummary && (

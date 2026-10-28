@@ -20,6 +20,9 @@ import {
 } from 'lucide-react';
 import { StaffChangePasswordModal } from './StaffChangePasswordModal.js';
 import { TableManageModal } from './TableManageModal.js';
+import { CancelItemModal, CancelModalTarget } from '../../components/staff/CancelItemModal.js';
+import { StaffOrderItemRow } from '../../components/staff/StaffOrderItemRow.js';
+import { useStaffOrderActions } from '../../hooks/useStaffOrderActions.js';
 
 const StaffMenuManage = lazy(() => import('./StaffMenuManage.js').then(module => ({ default: module.StaffMenuManage })));
 const StaffCmsManage = lazy(() => import('./StaffCmsManage.js').then(module => ({ default: module.StaffCmsManage })));
@@ -173,10 +176,7 @@ export const StaffDashboard: React.FC = () => {
   const { state: pushState, isSubscribed: isPushSubscribed } = usePush();
 
   // Cancellation modal state
-  const [cancelModalItem, setCancelModalItem] = useState<{ id: string; name: string; quantity: number; tableNumber?: string } | null>(null);
-  const [cancelQty, setCancelQty] = useState<number>(1);
-  const [cancelReason, setCancelReason] = useState<string>('Hết nguyên liệu');
-  const [markItemOutOfStock, setMarkItemOutOfStock] = useState<boolean>(true);
+  const [cancelModalTarget, setCancelModalTarget] = useState<CancelModalTarget | null>(null);
 
   // Add Table state
   const [showAddTableModal, setShowAddTableModal] = useState<boolean>(false);
@@ -489,74 +489,21 @@ export const StaffDashboard: React.FC = () => {
     }
   };
 
-  // Quick Order item handlers directly from Orders tab
-  const handleQuickAcceptAll = async (sessionId: string) => {
-    try {
-      await request(`/staff/sessions/${sessionId}/accept-all`, { method: 'POST' });
-      showToast({ title: 'Đã tiếp nhận tất cả món', type: 'success', duration: 3000 });
-      scheduleDashboardRefresh();
-    } catch (err: any) {
-      showToast({ title: err.message || 'Lỗi tiếp nhận món', type: 'error' });
-    }
-  };
-
-  const handleQuickServeAll = async (sessionId: string) => {
-    try {
-      await request(`/staff/sessions/${sessionId}/serve-all`, { method: 'POST' });
-      showToast({ title: 'Đã đánh dấu phục vụ tất cả món', type: 'success', duration: 3000 });
-      scheduleDashboardRefresh();
-    } catch (err: any) {
-      showToast({ title: err.message || 'Lỗi phục vụ', type: 'error' });
-    }
-  };
-
-  const handleQuickAcceptItem = async (orderItemId: string, quantity: number) => {
-    try {
-      await request(`/staff/order-items/${orderItemId}/accept`, {
-        method: 'POST',
-        body: JSON.stringify({ quantity })
-      });
-      scheduleDashboardRefresh();
-    } catch (err: any) {
-      showToast({ title: err.message || 'Lỗi nhận món', type: 'error' });
-    }
-  };
-
-  const handleQuickServeItem = async (orderItemId: string, quantity: number) => {
-    try {
-      await request(`/staff/order-items/${orderItemId}/serve`, {
-        method: 'POST',
-        body: JSON.stringify({ quantity })
-      });
-      scheduleDashboardRefresh();
-    } catch (err: any) {
-      showToast({ title: err.message || 'Lỗi phục vụ', type: 'error' });
-    }
-  };
-
-  const handleConfirmCancel = async () => {
-    if (!cancelModalItem) return;
-    try {
-      await request(`/staff/order-items/${cancelModalItem.id}/cancel`, {
-        method: 'POST',
-        body: JSON.stringify({
-          quantity: cancelQty,
-          reason: cancelReason,
-          markItemOutOfStock
-        })
-      });
-      showToast({
-        title: 'Đã hủy món thành công',
-        message: markItemOutOfStock ? 'Đã hủy món và cập nhật HẾT HÀNG trên thực đơn' : 'Đã hủy món thành công',
-        type: 'warning',
-        duration: 3500
-      });
-      setCancelModalItem(null);
-      scheduleDashboardRefresh();
-    } catch (err: any) {
-      showToast({ title: err.message || 'Lỗi hủy món', type: 'error' });
-    }
-  };
+  // Quick Order item handlers with Optimistic UI Update (0ms)
+  const {
+    handleQuickAcceptItem,
+    handleQuickServeItem,
+    handleQuickCancelItem,
+    handleQuickAcceptAll,
+    handleQuickServeAll
+  } = useStaffOrderActions({
+    tables,
+    setTables,
+    selectedTable,
+    setSelectedTable,
+    showToast,
+    onMutationSuccess: scheduleDashboardRefresh
+  });
 
   const handleAddTable = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1611,120 +1558,27 @@ export const StaffDashboard: React.FC = () => {
 
                                 {/* Dishes in this round */}
                                 <div className="divide-y divide-slate-100">
-                                  {group.roundItems.map((item, idx) => {
-                                    const isPending = item.status === 'PENDING';
-                                    const isAccepted = item.status === 'ACCEPTED';
-                                    const isServed = item.status === 'SERVED';
-                                    const isCancelled = item.status === 'CANCELLED';
-
-                                    return (
-                                      <div
-                                        key={item.partId || item.orderItemId || idx}
-                                        className="relative flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
-                                      >
-                                        {/* Left side vertical accent bar - Slightly thicker 6px */}
-                                        <div
-                                          className={`w-1.5 self-stretch rounded-full shrink-0 ${
-                                            isPending
-                                              ? 'bg-amber-400'
-                                              : isAccepted
-                                              ? 'bg-sky-400'
-                                              : isServed
-                                              ? 'bg-emerald-400'
-                                              : 'bg-rose-300'
-                                          }`}
-                                        />
-
-                                        {/* Middle Column: Dish Info */}
-                                        <div className="min-w-0 flex-1 space-y-1 overflow-hidden pr-1">
-                                          {/* Row 1: Quantity + Dish Name */}
-                                          <div className="flex items-baseline gap-1.5 flex-wrap">
-                                            <span className="font-black text-slate-900 text-base sm:text-lg shrink-0">
-                                              {item.quantity}×
-                                            </span>
-                                            <span className="font-normal text-slate-900 text-sm sm:text-base break-words [overflow-wrap:anywhere] leading-snug">
-                                              {item.name}
-                                            </span>
-                                          </div>
-
-                                          {/* Row 2: Variant Details */}
-                                          {item.variantName && (
-                                            <p className="text-xs sm:text-[13px] font-normal text-slate-500 leading-tight">
-                                              {item.variantName}
-                                            </p>
-                                          )}
-
-                                          {/* Row 3: Customer Note - Italic text in warm amber-brown with pin icon */}
-                                          {item.note && (
-                                            <p className="flex items-start gap-1 text-xs sm:text-[13px] italic font-normal text-[#9A3412] break-all [overflow-wrap:anywhere] leading-snug">
-                                              <span className="not-italic shrink-0 select-none text-[11px] mt-0.5">📌</span>
-                                              <span>{item.note}</span>
-                                            </p>
-                                          )}
-                                        </div>
-
-                                        {/* Right Column: Actions - Bigger touch-friendly buttons (w-100-114px, h-54-58px) */}
-                                        <div className="flex-none shrink-0 flex items-center justify-end gap-1.5 self-center min-w-[145px] sm:min-w-[164px]">
-                                          {isPending && hasPermission('order.manage') && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleQuickAcceptItem(item.orderItemId, item.quantity)}
-                                              className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white font-black text-base sm:text-lg rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
-                                              title="Tiếp nhận món này"
-                                            >
-                                              <span>Nhận</span>
-                                            </button>
-                                          )}
-
-                                          {isAccepted && hasPermission('order.serve') && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleQuickServeItem(item.orderItemId, item.quantity)}
-                                              className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] bg-[#059669] hover:bg-[#047857] active:bg-[#065F46] text-white font-black text-sm sm:text-base rounded-2xl shadow-sm flex items-center justify-center transition active:scale-95 cursor-pointer"
-                                              title="Đánh dấu đã phục vụ"
-                                            >
-                                              <span>Phục vụ</span>
-                                            </button>
-                                          )}
-
-                                          {isServed && (
-                                            <span className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] text-emerald-800 font-bold text-xs sm:text-sm flex items-center justify-center gap-1 bg-emerald-50/80 rounded-2xl border border-emerald-200/50 text-center px-1">
-                                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                              <span>Đã phục vụ</span>
-                                            </span>
-                                          )}
-
-                                          {isCancelled && (
-                                            <span className="flex-none w-[100px] sm:w-[114px] h-[52px] sm:h-[56px] text-rose-700 font-bold text-xs sm:text-sm flex items-center justify-center bg-rose-50/80 rounded-2xl border border-rose-200/50 text-center px-1">
-                                              Đã hủy
-                                            </span>
-                                          )}
-
-                                          {/* 3-dots Cancel Trigger */}
-                                          {(isPending || isAccepted || isServed) && hasPermission('order.cancel') && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setCancelModalItem({
-                                                  id: item.orderItemId,
-                                                  name: item.name,
-                                                  quantity: item.quantity,
-                                                  tableNumber: table.table_number
-                                                });
-                                                setCancelQty(item.quantity);
-                                                setCancelReason(isServed ? 'Khách trả món / Đổi ý' : 'Hết nguyên liệu');
-                                                setMarkItemOutOfStock(isServed ? false : true);
-                                              }}
-                                              className="flex-none w-[36px] sm:w-[40px] h-[52px] sm:h-[56px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition flex items-center justify-center cursor-pointer"
-                                              title={isServed ? "Hủy món đã phục vụ" : "Hủy món này"}
-                                            >
-                                              <MoreVertical className="w-4 h-4" />
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
+                                  {group.roundItems.map((item, idx) => (
+                                    <StaffOrderItemRow
+                                      key={item.partId || item.orderItemId || idx}
+                                      item={{
+                                        orderItemId: item.orderItemId,
+                                        partId: item.partId,
+                                        name: item.name,
+                                        quantity: item.quantity,
+                                        status: item.status,
+                                        variantName: item.variantName,
+                                        note: item.note,
+                                        price: item.price
+                                      }}
+                                      tableNumber={table.table_number}
+                                      mode="feed"
+                                      hasPermission={hasPermission}
+                                      onAccept={handleQuickAcceptItem}
+                                      onServe={handleQuickServeItem}
+                                      onOpenCancel={(target) => setCancelModalTarget(target)}
+                                    />
+                                  ))}
                                 </div>
                               </div>
                             );
@@ -2337,84 +2191,16 @@ export const StaffDashboard: React.FC = () => {
       />
 
       {/* Cancellation Modal for Staff Dashboard */}
-      {cancelModalItem && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-4 animate-scale-in">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div>
-                <h3 className="font-extrabold text-slate-900 text-base">Hủy món: {cancelModalItem.name}</h3>
-                {cancelModalItem.tableNumber && (
-                  <p className="text-xs text-slate-500">Bàn {cancelModalItem.tableNumber}</p>
-                )}
-              </div>
-              <button
-                onClick={() => setCancelModalItem(null)}
-                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Số lượng cần hủy</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min={1}
-                  max={cancelModalItem.quantity}
-                  value={cancelQty}
-                  onChange={(e) => setCancelQty(Math.max(1, Math.min(cancelModalItem.quantity, parseInt(e.target.value) || 1)))}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-center text-slate-900 text-base"
-                />
-                <span className="text-xs text-slate-400 font-medium">/ {cancelModalItem.quantity}</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Lý do hủy đơn</label>
-              <select
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold bg-white text-slate-800"
-              >
-                <option value="Khách trả món / Đổi ý">Khách trả món / Đổi ý</option>
-                <option value="Hết nguyên liệu">Hết nguyên liệu</option>
-                <option value="Hết món">Hết món</option>
-                <option value="Khách đổi ý trước khi làm">Khách đổi ý trước khi làm</option>
-                <option value="Lý do khác">Lý do khác</option>
-              </select>
-            </div>
-
-            <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-700 bg-amber-50/80 p-3 rounded-xl border border-amber-200">
-              <input
-                type="checkbox"
-                checked={markItemOutOfStock}
-                onChange={(e) => setMarkItemOutOfStock(e.target.checked)}
-                className="w-4 h-4 rounded text-[var(--brand-accent)] focus:ring-[var(--brand-accent)] mt-0.5"
-              />
-              <div>
-                <span className="font-bold text-amber-900 block">Đánh dấu hết hàng trên thực đơn</span>
-                <span className="text-[11px] text-amber-700">Khách quét QR sẽ thấy món tạm ngưng và không thể đặt thêm.</span>
-              </div>
-            </label>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => setCancelModalItem(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-xs min-h-[44px]"
-              >
-                Đóng
-              </button>
-              <button
-                onClick={handleConfirmCancel}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-md min-h-[44px]"
-              >
-                Xác nhận hủy
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CancelItemModal
+        item={cancelModalTarget}
+        isOpen={!!cancelModalTarget}
+        onClose={() => setCancelModalTarget(null)}
+        onConfirm={async (payload) => {
+          if (!cancelModalTarget) return;
+          await handleQuickCancelItem(cancelModalTarget.id, payload);
+          setCancelModalTarget(null);
+        }}
+      />
 
       {/* ADD TABLE MODAL */}
       {showAddTableModal && (

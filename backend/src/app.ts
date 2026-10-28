@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import fs from 'fs';
 import { config } from './config/index.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { guestRouter } from './modules/guest/guest.routes.js';
@@ -10,6 +12,7 @@ import { pushRouter } from './modules/push/push.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { cmsRouter } from './modules/cms/cms.routes.js';
 import { query } from './db/pool.js';
+import { getCachedImagePath, saveImageToCache, isValidImageId } from './utils/image-cache.js';
 
 import { securityHeaders, protectOrigin, isAllowedOrigin, loginLimiter, guestWriteLimiter } from './middleware/security.js';
 
@@ -103,10 +106,23 @@ app.get('/health', async (req: Request, res: Response) => {
     }
 });
 
-// Public image serving endpoint (with immutable caching for max performance)
+// Public image serving endpoint (with local disk cache + immutable HTTP caching for max performance)
 app.get('/api/v1/public/images/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
+        if (!isValidImageId(id)) {
+            return res.status(400).send('Invalid image id');
+        }
+
+        // 1. Check local disk cache (0 DB query, 0ms latency)
+        const cached = getCachedImagePath(id);
+        if (cached) {
+            res.setHeader('Content-Type', cached.mimeType || 'image/jpeg');
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            return fs.createReadStream(cached.filePath).pipe(res);
+        }
+
+        // 2. Cache miss: load from DB once
         const result = await query(`SELECT mime_type, data_base64 FROM uploaded_images WHERE id = $1`, [id]);
         if (result.rows.length === 0) {
             return res.status(404).send('Image not found');
@@ -117,6 +133,12 @@ app.get('/api/v1/public/images/:id', async (req: Request, res: Response) => {
         }
         const base64Data = data_base64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
+
+        // 3. Cache to local disk asynchronously for subsequent requests
+        saveImageToCache(id, mime_type, buffer).catch((err) => {
+            console.warn('[ImageCache] Background cache write failed:', err);
+        });
+
         res.setHeader('Content-Type', mime_type || 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         return res.end(buffer);
@@ -155,8 +177,6 @@ app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/staff/push', pushRouter);
 
 // Serve frontend static files if public folder exists (Production / Fly.io / Local build)
-import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);

@@ -226,6 +226,8 @@ export const GuestLanding: React.FC<GuestLandingProps> = ({ qrId }) => {
             <img
               src={tenant.logoUrl}
               alt={tenant.name}
+              loading="lazy"
+              decoding="async"
               className="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-xs shrink-0"
               onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
             />

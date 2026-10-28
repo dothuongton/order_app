@@ -90,6 +90,7 @@ export const BannerDisplay: React.FC<BannerDisplayProps> = ({
             alt={banner.title || 'Banner'}
             className="w-full h-full object-cover"
             loading="lazy"
+            decoding="async"
           />
           {hasCta && (
             <div className="absolute bottom-3 right-3 z-10">

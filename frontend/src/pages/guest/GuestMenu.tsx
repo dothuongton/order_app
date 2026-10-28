@@ -169,6 +169,8 @@ export const GuestMenu: React.FC = () => {
           <img
             src={tenant.coverUrl}
             alt={tenant.name || 'Ảnh bìa quán'}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover"
             onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
           />
