@@ -402,6 +402,9 @@ export async function ensureSchemaOnBoot() {
                 CREATE INDEX IF NOT EXISTS idx_service_requests_table ON service_requests (table_id);
                 CREATE INDEX IF NOT EXISTS idx_order_item_events_item ON order_item_events (order_item_id);
                 CREATE INDEX IF NOT EXISTS idx_menu_item_variants_item ON menu_item_variants (menu_item_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_staff_order_source ON audit_logs (tenant_id, resource_id, created_at, id) WHERE action='STAFF_CREATE_ORDER' AND resource_type='order';
+                CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_created ON audit_logs (tenant_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_orders_tenant_created ON orders (tenant_id, created_at DESC);
             END $$;
         `);
 

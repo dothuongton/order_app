@@ -149,9 +149,12 @@ export class StaffService {
             };
         });
 
+        const pendingRequests = await this.getPendingRequests(tenantId);
+
         return {
             tables,
-            openRequests: requestsRes.rows
+            openRequests: requestsRes.rows,
+            pendingRequests
         };
     }
 

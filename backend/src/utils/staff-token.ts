@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { query } from '../db/pool.js';
 import { hashToken } from './crypto.js';
+import { invalidateStaffAuth } from './auth-cache.js';
 
 export function verifyStaffTokenSignature(token: string): jwt.JwtPayload {
     const decoded = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
@@ -20,8 +21,10 @@ export async function revokeStaffToken(token: string) {
     try {
         const decoded = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
         if (typeof decoded === 'string' || !decoded.exp) return;
+        const tokenHash = hashToken(token);
+        invalidateStaffAuth(tokenHash);
         await query(`INSERT INTO revoked_staff_tokens (token_hash, expires_at) VALUES ($1, $2)
-            ON CONFLICT (token_hash) DO NOTHING`, [hashToken(token), new Date(decoded.exp * 1000)]);
+            ON CONFLICT (token_hash) DO NOTHING`, [tokenHash, new Date(decoded.exp * 1000)]);
     } catch (error) {
         if (error instanceof jwt.JsonWebTokenError || error instanceof jwt.TokenExpiredError) return;
         throw error;
